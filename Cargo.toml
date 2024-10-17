@@ -1,0 +1,11 @@
+[package]
+name = "ruddy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ruddy"
+path = "src/lib.rs"
+
+
+[dependencies]
