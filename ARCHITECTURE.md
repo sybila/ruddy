@@ -76,3 +76,78 @@ implemented on top of the existing data structure.
 
 ## Pointer compression
 
+Somewhat counterintuitively, pointer compression does not actually involve any sophisticated compression algorithms.
+The whole point is that for data structures that don't need the full address space, we can use smaller pointers
+(or array indices) to save memory (and memory bandwidth). Since BDDs mostly consist of pointers (or array indices),
+pointer compression is highly effective here.
+
+For example, a BDD node triple `(var, low, high)` that uses 16-bit indices is stored using 6 bytes, 32-bit indices
+require 12 bytes, and 64-bit indices require 24 bytes. Furthermore, one could argue that supporting 2^64 variables
+is unnecessary and 2^32 is sufficient. Similarly, 2^64 BDD nodes is unrealistic with current hardware for the 
+foreseeable future, meaning we could limit the indices to 48 bits (281 "tera-nodes"). With this optimization, one node
+only requires 16 bytes (2/3 of the "full" 64-bit version). However, do note that 48-bit data types are not natively 
+supported by CPUs, so some overhead may be introduced when actually loading/storing such data in RAM (we always
+have to read either 32, 64, or 128 bits, and then we need to split/stitch those values into three variables, having 
+32, 48, and 48 bits respectively).
+
+Overall, pointer compression works as follows:
+
+ * We implement the same BDD algorithms multiple times using different pointer widths. Exact widths are up for 
+   discussion, but 16, 32 and 48 seem like a reasonable choice. With rust's const-generics, some of this could be
+   perhaps also just automated, but not sure how useful that will be (see next point).
+ * These algorithms can be the same, but we could also introduce some extra optimizations depending on pointer width.
+   For example, we can be fairly certain that any 16-bit BDD will fit into the cache of any relatively modern CPU,
+   meaning we don't have to optimize for cache friendliness if we don't want to. Similarly, we know that 48-bit
+   BDDs will only be necessary for very large datasets and their performance will depend heavily on memory latency, 
+   so we can try to be more aggressive when optimizing memory accesses.
+ * Whenever a BDD operation exceeds the address space of the current pointer width, we restart the operation using
+   the implementation for larger pointer widths. Whenever a BDD is significantly smaller than it's pointer width 
+   allows, we convert it to smaller pointer width (similar to how dynamic arrays are expanded/shrunk based on the
+   available capacity).
+ * In theory, when the limit is reached, we could just "stop" the operation, extend all data structures "in place" and
+   then continue using the code for different pointer width. However, this is a bit more involved, since we need to
+   implement the conversions.
+ * Also, this is a bit more complicated for standalone BDDs, since we need to consider every combination of pointer
+   widths, while for a pooled BDD, we generally assume the BDDs come from the same pool, and we only need to 
+   grow/shrink the whole pool.
+
+## SIMD
+
+Most CPUs nowadays support instructions that allow working with more than 64 bits at a time (128, 256 and 512 are 
+generally supported, although 512 support is still relatively rare outside of servers). This is probably not super
+relevant for the main logic of the BDD apply algorithm, but it could be a useful fact for working with hash tables.
+In reality, the CPU is always pulling 64B (512 bits) of data into cache at a time, even if only one byte is needed.
+Using the remaining bits that are "already there" for something could be interesting. Another aspect to consider
+is that even if the CPU has to wait for the data, grouping it together into fewer load instructions could be 
+beneficial if the bottleneck is the size of the load queue.
+
+A possible way to test this without using SIMD is to focus on the 16-bit variant of BDDs when using pointer 
+compression. In such case, a single BDD node (and other datastructures related to the hash tables) easily fits 
+into a 64-bit integer. So we could try to test a version of this implementation where certain operations are performed
+directly on the "bitvector" representation of the data.
+
+A disadvantage of this approach is that the CPU needs to have these instructions. For x86 CPUs, 256-bit instructions
+are present on virtually everything that was sold in the last ~10 years. But on ARM/Apple Silicon, this isn't really
+the case. For now, I would say we should focus on the x86 implementation and for 16-bit and 32-bit BDDs, and we'll see
+if it actually helps or not.
+
+## Tuning of the cache skip condition
+
+Currently, tasks skip the cache if both nodes have only one parent. This covers ~half of the cases where the cache 
+could actually be skipped. We would want to test some heuristics that could give a higher percentage on average while 
+not increasing the worst case runtime too much (skipping the cache in the wrong situation can slow down the
+algorithm because the partial result is not available once it is needed again). It's not necessary that the condition
+is 100% accurate (such condition should not exist), but some more randomized approach with better average success 
+would be cool.
+
+## Optimizing node ordering
+
+For the BDD apply algorithm, BDD node ordering can be an important factor. BDD nodes are generated in DFS-post-order, 
+but visited in DFS-pre-order. Of course, sorting a BDD is a non-trivial operation, and we probably don't want to do
+it for every BDD. But maybe for very larger BDDs, or BDDs that are used very often, this could be a viable strategy
+to improve performance. 
+
+## Parallelism
+
+In the future, we could consider making the BDD apply algorithm parallel. It should be relatively easy to make the core
+data structures lock-free using atomics, we just have to figure out the synchronization logic between threads.
