@@ -7,5 +7,7 @@ edition = "2021"
 name = "ruddy"
 path = "src/lib.rs"
 
+[lints.clippy]
+as_conversions = "warn"
 
 [dependencies]
