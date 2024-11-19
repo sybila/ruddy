@@ -69,6 +69,12 @@ impl BddNodeId for NodeId16 {
     }
 }
 
+impl NodeId32 {
+    pub fn as_u64(self) -> u64 {
+        u64::from(self.0)
+    }
+}
+
 impl BddNodeId for NodeId32 {
     fn undefined() -> Self {
         Self(u32::MAX)
