@@ -1,4 +1,4 @@
-use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
+use crate::{boolean_operators::TriBool, usize_is_at_least_32_bits, usize_is_at_least_64_bits};
 use std::hash::Hash;
 
 /// An internal trait implemented by types that can serve as BDD node identifiers. The core feature
@@ -24,6 +24,30 @@ pub trait BddNodeId: Eq + Ord + Copy + Hash {
     /// This method should panic if the ID is undefined, but only in debug mode (similar to
     /// how overflow checks work in Rust).
     fn as_usize(&self) -> usize;
+
+    /// Convert the ID into a [TriBool], where the terminal node 0 is mapped to `False`,
+    /// the terminal node 1 is mapped to `True`, and all other nodes are mapped to `Indeterminate`.
+    fn to_three_valued(&self) -> TriBool {
+        // Decompiles to branchless, nice code
+        // 0 -> -1, 1 -> 1, _ -> 0
+        match -i8::from(self.is_zero()) + i8::from(self.is_one()) {
+            1 => TriBool::True,
+            0 => TriBool::Indeterminate,
+            -1 => TriBool::False,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Convert a [TriBool] to a node ID, if possible. The value
+    /// `True` is mapped to the terminal node 1, `False` is mapped to the terminal node 0, and
+    /// `Indeterminate` is mapped to the `undefined` value.
+    fn from_three_valued(value: TriBool) -> Option<Self> {
+        match value {
+            TriBool::True => Some(Self::one()),
+            TriBool::False => Some(Self::zero()),
+            TriBool::Indeterminate => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
