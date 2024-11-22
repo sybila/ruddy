@@ -70,6 +70,10 @@ impl BddNodeId for NodeId16 {
 }
 
 impl NodeId32 {
+    pub fn new(id: u32) -> Self {
+        Self(id)
+    }
+
     pub fn as_u64(self) -> u64 {
         u64::from(self.0)
     }

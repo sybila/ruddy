@@ -1,7 +1,10 @@
 // A lot of these things would eventually go into some kind of "internal" module, since
 // we don't actually want to expose them in the public API?
+pub mod bdd_node;
 pub mod node_id;
+pub mod node_table;
 pub mod task_cache;
+pub mod variable_id;
 
 pub trait Bdd {}
 
