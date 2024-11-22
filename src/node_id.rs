@@ -73,6 +73,14 @@ impl NodeId32 {
     pub fn as_u64(self) -> u64 {
         u64::from(self.0)
     }
+
+    pub fn to_le_bytes(self) -> [u8; 4] {
+        self.0.to_le_bytes()
+    }
+
+    pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
+        Self(u32::from_le_bytes(bytes))
+    }
 }
 
 impl BddNodeId for NodeId32 {
