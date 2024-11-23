@@ -1,6 +1,7 @@
 use std::cmp::{max, min};
 
 use crate::{
+    bdd::{Bdd, Bdd32},
     bdd_node::{BddNode, BddNode32},
     node_id::{BddNodeId, NodeId32},
     variable_id::{VarIdPacked32, VariableId},
@@ -92,6 +93,23 @@ impl NodeTable32 {
 
         self.entries
             .push(BddNode32::new(variable, low, high).into());
+    }
+}
+
+impl From<NodeTable32> for Bdd32 {
+    fn from(val: NodeTable32) -> Self {
+        if val.bdd_is_false {
+            return Bdd32::new_false();
+        }
+        Bdd32::new(
+            NodeId32::new(
+                val.entries
+                    .len()
+                    .try_into()
+                    .expect("32-bit node table does not exceed 2**32 nodes (32-bit overflow)"),
+            ),
+            val.entries.into_iter().map(|entry| entry.node).collect(),
+        )
     }
 }
 
