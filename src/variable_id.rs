@@ -43,7 +43,7 @@ impl VarIdPacked32 {
     }
 
     pub fn set_use_cache(&mut self, value: bool) {
-        self.0 = (self.0 & !(1 << 3)) | (u32::from(value) << 3);
+        self.0 = (self.0 & !(1 << 2)) | (u32::from(value) << 2);
     }
 
     pub fn increment_parents(&mut self) {
