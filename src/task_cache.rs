@@ -50,6 +50,9 @@ impl TaskCache32 {
             log_size,
             collisions: 0,
         };
+        unsafe {
+            table.table.set_len(table.size());
+        }
         table.reset();
         table
     }
@@ -71,6 +74,9 @@ impl TaskCache32 {
 
         // Double the table size if needed
         self.table.reserve(previous_size);
+        unsafe {
+            self.table.set_len(self.size());
+        }
 
         for i in (0..previous_size).rev() {
             let (hash, result) = unsafe { *self.table.get_unchecked(i) };
@@ -82,11 +88,6 @@ impl TaskCache32 {
                 let x = self.table.get_unchecked_mut(new_slot ^ 1);
                 *x = (0, NodeId32::undefined());
             }
-        }
-
-        // Everything is initialized, so we can set the new length
-        unsafe {
-            self.table.set_len(self.size());
         }
     }
 
