@@ -129,8 +129,10 @@ impl TaskCache for TaskCache32 {
         // First check if the slot is empty
         if slot.0 == 0 {
             *slot = (hash, result);
+            return;
+        }
         // Otherwise, check if the hash matches and we know the result
-        } else if slot.0 == hash {
+        if slot.0 == hash {
             return;
         }
 
