@@ -1,7 +1,8 @@
 /// An internal trait implemented by types that can serve as BDD variable identifiers.
 /// The core feature of this trait is that a variable ID must have one designated
-/// "undefined" value (similar to `Option::None`).
-pub trait VariableId {
+/// "undefined" value (similar to `Option::None`). Furthermore, it must hold that
+/// `id <= undefined` for all values `id` of the type implementing the [VariableId] trait.
+pub trait VariableId: PartialEq + Eq + PartialOrd + Ord {
     fn undefined() -> Self;
     fn is_undefined(&self) -> bool;
 }
