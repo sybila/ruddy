@@ -34,19 +34,19 @@ impl VarIdPacked32 {
         self.0 >> 3
     }
 
-    pub fn has_many_parents(&self) -> bool {
+    pub(crate) fn has_many_parents(&self) -> bool {
         self.0 & 0b10 != 0
     }
 
-    pub fn use_cache(&self) -> bool {
+    pub(crate) fn use_cache(&self) -> bool {
         self.0 & 0b100 != 0
     }
 
-    pub fn set_use_cache(&mut self, value: bool) {
+    pub(crate) fn set_use_cache(&mut self, value: bool) {
         self.0 = (self.0 & !(1 << 2)) | (u32::from(value) << 2);
     }
 
-    pub fn increment_parents(&mut self) {
+    pub(crate) fn increment_parents(&mut self) {
         // 00 -> 01 -> 00 | 01 -> 01
         // 01 -> 10 -> 01 | 10 -> 11
         // 10 -> 11 -> 10 | 11 -> 11

@@ -86,13 +86,13 @@ impl NodeTable32 {
 
     unsafe fn push_node(&mut self, variable: VarIdPacked32, low: NodeId32, high: NodeId32) {
         let low_entry = self.entries.get_unchecked_mut(low.as_usize());
-        low_entry.node.variable().increment_parents();
+        low_entry.node.increment_parents();
 
         let high_entry = self.entries.get_unchecked_mut(high.as_usize());
-        high_entry.node.variable().increment_parents();
+        high_entry.node.increment_parents();
 
         self.entries
-            .push(BddNode32::new(variable, low, high).into());
+            .push(BddNode32::new(VarIdPacked32::new(variable.unpack()), low, high).into());
     }
 }
 

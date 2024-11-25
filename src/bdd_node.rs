@@ -81,4 +81,12 @@ impl BddNode32 {
             high,
         }
     }
+
+    pub fn increment_parents(&mut self) {
+        self.variable.increment_parents();
+    }
+
+    pub fn has_many_parents(&self) -> bool {
+        self.variable.has_many_parents()
+    }
 }
