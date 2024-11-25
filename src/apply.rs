@@ -64,7 +64,7 @@ impl Bdd32 {
                     (right_id, right_id)
                 };
 
-                stack.push((left_high, right_high, var));
+                stack.push((left_id, right_id, var));
                 stack.push((left_high, right_high, VarIdPacked32::undefined()));
                 stack.push((left_low, right_low, VarIdPacked32::undefined()));
 
