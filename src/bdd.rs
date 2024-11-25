@@ -21,7 +21,7 @@ pub struct Bdd32 {
 }
 
 impl Bdd32 {
-    pub(crate) fn new(root: NodeId32, nodes: Vec<BddNode32>) -> Self {
+    pub fn new(root: NodeId32, nodes: Vec<BddNode32>) -> Self {
         Bdd32 { root, nodes }
     }
 

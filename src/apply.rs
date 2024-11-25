@@ -22,7 +22,7 @@ impl Bdd32 {
 
         stack.push((self.root(), other.root(), VarIdPacked32::undefined()));
 
-        while let Some((left_id, right_id, var)) = stack.pop() {
+        while let Some((left_id, right_id, variable)) = stack.pop() {
             // Check if the result is known because the operation short-circuited
             // the computation.
             if let Some(result) = operator(left_id, right_id) {
@@ -30,19 +30,13 @@ impl Bdd32 {
                 continue;
             }
 
-            if var.is_undefined() {
+            if variable.is_undefined() {
                 // The task has not been expanded yet
 
                 let left_node = unsafe { self.get_node_unchecked(left_id) };
                 let right_node = unsafe { other.get_node_unchecked(right_id) };
 
-                let left_var = left_node.variable();
-                let right_var = right_node.variable();
-
-                let mut var = left_var.min(right_var);
-
-                let use_cache = left_var.has_many_parents() || right_var.has_many_parents();
-                var.set_use_cache(use_cache);
+                let use_cache = left_node.has_many_parents() || right_node.has_many_parents();
 
                 if use_cache {
                     let result = task_cache.get((left_id, right_id));
@@ -52,19 +46,25 @@ impl Bdd32 {
                     }
                 }
 
-                let (left_low, left_high) = if var == left_var {
+                let left_variable = left_node.variable();
+                let right_variable = right_node.variable();
+
+                let mut variable = left_variable.min(right_variable);
+
+                let (left_low, left_high) = if variable == left_variable {
                     (left_node.low(), left_node.high())
                 } else {
                     (left_id, left_id)
                 };
 
-                let (right_low, right_high) = if var == right_var {
+                let (right_low, right_high) = if variable == right_variable {
                     (right_node.low(), right_node.high())
                 } else {
                     (right_id, right_id)
                 };
 
-                stack.push((left_id, right_id, var));
+                variable.set_use_cache(use_cache);
+                stack.push((left_id, right_id, variable));
                 stack.push((left_high, right_high, VarIdPacked32::undefined()));
                 stack.push((left_low, right_low, VarIdPacked32::undefined()));
 
@@ -73,8 +73,8 @@ impl Bdd32 {
             let high_result = results.pop().expect("high result present in result stack");
             let low_result = results.pop().expect("low result present in result stack");
 
-            let node_id = node_table.ensure_node(var, low_result, high_result);
-            if var.use_cache() {
+            let node_id = node_table.ensure_node(variable, low_result, high_result);
+            if variable.use_cache() {
                 task_cache.set((left_id, right_id), node_id);
             }
             results.push(node_id);
