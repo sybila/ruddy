@@ -21,7 +21,7 @@ pub trait TaskCache {
 }
 
 /// A 32-bit implementation of [TaskCache]. This implementation uses a hash table with
-/// its size always being a power of two (2**log_size).
+/// its size always being a power of two.
 ///
 /// The table is expanded (doubles its size) when the number of collisions exceeds half of the table size.
 pub struct TaskCache32 {
@@ -32,7 +32,9 @@ pub struct TaskCache32 {
 
 impl TaskCache32 {
     /// Create a new instance of [TaskCache32] with 2**log_size entries.
+    /// The log_size must be at least 1 (otherwise it will be set to 1).
     pub fn with_log_size(log_size: u32) -> TaskCache32 {
+        let log_size = log_size.max(1);
         TaskCache32 {
             table: vec![(0, NodeId32::undefined()); 1 << log_size],
             log_size,
@@ -42,27 +44,36 @@ impl TaskCache32 {
 
     /// Create a new instance of [TaskCache32] with the reserved capacity of at
     /// least 2**max(log_capacity, log_size), but only initialize the first 2**log_size entries.
+    /// The log_size must be at least 1 (otherwise it will be set to 1).
     pub fn with_log_size_and_log_capacity(log_size: u32, log_capacity: u32) -> TaskCache32 {
+        let log_size = log_size.max(1);
         let capacity = 1 << log_capacity.max(log_size);
-        let table = Vec::with_capacity(capacity);
-        let mut table = TaskCache32 {
+        let size = 1 << log_size;
+        let mut table = Vec::with_capacity(capacity);
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            table.set_len(size);
+        }
+        for i in 0..size {
+            unsafe { *table.get_unchecked_mut(i) = (0, NodeId32::undefined()) };
+        }
+        TaskCache32 {
             table,
             log_size,
             collisions: 0,
-        };
-        unsafe {
-            table.table.set_len(table.size());
         }
-        table.reset();
-        table
     }
 
-    /// Reset the table to its initial state, clearing all stored values.
-    /// This method does not change the size of the table.
-    pub fn reset(&mut self) {
+    /// Clears all stored values in the cache.
+    /// This method keeps the allocated memory for reuse.
+    pub fn clear(&mut self) {
+        self.log_size = 1;
+        self.collisions = 0;
+        unsafe {
+            self.table.set_len(self.size());
+        }
         for i in 0..self.size() {
-            let slot = unsafe { self.table.get_unchecked_mut(i) };
-            *slot = (0, NodeId32::undefined());
+            unsafe { *self.table.get_unchecked_mut(i) = (0, NodeId32::undefined()) };
         }
     }
 
@@ -74,6 +85,7 @@ impl TaskCache32 {
 
         // Double the table size if needed
         self.table.reserve(previous_size);
+        #[allow(clippy::uninit_vec)]
         unsafe {
             self.table.set_len(self.size());
         }
@@ -83,10 +95,8 @@ impl TaskCache32 {
 
             let new_slot = (i << 1) | (self.find_slot(hash) & 1);
             unsafe {
-                let x = self.table.get_unchecked_mut(new_slot);
-                *x = (hash, result);
-                let x = self.table.get_unchecked_mut(new_slot ^ 1);
-                *x = (0, NodeId32::undefined());
+                *self.table.get_unchecked_mut(new_slot) = (hash, result);
+                *self.table.get_unchecked_mut(new_slot ^ 1) = (0, NodeId32::undefined());
             }
         }
     }
