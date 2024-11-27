@@ -17,8 +17,8 @@ impl Bdd32 {
     ) where
         BooleanOperator: Fn(NodeId32, NodeId32) -> Option<NodeId32>,
     {
-        let mut stack = Vec::with_capacity(1 << 11);
-        let mut results = Vec::with_capacity(1 << 11);
+        let mut stack = Vec::new();
+        let mut results = Vec::new();
 
         stack.push((self.root(), other.root(), VarIdPacked32::undefined()));
 
