@@ -118,8 +118,9 @@ impl NodeTable for NodeTable32 {
     type VarId = VarIdPacked32;
 
     fn ensure_node(&mut self, variable: VarIdPacked32, low: NodeId32, high: NodeId32) -> NodeId32 {
-        //
-        self.bdd_is_false = !(low.is_one() || high.is_one());
+        if self.bdd_is_false {
+            self.bdd_is_false = !(low.is_one() || high.is_one());
+        }
 
         if low == high {
             // We don't need to create a new node in this case.
