@@ -66,7 +66,14 @@ pub struct NodeTable32 {
 }
 
 impl NodeTable32 {
-    pub fn new(capacity: usize) -> NodeTable32 {
+    pub fn new() -> NodeTable32 {
+        NodeTable32 {
+            entries: vec![NodeEntry32::zero(), NodeEntry32::one()],
+            bdd_is_false: false,
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> NodeTable32 {
         let mut entries = Vec::with_capacity(capacity);
         entries.push(NodeEntry32::zero());
         entries.push(NodeEntry32::one());
