@@ -103,6 +103,12 @@ impl NodeTable32 {
     }
 }
 
+impl Default for NodeTable32 {
+    fn default() -> Self {
+        NodeTable32::new()
+    }
+}
+
 impl From<NodeTable32> for Bdd32 {
     fn from(val: NodeTable32) -> Self {
         if val.bdd_is_false {

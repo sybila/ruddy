@@ -49,7 +49,7 @@ impl Bdd32 {
         let mut node_table = NodeTable32::new();
         let mut task_cache = TaskCache32::with_log_size(1);
 
-        self.apply(&other, operator, &mut task_cache, &mut node_table);
+        self.apply(other, operator, &mut task_cache, &mut node_table);
 
         node_table.into()
     }
@@ -62,10 +62,10 @@ impl Bdd32 {
     /// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
     /// yet known, the function should return `None`. For example, the logical operator
     /// implementing logical or would be defined as:
-    /// ```
-    /// or(NodeId32(1), NodeId32(_)) -> Some(NodeId32(1)
-    /// or(NodeId32(_), NodeId32(1)) -> Some(NodeId32(1)
-    /// or(NodeId32(0), NodeId32(0)) -> Some(NodeId32(0)
+    /// ```text
+    /// or(NodeId32(1), NodeId32(_)) -> Some(NodeId32(1))
+    /// or(NodeId32(_), NodeId32(1)) -> Some(NodeId32(1))
+    /// or(NodeId32(0), NodeId32(0)) -> Some(NodeId32(0))
     /// or(NodeId32(_), NodeId32(_)) -> None,
     /// ```
     /// The function does not return a `Bdd32` directly, as it expects the
