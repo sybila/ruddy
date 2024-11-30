@@ -114,13 +114,13 @@ impl From<NodeTable32> for Bdd32 {
         if val.bdd_is_false {
             return Bdd32::new_false();
         }
+        let entries: u32 = val
+            .entries
+            .len()
+            .try_into()
+            .expect("32-bit node table does not exceed 2**32 nodes (32-bit overflow)");
         Bdd32::new(
-            NodeId32::new(
-                val.entries
-                    .len()
-                    .try_into()
-                    .expect("32-bit node table does not exceed 2**32 nodes (32-bit overflow)"),
-            ),
+            NodeId32::new(entries - 1),
             val.entries.into_iter().map(|entry| entry.node).collect(),
         )
     }
