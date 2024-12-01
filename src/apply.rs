@@ -56,13 +56,13 @@ impl Bdd32 {
     /// It is expected to be defined mainly for terminal [NodeId32] arguments. However,
     /// since some logical operators can return the result even if only one of the arguments
     /// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
-    /// yet known, the function should return `None`. For example, the logical operator
-    /// implementing logical or would be defined as:
+    /// yet known, the function should return the undefined node id. For example, the logical
+    /// operator implementing logical or would be defined as:
     /// ```text
-    /// or(NodeId32(1), NodeId32(_)) -> Some(NodeId32(1))
-    /// or(NodeId32(_), NodeId32(1)) -> Some(NodeId32(1))
-    /// or(NodeId32(0), NodeId32(0)) -> Some(NodeId32(0))
-    /// or(NodeId32(_), NodeId32(_)) -> None,
+    /// or(NodeId32(1), NodeId32(_)) -> NodeId32(1)
+    /// or(NodeId32(_), NodeId32(1)) -> NodeId32(1)
+    /// or(NodeId32(0), NodeId32(0)) -> NodeId32(0)
+    /// or(NodeId32(_), NodeId32(_)) -> NodeId32::undefined(),
     /// ```
     /// The function does not return a `Bdd32` directly, as it expects the
     /// resulting BDD to be stored inside the `node_table`.
