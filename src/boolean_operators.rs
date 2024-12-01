@@ -6,7 +6,7 @@ pub fn lift_operator<NodeId, TriBoolOperator>(
     left: NodeId,
     right: NodeId,
     operator: TriBoolOperator,
-) -> Option<NodeId>
+) -> NodeId
 where
     NodeId: BddNodeId,
     TriBoolOperator: Fn(TriBool, TriBool) -> TriBool,
@@ -16,35 +16,35 @@ where
     BddNodeId::from_three_valued(operator(left, right))
 }
 
-pub fn and<NodeId>(left: NodeId, right: NodeId) -> Option<NodeId>
+pub fn and<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
 {
     lift_operator(left, right, TriBool::and)
 }
 
-pub fn or<NodeId>(left: NodeId, right: NodeId) -> Option<NodeId>
+pub fn or<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
 {
     lift_operator(left, right, TriBool::or)
 }
 
-pub fn xor<NodeId>(left: NodeId, right: NodeId) -> Option<NodeId>
+pub fn xor<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
 {
     lift_operator(left, right, TriBool::xor)
 }
 
-pub fn implies<NodeId>(left: NodeId, right: NodeId) -> Option<NodeId>
+pub fn implies<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
 {
     lift_operator(left, right, TriBool::implies)
 }
 
-pub fn iff<NodeId>(left: NodeId, right: NodeId) -> Option<NodeId>
+pub fn iff<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
 {

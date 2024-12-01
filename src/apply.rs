@@ -41,11 +41,7 @@ impl Bdd32 {
 
     /// Like [Bdd32::apply], but constructs the `task_cache` and `node_table` itself,
     /// and returns the resulting `Bdd32`.
-    fn apply_default(
-        &self,
-        other: &Bdd32,
-        operator: fn(NodeId32, NodeId32) -> Option<NodeId32>,
-    ) -> Bdd32 {
+    fn apply_default(&self, other: &Bdd32, operator: fn(NodeId32, NodeId32) -> NodeId32) -> Bdd32 {
         let mut node_table = NodeTable32::new();
         let mut task_cache = TaskCache32::with_log_size(1);
 
@@ -77,7 +73,7 @@ impl Bdd32 {
         task_cache: &mut dyn TaskCache<Id = NodeId32>,
         node_table: &mut dyn NodeTable<Id = NodeId32, VarId = VarIdPacked32>,
     ) where
-        BooleanOperator: Fn(NodeId32, NodeId32) -> Option<NodeId32>,
+        BooleanOperator: Fn(NodeId32, NodeId32) -> NodeId32,
     {
         let mut stack = Vec::new();
         let mut results = Vec::new();
@@ -87,7 +83,8 @@ impl Bdd32 {
         while let Some((left_id, right_id, variable)) = stack.pop() {
             // Check if the result is known because the operation short-circuited
             // the computation.
-            if let Some(result) = operator(left_id, right_id) {
+            let result = operator(left_id, right_id);
+            if !result.is_undefined() {
                 results.push(result);
                 continue;
             }

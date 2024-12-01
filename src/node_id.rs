@@ -41,11 +41,11 @@ pub trait BddNodeId: Eq + Ord + Copy + Hash {
     /// Convert a [TriBool] to a node ID, if possible. The value
     /// `True` is mapped to the terminal node 1, `False` is mapped to the terminal node 0, and
     /// `Indeterminate` is mapped to the ID with the undefined value.
-    fn from_three_valued(value: TriBool) -> Option<Self> {
+    fn from_three_valued(value: TriBool) -> Self {
         match value {
-            TriBool::True => Some(Self::one()),
-            TriBool::False => Some(Self::zero()),
-            TriBool::Indeterminate => None,
+            TriBool::True => Self::one(),
+            TriBool::False => Self::zero(),
+            TriBool::Indeterminate => Self::undefined(),
         }
     }
 }
