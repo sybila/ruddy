@@ -69,7 +69,7 @@ impl NodeTable32 {
     pub fn new() -> NodeTable32 {
         NodeTable32 {
             entries: vec![NodeEntry32::zero(), NodeEntry32::one()],
-            bdd_is_false: false,
+            bdd_is_false: true,
         }
     }
 
