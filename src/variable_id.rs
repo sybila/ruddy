@@ -1,8 +1,10 @@
+use std::hash::Hash;
+
 /// An internal trait implemented by types that can serve as BDD variable identifiers.
 /// The core feature of this trait is that a variable ID must have one designated
 /// "undefined" value (similar to `Option::None`). Furthermore, it must hold that
 /// `id <= undefined` for all values `id` of the type implementing the [VariableId] trait.
-pub trait VariableId: PartialEq + Eq + PartialOrd + Ord {
+pub trait VariableId: PartialEq + Eq + PartialOrd + Ord + Hash {
     fn undefined() -> Self;
     fn is_undefined(&self) -> bool;
 }
@@ -18,7 +20,7 @@ pub trait VariableId: PartialEq + Eq + PartialOrd + Ord {
 /// parents the node containing the variable has.
 /// Third low bit is used to indicate if the node containing the variable should
 /// use the task cache in the apply algorithm.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct VarIdPacked32(u32);
 
 impl VarIdPacked32 {
@@ -74,6 +76,12 @@ impl PartialOrd for VarIdPacked32 {
 impl Ord for VarIdPacked32 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.unpack().cmp(&other.unpack())
+    }
+}
+
+impl Hash for VarIdPacked32 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.unpack().hash(state)
     }
 }
 
