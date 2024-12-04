@@ -11,8 +11,6 @@ pub trait Bdd {
     fn new_true() -> Self;
     /// Create a new BDD representing the constant boolean function `false`.
     fn new_false() -> Self;
-
-    fn push(&mut self, node: Self::Node);
 }
 
 pub struct Bdd32 {
@@ -21,6 +19,8 @@ pub struct Bdd32 {
 }
 
 impl Bdd32 {
+    // TODO: Make this method pub(crate) once we have serialization. It is
+    // used in ruddy-benchmarks, which currently handles serialization.
     pub fn new(root: NodeId32, nodes: Vec<BddNode32>) -> Self {
         Bdd32 { root, nodes }
     }
@@ -67,9 +67,5 @@ impl Bdd for Bdd32 {
             root: NodeId32::zero(),
             nodes: vec![BddNode32::zero()],
         }
-    }
-
-    fn push(&mut self, node: BddNode32) {
-        self.nodes.push(node);
     }
 }
