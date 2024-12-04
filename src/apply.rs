@@ -66,14 +66,16 @@ impl Bdd32 {
     /// ```
     /// The function does not return a `Bdd32` directly, as it expects the
     /// resulting BDD to be stored inside the `node_table`.
-    pub fn apply<BooleanOperator>(
+    pub fn apply<BooleanOperator, Cache, Table>(
         &self,
         other: &Bdd32,
         operator: BooleanOperator,
-        task_cache: &mut dyn TaskCache<Id = NodeId32>,
-        node_table: &mut dyn NodeTable<Id = NodeId32, VarId = VarIdPacked32>,
+        task_cache: &mut Cache,
+        node_table: &mut Table,
     ) where
         BooleanOperator: Fn(NodeId32, NodeId32) -> NodeId32,
+        Cache: TaskCache<Id = NodeId32>,
+        Table: NodeTable<Id = NodeId32, VarId = VarIdPacked32>,
     {
         let mut stack = Vec::new();
         let mut results = Vec::new();
