@@ -29,6 +29,21 @@ impl Bdd32 {
         self.root
     }
 
+    /// Returns the number of nodes in the BDD, including the terminal nodes.
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Returns `true` if the BDD has no nodes other than the terminal nodes and
+    /// `false` otherwise.
+    pub fn is_empty(&self) -> bool {
+        self.len() < 2
+    }
+
+    pub fn into_nodes(self) -> Vec<BddNode32> {
+        self.nodes
+    }
+
     /// # Safety
     ///
     /// Calling this method with an `id` that is not in the bdd is undefined behavior.

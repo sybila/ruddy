@@ -83,12 +83,15 @@ impl NodeTable32 {
         }
     }
 
+    /// Returns the number of entries in the node table, including the entries for the terminal nodes.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Returns `true` if the node table has no entries other than entries for the
+    /// terminal nodes and `false` otherwise.
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.len() < 2
     }
 
     unsafe fn push_node(&mut self, variable: VarIdPacked32, low: NodeId32, high: NodeId32) {
