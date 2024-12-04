@@ -22,6 +22,7 @@ pub trait BddNode {
     fn variable(&self) -> Self::VarId;
 }
 
+#[derive(Clone, Hash)]
 pub struct BddNode32 {
     variable: VarIdPacked32,
     low: NodeId32,
@@ -88,5 +89,13 @@ impl BddNode32 {
 
     pub fn has_many_parents(&self) -> bool {
         self.variable.has_many_parents()
+    }
+
+    pub(crate) fn permute(&self, permutation: &[NodeId32]) -> Self {
+        BddNode32 {
+            variable: self.variable,
+            low: permutation[self.low.as_usize()],
+            high: permutation[self.high.as_usize()],
+        }
     }
 }

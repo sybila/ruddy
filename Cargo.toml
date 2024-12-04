@@ -11,3 +11,4 @@ path = "src/lib.rs"
 as_conversions = "warn"
 
 [dependencies]
+rand = "0.8.5"
