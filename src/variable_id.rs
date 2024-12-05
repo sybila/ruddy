@@ -13,7 +13,8 @@ pub trait VariableId: PartialEq + Eq + PartialOrd + Ord + Hash {
 /// information about the node containing the variable into the variable ID
 /// to make the apply algorithm more efficient.
 ///
-/// This means that [VarIdPacked32] can only represent `2**29 - 1` unique variables.
+/// This means that [VarIdPacked32] can only represent `2**29 - 1` unique variables (see also
+/// [VarIdPacked32::MAX_ID]).
 ///
 /// The packed information is as follows:
 ///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
@@ -28,18 +29,22 @@ pub struct VarIdPacked32(u32);
 const USE_CACHE_MASK: u32 = 0b100;
 
 impl VarIdPacked32 {
-    /// Create a new instance of [VarIdPacked32] with the specified variable ID
-    /// (that is not *undefined*).
+    /// The largest variable ID that can be safely represented by [VarIdPacked32].
+    pub const MAX_ID: u32 = (u32::MAX >> 3) - 1;
+
+    /// Create a new instance of [VarIdPacked32] with the specified variable ID. It must hold
+    /// that `0 <= id <= MAX_ID`.
     ///
     /// The variable ID is shifted left by 3 bits to make room for the additional
-    /// information.
+    /// "packed" information.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, range checks on variable IDs are only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is invalid.
     pub fn new(id: u32) -> VarIdPacked32 {
         // `<<` should fail when overflowing in debug mode, but this is a bit easier to trace.
-        debug_assert!(
-            id < Self::undefined().unpack(),
-            "Variable ID too large: {}",
-            id
-        );
+        debug_assert!(id <= Self::MAX_ID, "Variable ID too large: {id}");
         VarIdPacked32(id << 3)
     }
 
@@ -49,6 +54,7 @@ impl VarIdPacked32 {
         self.0 >> 3
     }
 
+    /// Returns true if the internal parent counter is set to `many` (i.e. not `0` or `1`).
     pub(crate) fn has_many_parents(&self) -> bool {
         self.0 & 0b10 != 0
     }
@@ -104,5 +110,63 @@ impl VariableId for VarIdPacked32 {
 
     fn is_undefined(&self) -> bool {
         self.0 == u32::MAX
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::variable_id::{VarIdPacked32, VariableId};
+
+    #[test]
+    pub fn var_packed_32_undefined() {
+        assert!(VarIdPacked32::undefined().is_undefined());
+        assert!(!VarIdPacked32::new(0).is_undefined());
+    }
+
+    #[test]
+    pub fn var_packed_32_parent_counter() {
+        let mut x = VarIdPacked32::new(0);
+        assert!(!x.has_many_parents());
+        x.increment_parents();
+        assert!(!x.has_many_parents());
+        x.increment_parents();
+        assert!(x.has_many_parents());
+        x.increment_parents();
+        assert!(x.has_many_parents());
+    }
+
+    #[test]
+    pub fn var_packed_32_use_cache() {
+        let mut x = VarIdPacked32::new(0);
+        assert!(!x.use_cache());
+        x.set_use_cache(true);
+        assert!(x.use_cache());
+        x.set_use_cache(false);
+        assert!(!x.use_cache());
+    }
+
+    #[test]
+    pub fn var_packed_32_sort() {
+        // Check that packed bits don't interfere with `Ord` and `Eq` implementations.
+        let mut one = VarIdPacked32::new(1);
+        let two = VarIdPacked32::new(2);
+        assert!(one < two);
+        one.set_use_cache(true);
+        assert!(one < two);
+        one.increment_parents();
+        assert!(one < two);
+        one.increment_parents();
+        assert!(one < two);
+        one.increment_parents();
+        assert!(one < two);
+        one.set_use_cache(false);
+        assert!(one < two);
+        assert_ne!(one, two);
+    }
+
+    #[test]
+    #[should_panic]
+    pub fn var_packed_32_invalid() {
+        VarIdPacked32::new(VarIdPacked32::MAX_ID + 1);
     }
 }
