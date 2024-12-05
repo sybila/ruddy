@@ -9,7 +9,7 @@ use crate::{
 /// a *terminal node* (`0` or `1`) or a *decision node*. A decision node consists of the decision
 /// variable (of type [VariableId]) and two child references, *low* and *high*
 /// (of type [BddNodeId]).
-pub trait BddNode {
+pub trait BddNode: Clone + Eq {
     /// Variable ID type used by this [BddNode].
     type Id: BddNodeId;
     /// Node ID type used by this [BddNode].
@@ -42,6 +42,7 @@ pub trait BddNode {
 ///
 /// Note that [VarIdPacked32] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BddNode32 {
     variable: VarIdPacked32,
     low: NodeId32,
