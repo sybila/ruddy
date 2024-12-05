@@ -122,10 +122,12 @@ impl From<NodeTable32> for Bdd32 {
             .len()
             .try_into()
             .expect("32-bit node table does not exceed 2**32 nodes (32-bit overflow)");
-        Bdd32::new(
-            NodeId32::new(entries - 1),
-            val.entries.into_iter().map(|entry| entry.node).collect(),
-        )
+        unsafe {
+            Bdd32::new_unchecked(
+                NodeId32::new(entries - 1),
+                val.entries.into_iter().map(|entry| entry.node).collect(),
+            )
+        }
     }
 }
 

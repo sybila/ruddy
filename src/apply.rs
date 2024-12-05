@@ -1,3 +1,4 @@
+use crate::bdd::Bdd;
 use crate::{
     bdd::Bdd32,
     bdd_node::BddNode,
