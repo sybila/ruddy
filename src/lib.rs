@@ -17,12 +17,14 @@ pub mod variable_id;
 //     this limitation, we will have a single central place where all unsafe conversions happen,
 //     so that we don't have to check the rest of the source code.
 
+/// A conversion function asserting that we are running on (at least) a 32-bit platform.
 #[inline(always)]
 #[allow(clippy::as_conversions)]
 pub fn usize_is_at_least_32_bits(x: u32) -> usize {
     x as usize
 }
 
+/// A conversion function asserting that we are running on (at least) a 64-bit platform.
 #[inline(always)]
 #[allow(clippy::as_conversions)]
 pub fn usize_is_at_least_64_bits(x: u64) -> usize {
