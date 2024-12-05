@@ -1,3 +1,5 @@
+//! Defines the representation of variable identifiers. Includes: [VariableId] and [VarIdPacked32].
+
 use std::hash::Hash;
 
 /// An internal trait implemented by types that can serve as BDD variable identifiers.

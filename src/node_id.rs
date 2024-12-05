@@ -1,3 +1,6 @@
+//! Defines the representation of node identifiers. Includes: [BddNodeId], [NodeId16],
+//! [NodeId32] and [NodeId64].
+
 use crate::{boolean_operators::TriBool, usize_is_at_least_32_bits, usize_is_at_least_64_bits};
 use std::fmt::Debug;
 use std::hash::Hash;
