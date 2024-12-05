@@ -2,9 +2,11 @@ use crate::{boolean_operators::TriBool, usize_is_at_least_32_bits, usize_is_at_l
 use std::fmt::Debug;
 use std::hash::Hash;
 
-/// An internal trait implemented by types that can serve as BDD node identifiers. The core feature
-/// of this trait is that a node ID must have one designated "undefined" value (similar to
-/// `Option::None`), and two designated "terminal" values equivalent to `0` and `1`.
+/// An internal trait implemented by types that can serve as BDD node identifiers. The core
+/// property of this trait is that a node ID must have one designated "undefined" value
+/// (similar to `Option::None` and equivalent to the maximal representable value), and two
+/// designated "terminal" values equivalent to `0` and `1`. Every other node id must
+/// fall in the `1 < id < undefined` interval.
 pub trait BddNodeId: Eq + Ord + Copy + Hash + Debug {
     /// Return an instance of the "undefined" node ID.
     fn undefined() -> Self;
@@ -13,9 +15,13 @@ pub trait BddNodeId: Eq + Ord + Copy + Hash + Debug {
     /// Return an instance of the one node ID.
     fn one() -> Self;
 
+    /// Checks if this ID is [BddNodeId::undefined].
     fn is_undefined(self) -> bool;
+    /// Checks if this ID is [BddNodeId::zero].
     fn is_zero(self) -> bool;
+    /// Checks if this ID is [BddNodeId::one].
     fn is_one(self) -> bool;
+    /// Checks if this ID is [BddNodeId::zero] or [BddNodeId::one].
     fn is_terminal(self) -> bool;
 
     /// Convert the ID safely into a value that can be used for indexing.
@@ -51,12 +57,15 @@ pub trait BddNodeId: Eq + Ord + Copy + Hash + Debug {
     }
 }
 
+/// Implementation of [BddNodeId] backed by `u16`. The maximal ID is `2**16 - 1`.
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct NodeId16(u16);
 
+/// Implementation of [BddNodeId] backed by `u32`. The maximal ID is `2**32 - 1`.
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct NodeId32(u32);
 
+/// Implementation of [BddNodeId] backed by `u64`. The maximal ID is `2**64 - 1`.
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct NodeId64(u64);
 
@@ -96,6 +105,9 @@ impl BddNodeId for NodeId16 {
 }
 
 impl NodeId32 {
+    /// The largest ID representable by [NodeId32].
+    pub const MAX_ID: u32 = u32::MAX - 1;
+
     /// Create a new valid [NodeId32] from an integer.
     ///
     /// ## Undefined behavior
@@ -108,14 +120,17 @@ impl NodeId32 {
         Self(id)
     }
 
+    /// Convert the underlying ID to `u64` (infallible).
     pub fn as_u64(self) -> u64 {
         u64::from(self.0)
     }
 
+    /// Convert the underlying ID to a 4-byte array (for serialization).
     pub fn to_le_bytes(self) -> [u8; 4] {
         self.0.to_le_bytes()
     }
 
+    /// Create a new [NodeId32] from a 4-byte array (for serialization).
     pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
         Self(u32::from_le_bytes(bytes))
     }
@@ -266,7 +281,7 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_node_32_invalid_new() {
-        NodeId32::new(u32::MAX);
+        NodeId32::new(NodeId32::MAX_ID + 1);
     }
 
     #[test]

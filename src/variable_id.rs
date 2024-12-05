@@ -5,7 +5,9 @@ use std::hash::Hash;
 /// "undefined" value (similar to `Option::None`). Furthermore, it must hold that
 /// `id < undefined` for every other `id` value of the same type.
 pub trait VariableId: PartialEq + Eq + PartialOrd + Ord + Hash {
+    /// Return an instance of the "undefined" variable ID.
     fn undefined() -> Self;
+    /// Checks if this ID is [VariableId::undefined].
     fn is_undefined(&self) -> bool;
 }
 
@@ -21,6 +23,9 @@ pub trait VariableId: PartialEq + Eq + PartialOrd + Ord + Hash {
 ///    many parents the node containing the variable has.
 ///  - Third least-significant bit is used to indicate if the node containing the variable should
 ///    use the task cache in the apply algorithm.
+///
+/// Note that the "packed metadata" is not ignored when comparing variable IDs using `Eq`,
+/// `Ord` or `Hash`.
 #[derive(Clone, Copy, Debug)]
 pub struct VarIdPacked32(u32);
 
@@ -65,14 +70,18 @@ impl VarIdPacked32 {
         self.0 & 0b10 != 0
     }
 
+    /// Check if the "use cache" flag is set on this variable ID.
     pub(crate) fn use_cache(&self) -> bool {
         self.0 & USE_CACHE_MASK != 0
     }
 
+    /// Update the "use cache" flag of this variable ID.
     pub(crate) fn set_use_cache(&mut self, value: bool) {
         self.0 = (self.0 & !USE_CACHE_MASK) | (u32::from(value) << 2);
     }
 
+    /// Increment the parent counter, assuming it is not already set to `many` (in that case,
+    /// the counter stays the same).
     pub(crate) fn increment_parents(&mut self) {
         // 00 -> 01 -> 00 | 01 -> 01
         // 01 -> 10 -> 01 | 10 -> 11
