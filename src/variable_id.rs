@@ -34,6 +34,8 @@ pub struct VarIdPacked32(u32);
 /// An internal "mask bit" that is used when manipulating the "use cache"
 /// flag in packed variable IDs.
 const USE_CACHE_MASK: u32 = 0b100;
+/// An internal mask that can be used to reset both the "parent counter" and the "use cache" flag.
+const RESET_MASK: u32 = (u32::MAX >> 3) << 3;
 
 impl VarIdPacked32 {
     /// The largest variable ID that can be safely represented by [VarIdPacked32].
@@ -92,11 +94,17 @@ impl VarIdPacked32 {
         let counter = (self.0.overflowing_add(1).0) & 0b11;
         self.0 |= counter;
     }
+
+    /// Returns the same variable ID, but with the "parent counter" and "use cache" flag reset to
+    /// their default state.
+    pub(crate) fn reset(&self) -> Self {
+        VarIdPacked32(self.0 & RESET_MASK)
+    }
 }
 
 impl PartialEq for VarIdPacked32 {
     fn eq(&self, other: &Self) -> bool {
-        self.unpack() == other.unpack()
+        self.reset().0 == other.reset().0
     }
 }
 
@@ -104,19 +112,19 @@ impl Eq for VarIdPacked32 {}
 
 impl PartialOrd for VarIdPacked32 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.unpack().cmp(&other.unpack()))
+        Some(Ord::cmp(&self, &other))
     }
 }
 
 impl Ord for VarIdPacked32 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.unpack().cmp(&other.unpack())
+        self.reset().0.cmp(&other.reset().0)
     }
 }
 
 impl Hash for VarIdPacked32 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.unpack().hash(state)
+        self.reset().0.hash(state)
     }
 }
 
