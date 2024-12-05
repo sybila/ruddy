@@ -50,7 +50,13 @@ impl VarIdPacked32 {
 
     /// Unpack the packed variable ID, giving the "true" variable ID without the
     /// additional information.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For [VarIdPacked32::undefined], the result is not defined. In debug mode, the method
+    /// will fail. In release mode, unpacking an undefined value results in undefined behavior.
     pub fn unpack(&self) -> u32 {
+        debug_assert!(self.0 != u32::MAX, "Cannot unpack undefined");
         self.0 >> 3
     }
 
@@ -168,5 +174,11 @@ mod tests {
     #[should_panic]
     pub fn var_packed_32_invalid() {
         VarIdPacked32::new(VarIdPacked32::MAX_ID + 1);
+    }
+
+    #[test]
+    #[should_panic]
+    pub fn var_packed_32_invalid_unpack() {
+        VarIdPacked32::undefined().unpack();
     }
 }
