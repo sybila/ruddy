@@ -175,6 +175,8 @@ mod tests {
         // Check that packed bits don't interfere with `Ord` and `Eq` implementations.
         let mut one = VarIdPacked32::new(1);
         let two = VarIdPacked32::new(2);
+        assert_eq!(one.unpack(), 1);
+        assert_eq!(two.unpack(), 2);
         assert!(one < two);
         one.set_use_cache(true);
         assert!(one < two);
