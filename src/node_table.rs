@@ -1,3 +1,6 @@
+//! Defines the representation of node tables (used to represent BDDs). Includes: [NodeTable],
+//! [NodeEntry32] and [NodeTable32].
+//!
 use std::cmp::{max, min};
 
 use crate::{
@@ -13,12 +16,20 @@ pub trait NodeTable {
     type Id: BddNodeId;
     type VarId: VariableId;
 
-    /// Searches the `NodeTable` for a node with the id `x`, such that the node's variable is `variable`,
-    /// and the node's low and high children are `low` and `high`, respectively. If such a node is not found,
-    /// a new node is created and added to the `NodeTable`.
+    /// Searches the `NodeTable` for a node matching node `(var, (low, high))`, and returns its
+    /// identifier (i.e. the node's variable is `variable`, and the node's low and high children
+    /// are `low` and `high`, respectively). If such a node is not found, a new node is created
+    /// and added to the `NodeTable`.
+    ///
+    /// This method should not be used to "create" terminal nodes, i.e. it must hold that
+    /// `variable != VarId::undefined`.
     fn ensure_node(&mut self, variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self::Id;
 }
 
+/// An element of the [NodeTable32]. Consists of a [BddNode32] node, and three node pointers,
+/// referencing the `parent` tree that is rooted in this entry, plus two `next_parent` pointers
+/// that define the parent tree which contains the entry itself.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NodeEntry32 {
     node: BddNode32,
     parent: NodeId32,
@@ -39,33 +50,35 @@ impl From<BddNode32> for NodeEntry32 {
 
 impl NodeEntry32 {
     fn zero() -> Self {
-        NodeEntry32 {
-            node: BddNode32::zero(),
-            parent: NodeId32::undefined(),
-            next_parent_zero: NodeId32::undefined(),
-            next_parent_one: NodeId32::undefined(),
-        }
+        Self::from(BddNode32::zero())
     }
 
     fn one() -> Self {
-        NodeEntry32 {
-            node: BddNode32::one(),
-            parent: NodeId32::undefined(),
-            next_parent_zero: NodeId32::undefined(),
-            next_parent_one: NodeId32::undefined(),
-        }
+        Self::from(BddNode32::one())
     }
 }
 
+/// An implementation of [NodeTable] backed by [BddNode32] (or rather [NodeEntry32]).
+///
+/// Instead of "normal" hashing, it uses a "tree of parents" scheme, where each node is stored
+/// in its maximal child. This is effective because most nodes in a BDD only have one or two
+/// parents, so we know the tree will stay shallow and will be searched in `O(1)` time. Only a
+/// few nodes have many parents, resulting in average `O(log)` search time (this part does
+/// in fact depend on hash collisions).
+///
+/// (Note that we could obtain a tight `O(log)` bound by using a search tree instead of
+/// a hash-prefix tree, but this would require balancing, which adds a lot of overhead)
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeTable32 {
     entries: Vec<NodeEntry32>,
-    // Remember if the underlying bdd is not false. This is here, so we can always
+    // Remember if the underlying bdd is not false. This is here so that we can always
     // initialize the node table with both terminal nodes and return a false bdd
     // if it turns out during the computation that the bdd is false.
     bdd_is_false: bool,
 }
 
 impl NodeTable32 {
+    /// Make a new [NodeTable32] containing nodes `0` and `1`.
     pub fn new() -> NodeTable32 {
         NodeTable32 {
             entries: vec![NodeEntry32::zero(), NodeEntry32::one()],
@@ -73,6 +86,8 @@ impl NodeTable32 {
         }
     }
 
+    /// Make a new [NodeTable32] containing nodes `0` and `1`, but make sure the underlying
+    /// vector has at least the specified amount of `capacity`.
     pub fn with_capacity(capacity: usize) -> NodeTable32 {
         let mut entries = Vec::with_capacity(capacity);
         entries.push(NodeEntry32::zero());
@@ -91,9 +106,16 @@ impl NodeTable32 {
     /// Returns `true` if the node table has no entries other than entries for the
     /// terminal nodes and `false` otherwise.
     pub fn is_empty(&self) -> bool {
-        self.len() < 2
+        self.len() <= 2
     }
 
+    /// Create a new [BddNode32] in this table (without checking for uniqueness), and increment
+    /// the parent counters of its child nodes.
+    ///
+    /// ## Safety
+    ///
+    /// The function requires that `low` and `high` point to existing entries in this node table.
+    /// This requirement is not checked and if broken results in undefined behavior.
     unsafe fn push_node(&mut self, variable: VarIdPacked32, low: NodeId32, high: NodeId32) {
         let low_entry = self.entries.get_unchecked_mut(low.as_usize());
         low_entry.node.increment_parents();
@@ -102,7 +124,7 @@ impl NodeTable32 {
         high_entry.node.increment_parents();
 
         self.entries
-            .push(BddNode32::new(VarIdPacked32::new(variable.unpack()), low, high).into());
+            .push(BddNode32::new(variable.reset(), low, high).into());
     }
 }
 
@@ -136,9 +158,7 @@ impl NodeTable for NodeTable32 {
     type VarId = VarIdPacked32;
 
     fn ensure_node(&mut self, variable: VarIdPacked32, low: NodeId32, high: NodeId32) -> NodeId32 {
-        if self.bdd_is_false {
-            self.bdd_is_false = !(low.is_one() || high.is_one());
-        }
+        self.bdd_is_false &= !(low.is_one() || high.is_one());
 
         if low == high {
             // We don't need to create a new node in this case.
@@ -160,6 +180,8 @@ impl NodeTable for NodeTable32 {
         debug_assert!((high.as_usize()) < self.entries.len());
 
         // Max child is used to select the tree of nodes into which we are inserting.
+        // The reason why `max_child` is used instead of `min_child` is that it avoids terminal
+        // nodes which typically have many parents.
         let max_child = max(low, high);
 
         // A reasonably random hash of the remaining node data. Note that we want to first
@@ -167,9 +189,8 @@ impl NodeTable for NodeTable32 {
         // hash. Furthermore, since we are actually extending the width from 32 to 64 bits, this
         // should be a "perfect" hash in the sense that each input hashes to a unique output.
         let min_child = min(low, high);
-        let mut hash = ((min_child.as_u64() << 32) | u64::from(variable.unpack()))
-            .overflowing_mul(14695981039346656039)
-            .0;
+        let (mut hash, _) = ((min_child.as_u64() << 32) | u64::from(variable.unpack()))
+            .overflowing_mul(14695981039346656039);
 
         let root_node = unsafe { self.entries.get_unchecked_mut(max_child.as_usize()) };
         let mut current_node = root_node.parent;
@@ -227,5 +248,48 @@ impl NodeTable for NodeTable32 {
             // Rotate hash so that the next iteration will see the next top-most bit.
             hash = hash.rotate_left(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bdd::{Bdd, Bdd32};
+    use crate::node_id::{BddNodeId, NodeId32};
+    use crate::node_table::{NodeTable, NodeTable32};
+    use crate::variable_id::VarIdPacked32;
+
+    #[test]
+    pub fn node_table_32_basic() {
+        let mut table = NodeTable32::new();
+        assert!(table.is_empty());
+        assert_eq!(2, table.len());
+        assert_eq!(table, NodeTable32::with_capacity(1024));
+        assert!(Bdd32::from(table.clone()).structural_eq(&Bdd::new_false()));
+
+        // Create some nodes
+        let id1 = table.ensure_node(VarIdPacked32::new(4), NodeId32::zero(), NodeId32::one());
+        let id1_p = table.ensure_node(VarIdPacked32::new(4), NodeId32::zero(), NodeId32::one());
+        assert_eq!(id1, id1_p);
+        let id2 = table.ensure_node(VarIdPacked32::new(3), id1, NodeId32::one());
+        let id2_p = table.ensure_node(VarIdPacked32::new(3), id1, NodeId32::one());
+        assert_eq!(id2, id2_p);
+
+        assert_eq!(id1, table.ensure_node(VarIdPacked32::new(3), id1, id1));
+
+        // Make a bunch of nodes that should all "collide" in the parent tree of the `1` node.
+        let ids = (0..1000u32)
+            .map(|i| table.ensure_node(VarIdPacked32::new(i), NodeId32::zero(), NodeId32::one()))
+            .collect::<Vec<_>>();
+
+        for (i, id) in ids.iter().enumerate() {
+            let id_p = table.ensure_node(
+                VarIdPacked32::new(i as u32),
+                NodeId32::zero(),
+                NodeId32::one(),
+            );
+            assert_eq!(*id, id_p);
+        }
+
+        assert_eq!(1003, table.len());
     }
 }
