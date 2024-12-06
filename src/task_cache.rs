@@ -38,6 +38,7 @@ pub trait TaskCache {
 /// since the `(0, 0)` key should never be stored in this table because it is a "trivial" task
 /// that does not need to be resolved via task cache. However, we could also use the hash of
 /// `(undefined, undefined)` for the same purpose.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskCache32 {
     table: Vec<(u64, NodeId32)>,
     log_size: u32,
