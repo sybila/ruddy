@@ -38,8 +38,8 @@ pub trait Bdd: Clone {
     fn new_true() -> Self;
     /// Create a new BDD representing the constant boolean function `false`.
     fn new_false() -> Self;
-    /// Create a new BDD representing the boolean function `var`.
-    fn new_var(var: Self::VarId) -> Self;
+    /// Create a new BDD representing the boolean function `var=value`.
+    fn new_literal(var: Self::VarId, value: bool) -> Self;
 
     /// ID of the BDD root node.
     fn root(&self) -> Self::Id;
@@ -123,13 +123,18 @@ impl Bdd for Bdd32 {
         }
     }
 
-    fn new_var(var: Self::VarId) -> Self {
+    fn new_literal(var: Self::VarId, value: bool) -> Self {
+        let decision_node = if value {
+            BddNode32::new(var, NodeId32::zero(), NodeId32::one())
+        } else {
+            BddNode32::new(var, NodeId32::one(), NodeId32::zero())
+        };
         Bdd32 {
             root: NodeId32::new(2),
             nodes: vec![
                 BddNode32::zero(),
                 BddNode32::one(),
-                BddNode32::new(var, NodeId32::zero(), NodeId32::one()),
+                decision_node,
             ],
         }
     }
@@ -157,7 +162,7 @@ mod tests {
         assert!(Bdd32::new_false().is_empty());
 
         let v = VarIdPacked32::new(1);
-        let x = Bdd32::new_var(v);
+        let x = Bdd32::new_literal(v, true);
         assert!(!x.is_empty());
         assert!(!x.root().is_terminal());
         assert!(x.get(NodeId32::new(3)).is_none());
