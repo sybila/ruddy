@@ -1,6 +1,6 @@
 // A lot of these things would eventually go into some kind of "internal" module, since
 // we don't actually want to expose them in the public API?
-pub mod apply;
+mod apply; // `apply` only extends the functionality in `bdd`.
 pub mod bdd;
 pub mod bdd_node;
 pub mod boolean_operators;
