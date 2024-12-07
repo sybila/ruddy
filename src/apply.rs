@@ -1,3 +1,5 @@
+//! Defines binary logic operators on [Bdd] objects using the `apply` algorithm.
+//!
 use crate::bdd::Bdd;
 use crate::{
     bdd::Bdd32,
@@ -10,32 +12,27 @@ use crate::{
 };
 
 impl Bdd32 {
-    /// Calculate a `Bdd32` representing the formula $\phi \land \psi$, where
-    /// $\phi$ and $\psi$ are represented by the BDD `self` and `other`, respectively.
+    /// Calculate a [Bdd32] representing the boolean formula `self && other` (conjunction).
     pub fn and(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::and)
     }
 
-    /// Calculate a `Bdd32` representing the formula $\phi \lor \psi$, where
-    /// $\phi$ and $\psi$ are represented by the BDD `self` and `other`, respectively.
+    /// Calculate a [Bdd32] representing the boolean formula `self || other` (disjunction).
     pub fn or(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::or)
     }
 
-    /// Calculate a `Bdd32`representing the formula $\phi \oplus \psi$, where
-    /// $\phi$ and $\psi$ are represented by the BDD `self` and `other`, respectively.
+    /// Calculate a [Bdd32] representing the boolean formula `self ^ other` (xor; non-equivalence).
     pub fn xor(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::xor)
     }
 
-    /// Calculate a `Bdd32` representing the formula $\phi \Rightarrow \psi$, where
-    /// $\phi$ and $\psi$ are represented by the BDD `self` and `other`, respectively.
+    /// Calculate a [Bdd32] representing the boolean formula `self => other` (implication).
     pub fn implies(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::implies)
     }
 
-    /// Calculate a `Bdd32` representing the formula $\phi \Leftrightarrow \psi$, where
-    /// $\phi$ and $\psi$ are represented by the BDD `self` and `other`, respectively.
+    /// Calculate a [Bdd32] representing the boolean formula `self <=> other` (equivalence).
     pub fn iff(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::iff)
     }
@@ -46,9 +43,8 @@ impl Bdd32 {
         let mut node_table = NodeTable32::new();
         let mut task_cache = TaskCache32::with_log_size(1);
 
-        self.apply(other, operator, &mut task_cache, &mut node_table);
-
-        node_table.into()
+        let root = self.apply(other, operator, &mut task_cache, &mut node_table);
+        unsafe { Bdd32::from_table(root, node_table) }
     }
 
     /// A universal function used for implementing logical operators.
@@ -57,8 +53,8 @@ impl Bdd32 {
     /// It is expected to be defined mainly for terminal [NodeId32] arguments. However,
     /// since some logical operators can return the result even if only one of the arguments
     /// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
-    /// yet known, the function should return the undefined node id. For example, the logical
-    /// operator implementing logical or would be defined as:
+    /// yet known, the function should return [NodeId32::undefined]. For example, the logical
+    /// operator implementing disjunction would be defined as:
     /// ```text
     /// or(NodeId32(1), NodeId32(_)) -> NodeId32(1)
     /// or(NodeId32(_), NodeId32(1)) -> NodeId32(1)
@@ -67,13 +63,16 @@ impl Bdd32 {
     /// ```
     /// The function does not return a `Bdd32` directly, as it expects the
     /// resulting BDD to be stored inside the `node_table`.
+    ///
+    /// The method returns the ID of the root node, stored in the `node_table`.
     pub fn apply<BooleanOperator, Cache, Table>(
         &self,
         other: &Bdd32,
         operator: BooleanOperator,
         task_cache: &mut Cache,
         node_table: &mut Table,
-    ) where
+    ) -> NodeId32
+    where
         BooleanOperator: Fn(NodeId32, NodeId32) -> NodeId32,
         Cache: TaskCache<Id = NodeId32>,
         Table: NodeTable<Id = NodeId32, VarId = VarIdPacked32>,
@@ -141,5 +140,53 @@ impl Bdd32 {
             }
             results.push(node_id);
         }
+
+        let root = results.pop().expect("root result present in result stack");
+        debug_assert!(results.is_empty());
+        root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bdd::{Bdd, Bdd32};
+    use crate::variable_id::VarIdPacked32;
+
+    #[test]
+    pub fn basic_apply_invariants() {
+        // These are obviously not all invariants/equalities, but at least something to
+        // check that we have the major corner cases covered.
+
+        let a = Bdd32::new_literal(VarIdPacked32::new(1), true);
+        let b = Bdd32::new_literal(VarIdPacked32::new(2), true);
+        let a_n = Bdd32::new_literal(VarIdPacked32::new(1), false);
+        let b_n = Bdd32::new_literal(VarIdPacked32::new(2), false);
+        let tt = Bdd32::new_true();
+        let ff = Bdd32::new_false();
+
+        assert!(Bdd32::structural_eq(&a.and(&a), &a));
+        assert!(Bdd32::structural_eq(&a.and(&tt), &a));
+        assert!(Bdd32::structural_eq(&a.and(&ff), &ff));
+        assert!(Bdd32::structural_eq(&a.and(&b), &b.and(&a)));
+
+        assert!(Bdd32::structural_eq(&a.or(&a), &a));
+        assert!(Bdd32::structural_eq(&a.or(&tt), &tt));
+        assert!(Bdd32::structural_eq(&a.or(&ff), &a));
+        assert!(Bdd32::structural_eq(&a.or(&b), &b.or(&a)));
+
+        assert!(Bdd32::structural_eq(&a.implies(&a), &tt));
+        assert!(Bdd32::structural_eq(&a.implies(&tt), &tt));
+        assert!(Bdd32::structural_eq(&a.implies(&ff), &a_n));
+        assert!(Bdd32::structural_eq(&a.implies(&b), &a_n.or(&b)));
+
+        assert!(Bdd32::structural_eq(&a.xor(&a), &ff));
+        assert!(Bdd32::structural_eq(&a.xor(&tt), &a_n));
+        assert!(Bdd32::structural_eq(&a.xor(&ff), &a));
+        assert!(Bdd32::structural_eq(&a.xor(&b), &a.and(&b_n).or(&a_n.and(&b))));
+
+        assert!(Bdd32::structural_eq(&a.iff(&a), &tt));
+        assert!(Bdd32::structural_eq(&a.iff(&tt), &a));
+        assert!(Bdd32::structural_eq(&a.iff(&ff), &a_n));
+        assert!(Bdd32::structural_eq(&a.iff(&b), &a.and(&b).or(&a_n.and(&b_n))));
     }
 }
