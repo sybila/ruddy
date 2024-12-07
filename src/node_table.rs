@@ -70,20 +70,13 @@ impl NodeEntry32 {
 /// a hash-prefix tree, but this would require balancing, which adds a lot of overhead)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeTable32 {
-    entries: Vec<NodeEntry32>,
-    // Remember if the underlying bdd is not false. This is here so that we can always
-    // initialize the node table with both terminal nodes and return a false bdd
-    // if it turns out during the computation that the bdd is false.
-    bdd_is_false: bool,
+    entries: Vec<NodeEntry32>
 }
 
 impl NodeTable32 {
     /// Make a new [NodeTable32] containing nodes `0` and `1`.
     pub fn new() -> NodeTable32 {
-        NodeTable32 {
-            entries: vec![NodeEntry32::zero(), NodeEntry32::one()],
-            bdd_is_false: true,
-        }
+        NodeTable32 { entries: vec![NodeEntry32::zero(), NodeEntry32::one()] }
     }
 
     /// Make a new [NodeTable32] containing nodes `0` and `1`, but make sure the underlying
@@ -92,10 +85,7 @@ impl NodeTable32 {
         let mut entries = Vec::with_capacity(capacity);
         entries.push(NodeEntry32::zero());
         entries.push(NodeEntry32::one());
-        NodeTable32 {
-            entries,
-            bdd_is_false: true,
-        }
+        NodeTable32 { entries }
     }
 
     /// Returns the number of entries in the node table, including the entries for the terminal nodes.
@@ -134,22 +124,29 @@ impl Default for NodeTable32 {
     }
 }
 
-impl From<NodeTable32> for Bdd32 {
-    fn from(val: NodeTable32) -> Self {
-        if val.bdd_is_false {
+impl Bdd32 {
+    /// Create a new [Bdd32] from a [NodeTable32] rooted in `root`. The conversion preserves
+    /// *all* nodes that are present in the given `table`, not just the ones reachable from the
+    /// root node.
+    ///
+    /// ## Safety
+    ///
+    /// Similar to [Bdd32::new_unchecked], this function is unsafe, because it can be used to
+    /// create an invariant-breaking BDD. While [NodeTable32] cannot be used (under normal
+    /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
+    /// broken variable ordering.
+    pub(crate) unsafe fn from_table(root: NodeId32, table: NodeTable32) -> Bdd32 {
+        // Zero and one have special cases to always ensure that they are structurally equivalent
+        // to the result of [Bdd32::new_false]/[Bdd32::new_true], regardless of what's in the
+        // provided node table.
+        if root.is_zero() {
             return Bdd32::new_false();
         }
-        let entries: u32 = val
-            .entries
-            .len()
-            .try_into()
-            .expect("32-bit node table does not exceed 2**32 nodes (32-bit overflow)");
-        unsafe {
-            Bdd32::new_unchecked(
-                NodeId32::new(entries - 1),
-                val.entries.into_iter().map(|entry| entry.node).collect(),
-            )
+        if root.is_one() {
+            return Bdd32::new_true();
         }
+        let nodes = table.entries.into_iter().map(|entry| entry.node).collect();
+        unsafe { Bdd32::new_unchecked(root, nodes) }
     }
 }
 
@@ -158,8 +155,6 @@ impl NodeTable for NodeTable32 {
     type VarId = VarIdPacked32;
 
     fn ensure_node(&mut self, variable: VarIdPacked32, low: NodeId32, high: NodeId32) -> NodeId32 {
-        self.bdd_is_false &= !(low.is_one() || high.is_one());
-
         if low == high {
             // We don't need to create a new node in this case.
             return low;
@@ -253,7 +248,6 @@ impl NodeTable for NodeTable32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::bdd::{Bdd, Bdd32};
     use crate::node_id::{BddNodeId, NodeId32};
     use crate::node_table::{NodeTable, NodeTable32};
     use crate::variable_id::VarIdPacked32;
@@ -264,7 +258,6 @@ mod tests {
         assert!(table.is_empty());
         assert_eq!(2, table.len());
         assert_eq!(table, NodeTable32::with_capacity(1024));
-        assert!(Bdd32::from(table.clone()).structural_eq(&Bdd::new_false()));
 
         // Create some nodes
         let id1 = table.ensure_node(VarIdPacked32::new(4), NodeId32::zero(), NodeId32::one());
