@@ -182,11 +182,17 @@ mod tests {
         assert!(Bdd32::structural_eq(&a.xor(&a), &ff));
         assert!(Bdd32::structural_eq(&a.xor(&tt), &a_n));
         assert!(Bdd32::structural_eq(&a.xor(&ff), &a));
-        assert!(Bdd32::structural_eq(&a.xor(&b), &a.and(&b_n).or(&a_n.and(&b))));
+        assert!(Bdd32::structural_eq(
+            &a.xor(&b),
+            &a.and(&b_n).or(&a_n.and(&b))
+        ));
 
         assert!(Bdd32::structural_eq(&a.iff(&a), &tt));
         assert!(Bdd32::structural_eq(&a.iff(&tt), &a));
         assert!(Bdd32::structural_eq(&a.iff(&ff), &a_n));
-        assert!(Bdd32::structural_eq(&a.iff(&b), &a.and(&b).or(&a_n.and(&b_n))));
+        assert!(Bdd32::structural_eq(
+            &a.iff(&b),
+            &a.and(&b).or(&a_n.and(&b_n))
+        ));
     }
 }

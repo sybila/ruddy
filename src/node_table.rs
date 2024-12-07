@@ -70,13 +70,15 @@ impl NodeEntry32 {
 /// a hash-prefix tree, but this would require balancing, which adds a lot of overhead)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeTable32 {
-    entries: Vec<NodeEntry32>
+    entries: Vec<NodeEntry32>,
 }
 
 impl NodeTable32 {
     /// Make a new [NodeTable32] containing nodes `0` and `1`.
     pub fn new() -> NodeTable32 {
-        NodeTable32 { entries: vec![NodeEntry32::zero(), NodeEntry32::one()] }
+        NodeTable32 {
+            entries: vec![NodeEntry32::zero(), NodeEntry32::one()],
+        }
     }
 
     /// Make a new [NodeTable32] containing nodes `0` and `1`, but make sure the underlying

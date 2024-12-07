@@ -131,11 +131,7 @@ impl Bdd for Bdd32 {
         };
         Bdd32 {
             root: NodeId32::new(2),
-            nodes: vec![
-                BddNode32::zero(),
-                BddNode32::one(),
-                decision_node,
-            ],
+            nodes: vec![BddNode32::zero(), BddNode32::one(), decision_node],
         }
     }
 
