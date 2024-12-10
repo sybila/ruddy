@@ -1,4 +1,4 @@
-//! Defines the representation of BDD nodes. Includes: [BddNode] and [BddNode32].
+//! Defines the representation of BDD nodes. Includes: [`BddNode`] and [`BddNode32`].
 
 use crate::{
     node_id::{BddNodeId, NodeId32},
@@ -7,12 +7,12 @@ use crate::{
 
 /// An internal trait implemented by types that can serve as BDD nodes. Each BDD node is either
 /// a *terminal node* (`0` or `1`) or a *decision node*. A decision node consists of the decision
-/// variable (of type [VariableId]) and two child references, *low* and *high*
-/// (of type [BddNodeId]).
+/// variable (of type [`VariableId`]) and two child references, *low* and *high*
+/// (of type [`BddNodeId`]).
 pub trait BddNode: Clone + Eq {
-    /// Variable ID type used by this [BddNode].
+    /// Variable ID type used by this [`BddNode`].
     type Id: BddNodeId;
-    /// Node ID type used by this [BddNode].
+    /// Node ID type used by this [`BddNode`].
     type VarId: VariableId;
 
     /// Return an instance of the terminal `0` node.
@@ -38,9 +38,9 @@ pub trait BddNode: Clone + Eq {
     fn variable(&self) -> Self::VarId;
 }
 
-/// An implementation of [BddNode] backed by [NodeId32] and [VarIdPacked32].
+/// An implementation of [`BddNode`] backed by [`NodeId32`] and [`VarIdPacked32`].
 ///
-/// Note that [VarIdPacked32] also uses three of its bits to provide a `{0,1,many}` "parent
+/// Note that [`VarIdPacked32`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BddNode32 {
@@ -96,11 +96,11 @@ impl BddNode for BddNode32 {
 }
 
 impl BddNode32 {
-    /// Create a new *decision node* instance of [BddNode32].
+    /// Create a new *decision node* instance of [`BddNode32`].
     ///
     /// ## Undefined behavior
     ///
-    /// When creating a new [BddNode32], no argument is allowed to be "undefined". If this happens,
+    /// When creating a new [`BddNode32`], no argument is allowed to be "undefined". If this happens,
     /// the implementation will panic in debug mode, but these checks do not run in release mode
     /// for performance reasons. Hence, using an undefined value can result in undefined behavior.
     pub fn new(variable: VarIdPacked32, low: NodeId32, high: NodeId32) -> Self {
@@ -114,12 +114,12 @@ impl BddNode32 {
         }
     }
 
-    /// Increment the "parend counter" of the underlying [VarIdPacked32] variable ID.
+    /// Increment the "parend counter" of the underlying [`VarIdPacked32`] variable ID.
     pub fn increment_parents(&mut self) {
         self.variable.increment_parents();
     }
 
-    /// Check if the "parend counter" of the underlying [VarIdPacked32] variable ID is
+    /// Check if the "parend counter" of the underlying [`VarIdPacked32`] variable ID is
     /// in the `many` state.
     pub fn has_many_parents(&self) -> bool {
         self.variable.has_many_parents()

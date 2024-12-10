@@ -1,4 +1,4 @@
-//! Defines the representation of variable identifiers. Includes: [VariableId] and [VarIdPacked32].
+//! Defines the representation of variable identifiers. Includes: [`VariableId`] and [`VarIdPacked32`].
 
 use std::hash::Hash;
 
@@ -13,11 +13,11 @@ pub trait VariableId: PartialEq + Eq + PartialOrd + Ord + Hash {
     fn is_undefined(&self) -> bool;
 }
 
-/// A 32-bit implementation of the [VariableId] trait that packs additional
+/// A 32-bit implementation of the [`VariableId`] trait that packs additional
 /// information about the node containing the variable into the variable ID
 /// to make the apply algorithm more efficient.
 ///
-/// This means that [VarIdPacked32] can only represent `2**29 - 1` unique variables (see also
+/// This means that [`VarIdPacked32`] can only represent `2**29 - 1` unique variables (see also
 /// [VarIdPacked32::MAX_ID]).
 ///
 /// The packed information is as follows:
@@ -38,10 +38,10 @@ const USE_CACHE_MASK: u32 = 0b100;
 const RESET_MASK: u32 = (u32::MAX >> 3) << 3;
 
 impl VarIdPacked32 {
-    /// The largest variable ID that can be safely represented by [VarIdPacked32].
+    /// The largest variable ID that can be safely represented by [`VarIdPacked32`].
     pub const MAX_ID: u32 = (u32::MAX >> 3) - 1;
 
-    /// Create a new instance of [VarIdPacked32] with the specified variable ID. It must hold
+    /// Create a new instance of [`VarIdPacked32`] with the specified variable ID. It must hold
     /// that `0 <= id <= MAX_ID`.
     ///
     /// The variable ID is shifted left by 3 bits to make room for the additional

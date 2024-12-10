@@ -1,4 +1,4 @@
-//! Defines binary logic operators on [Bdd] objects using the `apply` algorithm.
+//! Defines binary logic operators on [`Bdd`] objects using the `apply` algorithm.
 //!
 use crate::bdd::Bdd;
 use crate::{
@@ -12,27 +12,27 @@ use crate::{
 };
 
 impl Bdd32 {
-    /// Calculate a [Bdd32] representing the boolean formula `self && other` (conjunction).
+    /// Calculate a [`Bdd32`] representing the boolean formula `self && other` (conjunction).
     pub fn and(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::and)
     }
 
-    /// Calculate a [Bdd32] representing the boolean formula `self || other` (disjunction).
+    /// Calculate a [`Bdd32`] representing the boolean formula `self || other` (disjunction).
     pub fn or(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::or)
     }
 
-    /// Calculate a [Bdd32] representing the boolean formula `self ^ other` (xor; non-equivalence).
+    /// Calculate a [`Bdd32`] representing the boolean formula `self ^ other` (xor; non-equivalence).
     pub fn xor(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::xor)
     }
 
-    /// Calculate a [Bdd32] representing the boolean formula `self => other` (implication).
+    /// Calculate a [`Bdd32`] representing the boolean formula `self => other` (implication).
     pub fn implies(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::implies)
     }
 
-    /// Calculate a [Bdd32] representing the boolean formula `self <=> other` (equivalence).
+    /// Calculate a [`Bdd32`] representing the boolean formula `self <=> other` (equivalence).
     pub fn iff(&self, other: &Bdd32) -> Bdd32 {
         self.apply_default(other, boolean_operators::iff)
     }
@@ -50,7 +50,7 @@ impl Bdd32 {
     /// A universal function used for implementing logical operators.
     ///
     /// The `operator` function is the logical operator to be applied to the BDDs.
-    /// It is expected to be defined mainly for terminal [NodeId32] arguments. However,
+    /// It is expected to be defined mainly for terminal [`NodeId32`] arguments. However,
     /// since some logical operators can return the result even if only one of the arguments
     /// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
     /// yet known, the function should return [NodeId32::undefined]. For example, the logical

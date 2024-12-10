@@ -1,11 +1,11 @@
-//! Defines three-valued logic operators based on [TriBool]. These are used to implement
+//! Defines three-valued logic operators based on [`TriBool`]. These are used to implement
 //! Boolean operators in the `apply` algorithms.
 //!
 use std::cmp::{max, min};
 
 use crate::node_id::BddNodeId;
 
-/// Applies a three-value logic operator to a pair of [BddNodeId] arguments.
+/// Applies a three-value logic operator to a pair of [`BddNodeId`] arguments.
 pub fn lift_operator<NodeId, TriBoolOperator>(
     left: NodeId,
     right: NodeId,
@@ -20,7 +20,7 @@ where
     BddNodeId::from_three_valued(operator(left, right))
 }
 
-/// Thee-valued conjunction of two [BddNodeId] identifiers.
+/// Thee-valued conjunction of two [`BddNodeId`] identifiers.
 pub fn and<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
@@ -28,7 +28,7 @@ where
     lift_operator(left, right, TriBool::and)
 }
 
-/// Thee-valued disjunction of two [BddNodeId] identifiers.
+/// Thee-valued disjunction of two [`BddNodeId`] identifiers.
 pub fn or<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
@@ -36,7 +36,7 @@ where
     lift_operator(left, right, TriBool::or)
 }
 
-/// Thee-valued exclusive or (non-equivalence) of two [BddNodeId] identifiers.
+/// Thee-valued exclusive or (non-equivalence) of two [`BddNodeId`] identifiers.
 pub fn xor<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
@@ -44,7 +44,7 @@ where
     lift_operator(left, right, TriBool::xor)
 }
 
-/// Thee-valued implication of two [BddNodeId] identifiers.
+/// Thee-valued implication of two [`BddNodeId`] identifiers.
 pub fn implies<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,
@@ -52,7 +52,7 @@ where
     lift_operator(left, right, TriBool::implies)
 }
 
-/// Thee-valued equivalence of two [BddNodeId] identifiers.
+/// Thee-valued equivalence of two [`BddNodeId`] identifiers.
 pub fn iff<NodeId>(left: NodeId, right: NodeId) -> NodeId
 where
     NodeId: BddNodeId,

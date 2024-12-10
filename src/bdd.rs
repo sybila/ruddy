@@ -1,5 +1,5 @@
-//! Defines the representation of (standalone) binary decision diagrams. Includes: [Bdd]
-//! and [Bdd32].
+//! Defines the representation of (standalone) binary decision diagrams. Includes: [`Bdd`]
+//! and [`Bdd32`].
 
 use crate::variable_id::{VarIdPacked32, VariableId};
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
 
 /// A trait implemented by types that can serve as *standalone* BDDs.
 ///
-/// Internally, a standalone BDD is a collection of [BddNode] instances, such that one node is
+/// Internally, a standalone BDD is a collection of [`BddNode`] instances, such that one node is
 /// designated as the *root* of the BDD. Aside from the root, a non-trivial BDD must also contain
 /// a single [BddNode::zero] node identified by [BddNodeId::zero] and a single [BddNode::one] node
 /// identified by [BddNodeId::one]. Finally, the graph induced by the [BddNode::low] and
@@ -18,7 +18,7 @@ use crate::{
 ///
 /// Note that it is not required for the nodes to (1) be sorted in any specific way; (2) be
 /// reachable from the root node; (3) adhere to any specific variable ordering or structural
-/// properties other than those outlined above. In other words, an arbitrary instance of [Bdd]
+/// properties other than those outlined above. In other words, an arbitrary instance of [`Bdd`]
 /// is not required to be an OBDD (ordered BDD) or ROBDD (reduced and ordered BDD). However,
 /// these properties are typically enforced in practice by the implementations of this trait.
 ///
@@ -31,7 +31,7 @@ pub trait Bdd: Clone {
     type Id: BddNodeId;
     /// The type of variable ID used by [Bdd::Node].
     type VarId: VariableId;
-    /// The type of node used in this [Bdd].
+    /// The type of node used in this [`Bdd`].
     type Node: BddNode<Id = Self::Id, VarId = Self::VarId>;
 
     /// Create a new BDD representing the constant boolean function `true`.
@@ -47,8 +47,8 @@ pub trait Bdd: Clone {
     fn get(&self, id: Self::Id) -> Option<&Self::Node>;
 }
 
-/// An implementation of [Bdd] using [BddNode32]. In addition to the requirements of the
-/// [Bdd] trait, this struct also expects the BDD to be ordered and reduced.
+/// An implementation of [`Bdd`] using [`BddNode32`]. In addition to the requirements of the
+/// [`Bdd`] trait, this struct also expects the BDD to be ordered and reduced.
 #[derive(Clone)]
 pub struct Bdd32 {
     root: NodeId32,
@@ -56,13 +56,13 @@ pub struct Bdd32 {
 }
 
 impl Bdd32 {
-    /// Create a new instance of [Bdd32] using a raw list of [BddNode32] items and a single
-    /// [NodeId32] root.
+    /// Create a new instance of [`Bdd32`] using a raw list of [`BddNode32`] items and a single
+    /// [`NodeId32`] root.
     ///
     /// ## Safety
     ///
     /// This function is unsafe because it can be used to create a BDD object that does not
-    /// respect the prescribed invariants of [Bdd32]. For example, it can be used to create
+    /// respect the prescribed invariants of [`Bdd32`]. For example, it can be used to create
     /// a BDD that is not acyclic or a BDD that is not reduced.
     pub unsafe fn new_unchecked(root: NodeId32, nodes: Vec<BddNode32>) -> Self {
         Bdd32 { root, nodes }
@@ -93,7 +93,7 @@ impl Bdd32 {
         unsafe { self.nodes.get_unchecked(id.as_usize()) }
     }
 
-    /// Compares two [Bdd32] instances structurally, i.e. by comparing their roots and the
+    /// Compares two [`Bdd32`] instances structurally, i.e. by comparing their roots and the
     /// underlying lists of nodes.
     ///
     /// Note that this does not guarantee that the two BDDs represent the same boolean function,

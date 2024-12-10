@@ -1,13 +1,13 @@
-//! Defines the representation of task caches (used in `apply` algorithms). Includes: [TaskCache]
-//! and [TaskCache32].
+//! Defines the representation of task caches (used in `apply` algorithms). Includes: [`TaskCache`]
+//! and [`TaskCache32`].
 
 use crate::{
     node_id::{BddNodeId, NodeId32},
     usize_is_at_least_64_bits,
 };
 
-/// Task cache is a "leaky" hash table that maps a pair of [BddNodeId] instances (representing
-/// a "task") to another instance of [BddNodeId], representing the result of said task.
+/// Task cache is a "leaky" hash table that maps a pair of [`BddNodeId`] instances (representing
+/// a "task") to another instance of [`BddNodeId`], representing the result of said task.
 ///
 /// The table can "lose" any value that is stored in it, especially in case of a collision with
 /// another value. The cache is responsible for growing itself when too many collisions occur.
@@ -23,14 +23,14 @@ pub trait TaskCache {
     fn set(&mut self, task: (Self::Id, Self::Id), result: Self::Id);
 }
 
-/// Implementation of [TaskCache] based on [NodeId32] and using Knuth multiplicative hashing.
+/// Implementation of [`TaskCache`] based on [`NodeId32`] and using Knuth multiplicative hashing.
 ///
 /// This implementation uses a hash table with its size always being a power of two. The table
 /// is expanded (doubles its size) when the number of collisions exceeds half of the current
 /// table size.
 ///
 /// To further optimize resource consumption (mainly queue capacity for load/store instructions),
-/// each key (a pair of [NodeId32] instances) is stored as a single 64-bit integer representing
+/// each key (a pair of [`NodeId32`] instances) is stored as a single 64-bit integer representing
 /// the key's hash. Since the hash function is a bijection (as long as the input and output have
 /// the same number of bits), we are not losing any information by this transformation.
 ///
@@ -46,7 +46,7 @@ pub struct TaskCache32 {
 }
 
 impl TaskCache32 {
-    /// Create a new instance of [TaskCache32] with `2**log_size` entries.
+    /// Create a new instance of [`TaskCache32`] with `2**log_size` entries.
     /// The `log_size` must be at least `1` (otherwise it will be set to `1`).
     pub fn with_log_size(log_size: u32) -> TaskCache32 {
         let log_size = log_size.max(1);
@@ -57,7 +57,7 @@ impl TaskCache32 {
         }
     }
 
-    /// Create a new instance of [TaskCache32] with the reserved capacity of at
+    /// Create a new instance of [`TaskCache32`] with the reserved capacity of at
     /// least `2**max(log_capacity, log_size)`, but only initialize the first `2**log_size`
     /// entries. The `log_size` must be at least `1` (otherwise it will be set to `1`).
     pub fn with_log_size_and_log_capacity(log_size: u32, log_capacity: u32) -> TaskCache32 {

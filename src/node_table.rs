@@ -1,5 +1,5 @@
-//! Defines the representation of node tables (used to represent BDDs). Includes: [NodeTable],
-//! [NodeEntry32] and [NodeTable32].
+//! Defines the representation of node tables (used to represent BDDs). Includes: [`NodeTable`],
+//! [`NodeEntry32`] and [`NodeTable32`].
 //!
 use std::cmp::{max, min};
 
@@ -26,7 +26,7 @@ pub trait NodeTable {
     fn ensure_node(&mut self, variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self::Id;
 }
 
-/// An element of the [NodeTable32]. Consists of a [BddNode32] node, and three node pointers,
+/// An element of the [`NodeTable32`]. Consists of a [`BddNode32`] node, and three node pointers,
 /// referencing the `parent` tree that is rooted in this entry, plus two `next_parent` pointers
 /// that define the parent tree which contains the entry itself.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -58,7 +58,7 @@ impl NodeEntry32 {
     }
 }
 
-/// An implementation of [NodeTable] backed by [BddNode32] (or rather [NodeEntry32]).
+/// An implementation of [`NodeTable`] backed by [`BddNode32`] (or rather [`NodeEntry32`]).
 ///
 /// Instead of "normal" hashing, it uses a "tree of parents" scheme, where each node is stored
 /// in its maximal child. This is effective because most nodes in a BDD only have one or two
@@ -74,14 +74,14 @@ pub struct NodeTable32 {
 }
 
 impl NodeTable32 {
-    /// Make a new [NodeTable32] containing nodes `0` and `1`.
+    /// Make a new [`NodeTable32`] containing nodes `0` and `1`.
     pub fn new() -> NodeTable32 {
         NodeTable32 {
             entries: vec![NodeEntry32::zero(), NodeEntry32::one()],
         }
     }
 
-    /// Make a new [NodeTable32] containing nodes `0` and `1`, but make sure the underlying
+    /// Make a new [`NodeTable32`] containing nodes `0` and `1`, but make sure the underlying
     /// vector has at least the specified amount of `capacity`.
     pub fn with_capacity(capacity: usize) -> NodeTable32 {
         let mut entries = Vec::with_capacity(capacity);
@@ -101,7 +101,7 @@ impl NodeTable32 {
         self.len() <= 2
     }
 
-    /// Create a new [BddNode32] in this table (without checking for uniqueness), and increment
+    /// Create a new [`BddNode32`] in this table (without checking for uniqueness), and increment
     /// the parent counters of its child nodes.
     ///
     /// ## Safety
@@ -127,14 +127,14 @@ impl Default for NodeTable32 {
 }
 
 impl Bdd32 {
-    /// Create a new [Bdd32] from a [NodeTable32] rooted in `root`. The conversion preserves
+    /// Create a new [`Bdd32`] from a [`NodeTable32`] rooted in `root`. The conversion preserves
     /// *all* nodes that are present in the given `table`, not just the ones reachable from the
     /// root node.
     ///
     /// ## Safety
     ///
     /// Similar to [Bdd32::new_unchecked], this function is unsafe, because it can be used to
-    /// create an invariant-breaking BDD. While [NodeTable32] cannot be used (under normal
+    /// create an invariant-breaking BDD. While [`NodeTable32`] cannot be used (under normal
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
     pub(crate) unsafe fn from_table(root: NodeId32, table: NodeTable32) -> Bdd32 {
