@@ -37,7 +37,7 @@ impl Bdd32 {
         self.apply_default(other, boolean_operators::iff)
     }
 
-    /// Like [Bdd32::apply], but constructs the `task_cache` and `node_table` itself,
+    /// Like [`Bdd32::apply`], but constructs the `task_cache` and `node_table` itself,
     /// and returns the resulting `Bdd32`.
     fn apply_default(&self, other: &Bdd32, operator: fn(NodeId32, NodeId32) -> NodeId32) -> Bdd32 {
         let mut node_table = NodeTable32::new();
@@ -53,7 +53,7 @@ impl Bdd32 {
     /// It is expected to be defined mainly for terminal [`NodeId32`] arguments. However,
     /// since some logical operators can return the result even if only one of the arguments
     /// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
-    /// yet known, the function should return [NodeId32::undefined]. For example, the logical
+    /// yet known, the function should return [`NodeId32::undefined`]. For example, the logical
     /// operator implementing disjunction would be defined as:
     /// ```text
     /// or(NodeId32(1), NodeId32(_)) -> NodeId32(1)

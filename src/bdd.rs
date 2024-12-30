@@ -11,9 +11,9 @@ use crate::{
 ///
 /// Internally, a standalone BDD is a collection of [`BddNode`] instances, such that one node is
 /// designated as the *root* of the BDD. Aside from the root, a non-trivial BDD must also contain
-/// a single [BddNode::zero] node identified by [BddNodeId::zero] and a single [BddNode::one] node
-/// identified by [BddNodeId::one]. Finally, the graph induced by the [BddNode::low] and
-/// [BddNode::high] edges must not contain any cycles (except for the self-loops on the
+/// a single [`BddNode::zero`] node identified by [`BddNodeId::zero`] and a single [`BddNode::one`] node
+/// identified by [`BddNodeId::one`]. Finally, the graph induced by the [`BddNode::low`] and
+/// [`BddNode::high`] edges must not contain any cycles (except for the self-loops on the
 /// two terminal nodes).
 ///
 /// Note that it is not required for the nodes to (1) be sorted in any specific way; (2) be
@@ -27,9 +27,9 @@ use crate::{
 /// structural changes without unnecessary copying), but this is mostly an exception to the rule.
 /// In particular, no method in the actual trait allows mutability.
 pub trait Bdd: Clone {
-    /// The type of node ID used by [Bdd::Node].
+    /// The type of node ID used by [`Bdd::Node`].
     type Id: BddNodeId;
-    /// The type of variable ID used by [Bdd::Node].
+    /// The type of variable ID used by [`Bdd::Node`].
     type VarId: VariableId;
     /// The type of node used in this [`Bdd`].
     type Node: BddNode<Id = Self::Id, VarId = Self::VarId>;
@@ -84,7 +84,7 @@ impl Bdd32 {
         self.nodes
     }
 
-    /// An unchecked variant of [Bdd::get].
+    /// An unchecked variant of [`Bdd::get`].
     ///
     /// # Safety
     ///

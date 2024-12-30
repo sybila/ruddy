@@ -20,11 +20,11 @@ pub trait BddNode: Clone + Eq {
     /// Return an instance of the terminal `1` node.
     fn one() -> Self;
 
-    /// Checks if this node is [BddNode::zero].
+    /// Checks if this node is [`BddNode::zero`].
     fn is_zero(&self) -> bool;
-    /// Checks if this node is [BddNode::one].
+    /// Checks if this node is [`BddNode::one`].
     fn is_one(&self) -> bool;
-    /// Checks if this node is [BddNode::zero] or [BddNode::one].
+    /// Checks if this node is [`BddNode::zero`] or [`BddNode::one`].
     fn is_terminal(&self) -> bool;
 
     /// Return the low-child reference, assuming this is a decision node. For terminal nodes,
@@ -34,7 +34,7 @@ pub trait BddNode: Clone + Eq {
     /// return a reference to `self`.
     fn high(&self) -> Self::Id;
     /// Return the decision variable, assuming this is a decision node. For terminal nodes,
-    /// return [VariableId::undefined].
+    /// return [`VariableId::undefined`].
     fn variable(&self) -> Self::VarId;
 }
 

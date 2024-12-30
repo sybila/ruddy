@@ -9,7 +9,7 @@ use std::hash::Hash;
 pub trait VariableId: PartialEq + Eq + PartialOrd + Ord + Hash {
     /// Return an instance of the "undefined" variable ID.
     fn undefined() -> Self;
-    /// Checks if this ID is [VariableId::undefined].
+    /// Checks if this ID is [`VariableId::undefined`].
     fn is_undefined(&self) -> bool;
 }
 
@@ -18,7 +18,7 @@ pub trait VariableId: PartialEq + Eq + PartialOrd + Ord + Hash {
 /// to make the apply algorithm more efficient.
 ///
 /// This means that [`VarIdPacked32`] can only represent `2**29 - 1` unique variables (see also
-/// [VarIdPacked32::MAX_ID]).
+/// [`VarIdPacked32::MAX_ID`]).
 ///
 /// The packed information is as follows:
 ///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
@@ -62,7 +62,7 @@ impl VarIdPacked32 {
     ///
     /// ## Undefined behavior
     ///
-    /// For [VarIdPacked32::undefined], the result is not defined. In debug mode, the method
+    /// For [`VarIdPacked32::undefined`], the result is not defined. In debug mode, the method
     /// will fail. In release mode, unpacking an undefined value results in undefined behavior.
     pub fn unpack(&self) -> u32 {
         debug_assert!(self.0 != u32::MAX, "Cannot unpack undefined");

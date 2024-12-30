@@ -133,13 +133,13 @@ impl Bdd32 {
     ///
     /// ## Safety
     ///
-    /// Similar to [Bdd32::new_unchecked], this function is unsafe, because it can be used to
+    /// Similar to [`Bdd32::new_unchecked`], this function is unsafe, because it can be used to
     /// create an invariant-breaking BDD. While [`NodeTable32`] cannot be used (under normal
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
     pub(crate) unsafe fn from_table(root: NodeId32, table: NodeTable32) -> Bdd32 {
         // Zero and one have special cases to always ensure that they are structurally equivalent
-        // to the result of [Bdd32::new_false]/[Bdd32::new_true], regardless of what's in the
+        // to the result of [`Bdd32::new_false`]/[`Bdd32::new_true`], regardless of what's in the
         // provided node table.
         if root.is_zero() {
             return Bdd32::new_false();

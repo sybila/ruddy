@@ -18,20 +18,20 @@ pub trait BddNodeId: Eq + Ord + Copy + Hash + Debug {
     /// Return an instance of the one node ID.
     fn one() -> Self;
 
-    /// Checks if this ID is [BddNodeId::undefined].
+    /// Checks if this ID is [`BddNodeId::undefined`].
     fn is_undefined(self) -> bool;
-    /// Checks if this ID is [BddNodeId::zero].
+    /// Checks if this ID is [`BddNodeId::zero`].
     fn is_zero(self) -> bool;
-    /// Checks if this ID is [BddNodeId::one].
+    /// Checks if this ID is [`BddNodeId::one`].
     fn is_one(self) -> bool;
-    /// Checks if this ID is [BddNodeId::zero] or [BddNodeId::one].
+    /// Checks if this ID is [`BddNodeId::zero`] or [`BddNodeId::one`].
     fn is_terminal(self) -> bool;
 
     /// Convert the ID safely into a value that can be used for indexing.
     ///
     /// ## Undefined behavior
     ///
-    /// The result is not defined for [BddNodeId::undefined]. In debug mode, the method will panic.
+    /// The result is not defined for [`BddNodeId::undefined`]. In debug mode, the method will panic.
     /// In release mode, the result is undefined behavior.
     fn as_usize(&self) -> usize;
 
@@ -115,7 +115,7 @@ impl NodeId32 {
     ///
     /// ## Undefined behavior
     ///
-    /// This method should not be used to create instances of [NodeId32::undefined]. In debug mode,
+    /// This method should not be used to create instances of [`NodeId32::undefined`]. In debug mode,
     /// such operation will panic. In release mode, this is not checked but can cause undefined
     /// behavior.
     pub fn new(id: u32) -> Self {

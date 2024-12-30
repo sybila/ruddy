@@ -14,7 +14,7 @@ use crate::{
 pub trait TaskCache {
     type Id: BddNodeId;
 
-    /// Retrieve the result value that is stored for the given `task`, or [BddNodeId::undefined]
+    /// Retrieve the result value that is stored for the given `task`, or [`BddNodeId::undefined`]
     /// when the `task` has not been encountered before.
     fn get(&self, task: (Self::Id, Self::Id)) -> Self::Id;
 
