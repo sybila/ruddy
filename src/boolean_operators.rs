@@ -3,61 +3,62 @@
 //!
 use std::cmp::{max, min};
 
-use crate::node_id::BddNodeId;
+use crate::node_id::NodeIdAny;
 
-/// Applies a three-value logic operator to a pair of [`BddNodeId`] arguments.
-pub fn lift_operator<NodeId, TriBoolOperator>(
-    left: NodeId,
-    right: NodeId,
-    operator: TriBoolOperator,
-) -> NodeId
-where
-    NodeId: BddNodeId,
-    TriBoolOperator: Fn(TriBool, TriBool) -> TriBool,
-{
-    let left = left.to_three_valued();
-    let right = right.to_three_valued();
-    BddNodeId::from_three_valued(operator(left, right))
+/// Lifts a three-valued logic operator to operate on [`NodeIdAny`] identifiers.
+pub fn lift_operator<
+    TId1: NodeIdAny,
+    TId2: NodeIdAny,
+    TResultId: NodeIdAny,
+    TTriBoolOperator: Fn(TriBool, TriBool) -> TriBool,
+>(
+    operator: TTriBoolOperator,
+) -> impl Fn(TId1, TId2) -> TResultId {
+    move |left, right| {
+        let left = left.to_three_valued();
+        let right = right.to_three_valued();
+        TResultId::from_three_valued(operator(left, right))
+    }
 }
 
-/// Thee-valued conjunction of two [`BddNodeId`] identifiers.
-pub fn and<NodeId>(left: NodeId, right: NodeId) -> NodeId
-where
-    NodeId: BddNodeId,
-{
-    lift_operator(left, right, TriBool::and)
+/// Three-valued conjunction of two [`NodeIdAny`] identifiers.
+pub fn and<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+    left: TId1,
+    right: TId2,
+) -> TResultId {
+    lift_operator(TriBool::and)(left, right)
 }
 
-/// Thee-valued disjunction of two [`BddNodeId`] identifiers.
-pub fn or<NodeId>(left: NodeId, right: NodeId) -> NodeId
-where
-    NodeId: BddNodeId,
-{
-    lift_operator(left, right, TriBool::or)
+/// Three-valued disjunction of two [`NodeIdAny`] identifiers.
+pub fn or<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+    left: TId1,
+    right: TId2,
+) -> TResultId {
+    lift_operator(TriBool::or)(left, right)
 }
 
-/// Thee-valued exclusive or (non-equivalence) of two [`BddNodeId`] identifiers.
-pub fn xor<NodeId>(left: NodeId, right: NodeId) -> NodeId
-where
-    NodeId: BddNodeId,
-{
-    lift_operator(left, right, TriBool::xor)
+/// Three-valued exclusive or (non-equivalence) of two [`NodeIdAny`] identifiers.
+pub fn xor<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+    left: TId1,
+    right: TId2,
+) -> TResultId {
+    lift_operator(TriBool::xor)(left, right)
 }
 
-/// Thee-valued implication of two [`BddNodeId`] identifiers.
-pub fn implies<NodeId>(left: NodeId, right: NodeId) -> NodeId
-where
-    NodeId: BddNodeId,
-{
-    lift_operator(left, right, TriBool::implies)
+/// Three-valued implication of two [`NodeIdAny`] identifiers.
+pub fn implies<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+    left: TId1,
+    right: TId2,
+) -> TResultId {
+    lift_operator(TriBool::implies)(left, right)
 }
 
-/// Thee-valued equivalence of two [`BddNodeId`] identifiers.
-pub fn iff<NodeId>(left: NodeId, right: NodeId) -> NodeId
-where
-    NodeId: BddNodeId,
-{
-    lift_operator(left, right, TriBool::iff)
+/// Three-valued equivalence of two [`NodeIdAny`] identifiers.
+pub fn iff<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+    left: TId1,
+    right: TId2,
+) -> TResultId {
+    lift_operator(TriBool::iff)(left, right)
 }
 
 /// A type representing a three-valued logic value.
@@ -122,6 +123,12 @@ mod tests {
     #[test]
     pub fn three_valued_logic_invariants() {
         // Just a representative subset of input-output pairs for each operator.
+
+        let and = and::<NodeId32, NodeId32, NodeId32>;
+        let or = or::<NodeId32, NodeId32, NodeId32>;
+        let implies = implies::<NodeId32, NodeId32, NodeId32>;
+        let xor = xor::<NodeId32, NodeId32, NodeId32>;
+        let iff = iff::<NodeId32, NodeId32, NodeId32>;
 
         assert!(and(NodeId32::one(), NodeId32::one()).is_one());
         assert!(and(NodeId32::zero(), NodeId32::one()).is_zero());
