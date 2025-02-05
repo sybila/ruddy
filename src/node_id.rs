@@ -2,7 +2,7 @@
 //! [`NodeId32`] and [`NodeId64`].
 
 use crate::{boolean_operators::TriBool, usize_is_at_least_32_bits, usize_is_at_least_64_bits};
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::num::TryFromIntError;
 
@@ -307,7 +307,10 @@ macro_rules! impl_from {
     ($Small:ident => $Large:ident) => {
         impl From<$Small> for $Large {
             fn from(id: $Small) -> Self {
-                Self::new(id.0.into())
+                if id.is_undefined() {
+                    return Self::undefined();
+                }
+                Self(id.0.into())
             }
         }
     };
@@ -317,13 +320,41 @@ impl_from!(NodeId16 => NodeId32);
 impl_from!(NodeId16 => NodeId64);
 impl_from!(NodeId32 => NodeId64);
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct TryFromNodeIdError {
+    id: u64,
+    from_width: usize,
+    to_width: usize,
+}
+
+impl fmt::Display for TryFromNodeIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}-bit node ID {} cannot be converted to {}-bit",
+            self.from_width, self.id, self.to_width
+        )
+    }
+}
+
 macro_rules! impl_try_from {
     ($Large:ident => $Small:ident) => {
         impl TryFrom<$Large> for $Small {
-            type Error = TryFromIntError;
+            type Error = TryFromNodeIdError;
 
             fn try_from(id: $Large) -> Result<Self, Self::Error> {
-                id.0.try_into().map(Self::new)
+                if id.is_undefined() {
+                    return Ok(Self::undefined());
+                }
+
+                match id.0.try_into() {
+                    Ok(value) => Ok(Self(value)),
+                    Err(_) => Err(TryFromNodeIdError {
+                        id: u64::from(id),
+                        from_width: std::mem::size_of::<$Large>() * 8,
+                        to_width: std::mem::size_of::<$Small>() * 8,
+                    }),
+                }
             }
         }
     };
@@ -442,4 +473,66 @@ mod tests {
         let x = NodeId32::new(10);
         assert_eq!(NodeId32::from_le_bytes(x.to_le_bytes()), x);
     }
+
+    macro_rules! test_node_id_from {
+        ($Small:ident => $Large:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                assert_eq!($Large::one(), $Large::from($Small::one()));
+                assert_eq!($Large::zero(), $Large::from($Small::zero()));
+                assert_eq!($Large::new(256), $Large::from($Small::new(256)));
+            }
+        };
+    }
+
+    test_node_id_from!(NodeId16 => NodeId32, node_id_32_from_16);
+    test_node_id_from!(NodeId16 => NodeId64, node_id_64_from_16);
+    test_node_id_from!(NodeId32 => NodeId64, node_id_64_from_32);
+
+    macro_rules! test_node_id_from_undefined {
+        ($Small:ident => $Large:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                assert_eq!($Large::undefined(), $Large::from($Small::undefined()));
+            }
+        };
+    }
+
+    test_node_id_from_undefined!(NodeId16 => NodeId32, node_id_32_from_16_undefined);
+    test_node_id_from_undefined!(NodeId16 => NodeId64, node_id_64_from_16_undefined);
+    test_node_id_from_undefined!(NodeId32 => NodeId64, node_id_64_from_32_undefined);
+
+    macro_rules! test_node_id_try_from_undefined {
+        ($Small:ident => $Large:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let large_undefined = $Large::undefined();
+                let small_undefined = $Small::undefined();
+
+                assert_eq!(large_undefined, $Large::from(small_undefined));
+            }
+        };
+    }
+
+    test_node_id_try_from_undefined!(NodeId16 => NodeId32, node_id_32_try_from_16_undefined);
+    test_node_id_try_from_undefined!(NodeId16 => NodeId64, node_id_64_try_from_16_undefined);
+    test_node_id_try_from_undefined!(NodeId32 => NodeId64, node_id_64_try_from_32_undefined);
+
+    macro_rules! test_node_id_try_from {
+        ($Small:ident => $Large:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                assert_eq!($Small::zero(), $Small::try_from($Large::zero()).unwrap());
+                assert_eq!($Small::one(), $Small::try_from($Large::one()).unwrap());
+                assert_eq!(
+                    $Small::new(256),
+                    $Small::try_from($Large::new(256)).unwrap()
+                );
+            }
+        };
+    }
+
+    test_node_id_try_from!(NodeId64 => NodeId16, node_id_16_try_from_64);
+    test_node_id_try_from!(NodeId64 => NodeId32, node_id_32_try_from_64);
+    test_node_id_try_from!(NodeId32 => NodeId16, node_id_16_try_from_32);
 }

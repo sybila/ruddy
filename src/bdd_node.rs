@@ -1,13 +1,14 @@
 //! Defines the representation of BDD nodes. Includes: [`BddNodeAny`], [`BddNode16`],
 //! [`BddNode32`], and [`BddNode64`].
 
-use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::num::TryFromIntError;
+use std::{convert::TryFrom, fmt};
 
 use crate::{
-    node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
-    variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny},
+    node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny, TryFromNodeIdError},
+    variable_id::{
+        TryFromVarIdPackedError, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
+    },
 };
 
 /// An internal trait implemented by types that can serve as BDD nodes. Each BDD node is either
@@ -182,16 +183,37 @@ impl_from!(BddNode16 => BddNode32);
 impl_from!(BddNode16 => BddNode64);
 impl_from!(BddNode32 => BddNode64);
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum TryFromBddNodeError {
+    Variable(TryFromVarIdPackedError),
+    Low(TryFromNodeIdError),
+    High(TryFromNodeIdError),
+}
+
+impl fmt::Display for TryFromBddNodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "bdd node cannot be converted: ")?;
+        match self {
+            Self::Variable(e) => write!(f, "{}", e),
+            Self::Low(e) => write!(f, "low child {}", e),
+            Self::High(e) => write!(f, "high child {}", e),
+        }
+    }
+}
+
 macro_rules! impl_try_from {
     ($Large:ident => $Small:ident) => {
         impl TryFrom<$Large> for $Small {
-            type Error = TryFromIntError;
+            type Error = TryFromBddNodeError;
 
             fn try_from(node: $Large) -> Result<Self, Self::Error> {
                 Ok(Self {
-                    variable: node.variable().try_into()?,
-                    low: node.low().try_into()?,
-                    high: node.high().try_into()?,
+                    variable: node
+                        .variable()
+                        .try_into()
+                        .map_err(TryFromBddNodeError::Variable)?,
+                    low: node.low().try_into().map_err(TryFromBddNodeError::Low)?,
+                    high: node.high().try_into().map_err(TryFromBddNodeError::High)?,
                 })
             }
         }

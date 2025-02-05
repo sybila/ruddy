@@ -1,7 +1,11 @@
 //! Defines the representation of variable identifiers. Includes: [`VarIdPackedAny`],
 //! [`VarIdPacked16`], [`VarIdPacked32`], and [`VarIdPacked64`].
 
-use std::{convert::TryFrom, fmt::Debug, hash::Hash, num::TryFromIntError};
+use std::{
+    convert::TryFrom,
+    fmt::{self, Debug},
+    hash::Hash,
+};
 
 /// An internal trait implemented by types that can serve as BDD variable identifiers.
 /// The core feature of this trait is that a variable ID must have one designated
@@ -317,7 +321,11 @@ macro_rules! impl_from {
     ($Small:ident => $Large:ident) => {
         impl From<$Small> for $Large {
             fn from(id: $Small) -> Self {
-                Self::new(id.0.into())
+                if id.is_undefined() {
+                    return Self::undefined();
+                }
+
+                Self(id.0.into())
             }
         }
     };
@@ -327,13 +335,49 @@ impl_from!(VarIdPacked16 => VarIdPacked32);
 impl_from!(VarIdPacked16 => VarIdPacked64);
 impl_from!(VarIdPacked32 => VarIdPacked64);
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct TryFromVarIdPackedError {
+    id: u64,
+    from_width: usize,
+    to_width: usize,
+}
+
+impl fmt::Display for TryFromVarIdPackedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}-bit variable ID {} cannot be converted to {}-bit",
+            self.from_width, self.id, self.to_width
+        )
+    }
+}
+
 macro_rules! impl_try_from {
     ($Large:ident => $Small:ident) => {
         impl TryFrom<$Large> for $Small {
-            type Error = TryFromIntError;
+            type Error = TryFromVarIdPackedError;
 
             fn try_from(id: $Large) -> Result<Self, Self::Error> {
-                id.0.try_into().map(Self)
+                if id.is_undefined() {
+                    return Ok(Self::undefined());
+                }
+
+                if id.0 > Self::MAX_ID.into() {
+                    return Err(TryFromVarIdPackedError {
+                        id: id.unpack_u64(),
+                        from_width: std::mem::size_of::<$Large>() * 8,
+                        to_width: std::mem::size_of::<$Small>() * 8,
+                    });
+                }
+
+                match id.0.try_into() {
+                    Ok(id) => Ok(Self(id)),
+                    Err(_) => Err(TryFromVarIdPackedError {
+                        id: id.unpack_u64(),
+                        from_width: std::mem::size_of::<$Large>() * 8,
+                        to_width: std::mem::size_of::<$Small>() * 8,
+                    }),
+                }
             }
         }
     };
@@ -465,4 +509,127 @@ mod tests {
     test_var_packed_unpack_invalid!(var_packed_16_unpack_invalid, VarIdPacked16);
     test_var_packed_unpack_invalid!(var_packed_32_unpack_invalid, VarIdPacked32);
     test_var_packed_unpack_invalid!(var_packed_64_unpack_invalid, VarIdPacked64);
+
+    macro_rules! test_var_packed_from_undefined {
+        ($Small:ident => $Large:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                assert_eq!($Large::undefined(), $Large::from($Small::undefined()));
+            }
+        };
+    }
+
+    test_var_packed_from_undefined!(VarIdPacked16 => VarIdPacked32, var_packed_16_from_32_undefined);
+    test_var_packed_from_undefined!(VarIdPacked16 => VarIdPacked64, var_packed_16_from_64_undefined);
+    test_var_packed_from_undefined!(VarIdPacked32 => VarIdPacked64, var_packed_32_from_64_undefined);
+
+    macro_rules! test_var_packed_from {
+        ($Small:ident => $Large:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let mut small = $Small::new(256);
+                small.increment_parents();
+                small.increment_parents();
+
+                let large = $Large::from(small);
+
+                assert_eq!(large.unpack(), 256);
+                assert!(!large.use_cache());
+                assert!(large.has_many_parents());
+
+                let mut small = $Small::new(0);
+                small.set_use_cache(true);
+
+                let large = $Large::from(small);
+
+                assert_eq!(large.unpack(), 0);
+                assert!(large.use_cache());
+                assert!(!large.has_many_parents());
+
+                let mut small = $Small::new(1);
+                small.increment_parents();
+
+                let large = $Large::from(small);
+
+                assert_eq!(large.unpack(), 1);
+                assert!(!large.use_cache());
+                assert!(!large.has_many_parents());
+            }
+        };
+    }
+
+    test_var_packed_from!(VarIdPacked16 => VarIdPacked32, var_packed_16_from_32);
+    test_var_packed_from!(VarIdPacked16 => VarIdPacked64, var_packed_16_from_64);
+    test_var_packed_from!(VarIdPacked32 => VarIdPacked64, var_packed_32_from_64);
+
+    macro_rules! test_var_packed_try_from_undefined {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                assert_eq!(
+                    $Small::undefined(),
+                    $Small::try_from($Large::undefined()).unwrap()
+                );
+            }
+        };
+    }
+
+    test_var_packed_try_from_undefined!(VarIdPacked32 => VarIdPacked16, var_packed_16_try_from_32_undefined);
+    test_var_packed_try_from_undefined!(VarIdPacked64 => VarIdPacked16, var_packed_16_try_from_64_undefined);
+    test_var_packed_try_from_undefined!(VarIdPacked64 => VarIdPacked32, var_packed_32_try_from_64_undefined);
+
+    macro_rules! test_var_packed_try_from_invalid {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            #[should_panic]
+            fn $func() {
+                let large = $Large::new(($Small::MAX_ID + 1).into());
+                let _ = $Small::try_from(large).unwrap();
+            }
+        };
+    }
+
+    test_var_packed_try_from_invalid!(VarIdPacked32 => VarIdPacked16, var_packed_16_try_from_32_invalid);
+    test_var_packed_try_from_invalid!(VarIdPacked64 => VarIdPacked16, var_packed_16_try_from_64_invalid);
+    test_var_packed_try_from_invalid!(VarIdPacked64 => VarIdPacked32, var_packed_32_try_from_64_invalid);
+
+    macro_rules! test_var_packed_try_from {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let mut large = $Large::new(256);
+                large.increment_parents();
+                large.increment_parents();
+
+                let small = $Small::try_from(large).unwrap();
+
+                assert_eq!(small.unpack(), 256);
+
+                assert!(!small.use_cache());
+                assert!(small.has_many_parents());
+
+                let mut large = $Large::new(0);
+                large.set_use_cache(true);
+
+                let small = $Small::try_from(large).unwrap();
+
+                assert_eq!(small.unpack(), 0);
+                assert!(small.use_cache());
+                assert!(!small.has_many_parents());
+
+                let mut large = $Large::new(1);
+                large.increment_parents();
+
+                let small = $Small::try_from(large).unwrap();
+
+                assert_eq!(small.unpack(), 1);
+                assert!(!small.use_cache());
+                assert!(!small.has_many_parents());
+            }
+        };
+    }
+
+    test_var_packed_try_from!(VarIdPacked32 => VarIdPacked16, var_packed_16_try_from_32);
+    test_var_packed_try_from!(VarIdPacked64 => VarIdPacked16, var_packed_16_try_from_64);
+    test_var_packed_try_from!(VarIdPacked64 => VarIdPacked32, var_packed_32_try_from_64);
 }
