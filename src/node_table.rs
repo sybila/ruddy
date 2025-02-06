@@ -49,10 +49,10 @@ pub trait NodeTableAny: Default {
 }
 
 /// An error that is returned when [`NodeTableAny`] is full and a new node cannot be added.
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeTableFullError {}
 
-impl fmt::Debug for NodeTableFullError {
+impl fmt::Display for NodeTableFullError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         "ensuring node on a node table that has filled its capacity".fmt(f)
     }

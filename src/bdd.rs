@@ -102,34 +102,34 @@ macro_rules! impl_bdd {
 
             fn new_true() -> Self {
                 Self {
-                    root: <$NodeId>::one(),
-                    nodes: vec![<$Node>::zero(), <$Node>::one()],
+                    root: $NodeId::one(),
+                    nodes: vec![$Node::zero(), $Node::one()],
                 }
             }
 
             fn new_false() -> Self {
                 Self {
-                    root: <$NodeId>::zero(),
-                    nodes: vec![<$Node>::zero()],
+                    root: $NodeId::zero(),
+                    nodes: vec![$Node::zero()],
                 }
             }
 
             fn new_literal(var: Self::VarId, value: bool) -> Self {
-                let root = <$NodeId>::new(2);
+                let root = $NodeId::new(2);
                 let low = if value {
-                    <$NodeId>::one()
+                    $NodeId::one()
                 } else {
-                    <$NodeId>::zero()
+                    $NodeId::zero()
                 };
                 let high = if value {
-                    <$NodeId>::zero()
+                    $NodeId::zero()
                 } else {
-                    <$NodeId>::one()
+                    $NodeId::one()
                 };
-                let node = <$Node>::new(var, low, high);
+                let node = $Node::new(var, low, high);
                 Self {
                     root,
-                    nodes: vec![<$Node>::zero(), <$Node>::one(), node],
+                    nodes: vec![$Node::zero(), $Node::one(), node],
                 }
             }
 
