@@ -268,24 +268,9 @@ mod tests {
         };
     }
 
-    test_bdd_node_invariants!(
-        test_bdd_node_16_invariants,
-        BddNode16,
-        VarIdPacked16,
-        NodeId16
-    );
-    test_bdd_node_invariants!(
-        test_bdd_node_32_invariants,
-        BddNode32,
-        VarIdPacked32,
-        NodeId32
-    );
-    test_bdd_node_invariants!(
-        test_bdd_node_64_invariants,
-        BddNode64,
-        VarIdPacked64,
-        NodeId64
-    );
+    test_bdd_node_invariants!(bdd_node_16_invariants, BddNode16, VarIdPacked16, NodeId16);
+    test_bdd_node_invariants!(bdd_node_32_invariants, BddNode32, VarIdPacked32, NodeId32);
+    test_bdd_node_invariants!(bdd_node_64_invariants, BddNode64, VarIdPacked64, NodeId64);
 
     macro_rules! test_bdd_node_delegation {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
@@ -303,24 +288,9 @@ mod tests {
         };
     }
 
-    test_bdd_node_delegation!(
-        test_bdd_node_16_delegation,
-        BddNode16,
-        VarIdPacked16,
-        NodeId16
-    );
-    test_bdd_node_delegation!(
-        test_bdd_node_32_delegation,
-        BddNode32,
-        VarIdPacked32,
-        NodeId32
-    );
-    test_bdd_node_delegation!(
-        test_bdd_node_64_delegation,
-        BddNode64,
-        VarIdPacked64,
-        NodeId64
-    );
+    test_bdd_node_delegation!(bdd_node_16_delegation, BddNode16, VarIdPacked16, NodeId16);
+    test_bdd_node_delegation!(bdd_node_32_delegation, BddNode32, VarIdPacked32, NodeId32);
+    test_bdd_node_delegation!(bdd_node_64_delegation, BddNode64, VarIdPacked64, NodeId64);
 
     macro_rules! test_bdd_node_invalid_1 {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
@@ -332,24 +302,9 @@ mod tests {
         };
     }
 
-    test_bdd_node_invalid_1!(
-        test_bdd_node_16_invalid_1,
-        BddNode16,
-        VarIdPacked16,
-        NodeId16
-    );
-    test_bdd_node_invalid_1!(
-        test_bdd_node_32_invalid_1,
-        BddNode32,
-        VarIdPacked32,
-        NodeId32
-    );
-    test_bdd_node_invalid_1!(
-        test_bdd_node_64_invalid_1,
-        BddNode64,
-        VarIdPacked64,
-        NodeId64
-    );
+    test_bdd_node_invalid_1!(bdd_node_16_invalid_1, BddNode16, VarIdPacked16, NodeId16);
+    test_bdd_node_invalid_1!(bdd_node_32_invalid_1, BddNode32, VarIdPacked32, NodeId32);
+    test_bdd_node_invalid_1!(bdd_node_64_invalid_1, BddNode64, VarIdPacked64, NodeId64);
 
     macro_rules! test_bdd_node_invalid_2 {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
@@ -361,24 +316,9 @@ mod tests {
         };
     }
 
-    test_bdd_node_invalid_2!(
-        test_bdd_node_16_invalid_2,
-        BddNode16,
-        VarIdPacked16,
-        NodeId16
-    );
-    test_bdd_node_invalid_2!(
-        test_bdd_node_32_invalid_2,
-        BddNode32,
-        VarIdPacked32,
-        NodeId32
-    );
-    test_bdd_node_invalid_2!(
-        test_bdd_node_64_invalid_2,
-        BddNode64,
-        VarIdPacked64,
-        NodeId64
-    );
+    test_bdd_node_invalid_2!(bdd_node_16_invalid_2, BddNode16, VarIdPacked16, NodeId16);
+    test_bdd_node_invalid_2!(bdd_node_32_invalid_2, BddNode32, VarIdPacked32, NodeId32);
+    test_bdd_node_invalid_2!(bdd_node_64_invalid_2, BddNode64, VarIdPacked64, NodeId64);
 
     macro_rules! test_bdd_node_invalid_3 {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
@@ -390,22 +330,7 @@ mod tests {
         };
     }
 
-    test_bdd_node_invalid_3!(
-        test_bdd_node_16_invalid_3,
-        BddNode16,
-        VarIdPacked16,
-        NodeId16
-    );
-    test_bdd_node_invalid_3!(
-        test_bdd_node_32_invalid_3,
-        BddNode32,
-        VarIdPacked32,
-        NodeId32
-    );
-    test_bdd_node_invalid_3!(
-        test_bdd_node_64_invalid_3,
-        BddNode64,
-        VarIdPacked64,
-        NodeId64
-    );
+    test_bdd_node_invalid_3!(bdd_node_16_invalid_3, BddNode16, VarIdPacked16, NodeId16);
+    test_bdd_node_invalid_3!(bdd_node_32_invalid_3, BddNode32, VarIdPacked32, NodeId32);
+    test_bdd_node_invalid_3!(bdd_node_64_invalid_3, BddNode64, VarIdPacked64, NodeId64);
 }

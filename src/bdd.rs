@@ -327,7 +327,7 @@ mod tests {
         };
     }
 
-    test_bdd_invariants!(test_bdd16_invariants, Bdd16, VarIdPacked16, NodeId16);
-    test_bdd_invariants!(test_bdd32_invariants, Bdd32, VarIdPacked32, NodeId32);
-    test_bdd_invariants!(test_bdd64_invariants, Bdd64, VarIdPacked64, NodeId64);
+    test_bdd_invariants!(bdd16_invariants, Bdd16, VarIdPacked16, NodeId16);
+    test_bdd_invariants!(bdd32_invariants, Bdd32, VarIdPacked32, NodeId32);
+    test_bdd_invariants!(bdd64_invariants, Bdd64, VarIdPacked64, NodeId64);
 }

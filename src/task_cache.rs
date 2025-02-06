@@ -351,7 +351,7 @@ mod tests {
     use crate::task_cache::{TaskCache32, TaskCacheAny};
 
     #[test]
-    pub fn test_task_cache_basic() {
+    pub fn task_cache_basic() {
         let mut cache: TaskCache32<NodeId32> = TaskCache32::with_log_size(4);
         let cache2: TaskCache32<NodeId32> = TaskCache32::with_log_size_and_log_capacity(4, 20);
         assert_eq!(cache.size(), cache2.size());
@@ -378,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_task_cache_collisions() {
+    pub fn task_cache_collisions() {
         let p0 = NodeId32::zero();
         let p1 = NodeId32::one();
         let p2 = NodeId32::new(2);

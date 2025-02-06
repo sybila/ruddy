@@ -395,7 +395,7 @@ mod tests {
     use crate::boolean_operators::TriBool;
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
 
-    fn test_node_invariants<Node: NodeIdAny>() {
+    fn node_invariants<Node: NodeIdAny>() {
         assert!(Node::undefined().is_undefined());
         assert!(Node::zero().is_zero());
         assert!(Node::one().is_one());
@@ -425,51 +425,51 @@ mod tests {
         assert_eq!(Node::zero().to_three_valued(), TriBool::False);
     }
 
-    fn test_node_invalid_as_usize<Node: NodeIdAny>() {
+    fn node_invalid_as_usize<Node: NodeIdAny>() {
         Node::undefined().as_usize();
     }
 
     #[test]
-    pub fn test_node_id_16_invariants() {
-        test_node_invariants::<NodeId16>();
+    pub fn node_id_16_invariants() {
+        node_invariants::<NodeId16>();
     }
 
     #[test]
     #[should_panic]
-    pub fn test_node_id_16_as_usize() {
-        test_node_invalid_as_usize::<NodeId16>()
+    pub fn node_id_16_as_usize() {
+        node_invalid_as_usize::<NodeId16>()
     }
 
     #[test]
-    pub fn test_node_id_32_invariants() {
-        test_node_invariants::<NodeId32>();
-    }
-
-    #[test]
-    #[should_panic]
-    pub fn test_node_id_32_as_usize() {
-        test_node_invalid_as_usize::<NodeId32>()
-    }
-
-    #[test]
-    pub fn test_node_id_64_invariants() {
-        test_node_invariants::<NodeId64>();
+    pub fn node_id_32_invariants() {
+        node_invariants::<NodeId32>();
     }
 
     #[test]
     #[should_panic]
-    pub fn test_node_id_64_as_usize() {
-        test_node_invalid_as_usize::<NodeId64>()
+    pub fn node_id_32_as_usize() {
+        node_invalid_as_usize::<NodeId32>()
+    }
+
+    #[test]
+    pub fn node_id_64_invariants() {
+        node_invariants::<NodeId64>();
     }
 
     #[test]
     #[should_panic]
-    pub fn test_node_32_invalid_new() {
+    pub fn node_id_64_as_usize() {
+        node_invalid_as_usize::<NodeId64>()
+    }
+
+    #[test]
+    #[should_panic]
+    pub fn node_32_invalid_new() {
         NodeId32::new(NodeId32::MAX_ID + 1);
     }
 
     #[test]
-    pub fn test_node_32_bytes() {
+    pub fn node_32_bytes() {
         let x = NodeId32::new(10);
         assert_eq!(NodeId32::from_le_bytes(x.to_le_bytes()), x);
     }
