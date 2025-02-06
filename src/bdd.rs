@@ -42,6 +42,12 @@ pub trait BddAny: Debug + Clone {
     /// Create a new BDD representing the boolean function `var=value`.
     fn new_literal(var: Self::VarId, value: bool) -> Self;
 
+    /// Returns `true` if the BDD represents the constant boolean function `true`.
+    fn is_true(&self) -> bool;
+
+    /// Returns `true` if the BDD represents the constant boolean function `false`.
+    fn is_false(&self) -> bool;
+
     /// Create a new instance of [`BddAny`] using a raw list of [`BddNodeAny`] items and a single
     /// [`NodeIdAny`] root.
     ///
@@ -84,6 +90,27 @@ macro_rules! impl_bdd {
                 self.nodes
             }
 
+            /// Calculate a BDD representing the boolean formula `!self` (negation).
+            fn not(&self) -> Self {
+                if self.is_true() {
+                    return Self::new_false();
+                }
+                if self.is_false() {
+                    return Self::new_true();
+                }
+
+                let mut nodes = self.nodes.clone();
+                for node in nodes.iter_mut().skip(2) {
+                    node.low = node.low.flipped_if_terminal();
+                    node.high = node.high.flipped_if_terminal();
+                }
+
+                Self {
+                    root: self.root,
+                    nodes,
+                }
+            }
+
             /// Compares the two BDDs structurally, i.e. by comparing their roots and the
             /// underlying lists of nodes.
             ///
@@ -112,6 +139,16 @@ macro_rules! impl_bdd {
                     root: $NodeId::zero(),
                     nodes: vec![$Node::zero()],
                 }
+            }
+
+            fn is_true(&self) -> bool {
+                debug_assert!(self.root.is_one() == (self.nodes.len() == 2));
+                self.root.is_one()
+            }
+
+            fn is_false(&self) -> bool {
+                debug_assert!(self.root.is_zero() == (self.nodes.len() == 1));
+                self.root.is_zero()
             }
 
             fn new_literal(var: Self::VarId, value: bool) -> Self {
@@ -218,6 +255,15 @@ impl Bdd {
         Self::Size16(Bdd16::new_literal(var, value))
     }
 
+    /// Calculate a [`Bdd`] representing the boolean formula `!self` (negation).
+    pub fn not(&self) -> Self {
+        match self {
+            Bdd::Size16(bdd) => Bdd::Size16(bdd.not()),
+            Bdd::Size32(bdd) => Bdd::Size32(bdd.not()),
+            Bdd::Size64(bdd) => Bdd::Size64(bdd.not()),
+        }
+    }
+
     /// Shrink the BDD to a [`Bdd16`], if it has less than `2**8` nodes or a [`Bdd32`] if it has
     /// less than `2**16` nodes. This function is a no-op otherwise.
     pub(crate) fn shrink(self) -> Self {
@@ -301,6 +347,24 @@ mod tests {
     use crate::bdd_node::BddNodeAny;
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
+
+    macro_rules! test_bdd_not_invariants {
+        ($func:ident, $Bdd:ident, $VarId:ident) => {
+            #[test]
+            pub fn $func() {
+                assert!($Bdd::new_true().not().structural_eq(&$Bdd::new_false()));
+                assert!($Bdd::new_false().not().structural_eq(&$Bdd::new_true()));
+
+                let v = $VarId::new(1);
+                let bdd = $Bdd::new_literal(v, true);
+                assert!(bdd.not().not().structural_eq(&bdd));
+            }
+        };
+    }
+
+    test_bdd_not_invariants!(bdd16_not_invariants, Bdd16, VarIdPacked16);
+    test_bdd_not_invariants!(bdd32_not_invariants, Bdd32, VarIdPacked32);
+    test_bdd_not_invariants!(bdd64_not_invariants, Bdd64, VarIdPacked64);
 
     macro_rules! test_bdd_invariants {
         ($func:ident, $Bdd:ident, $VarId:ident, $NodeId:ident) => {

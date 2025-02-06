@@ -30,6 +30,17 @@ pub trait NodeIdAny:
     /// Checks if this ID is [`NodeIdAny::zero`] or [`NodeIdAny::one`].
     fn is_terminal(self) -> bool;
 
+    /// Return the flipped terminal ID if the ID is terminal (`0` -> `1`, `1` -> `0`).
+    fn flipped_if_terminal(self) -> Self {
+        if self.is_zero() {
+            Self::one()
+        } else if self.is_one() {
+            Self::zero()
+        } else {
+            self
+        }
+    }
+
     /// Convert the ID into a [`TriBool`], where the terminal node 0 is mapped to `False`,
     /// the terminal node 1 is mapped to `True`, and all other nodes are mapped to `Indeterminate`.
     fn to_three_valued(self) -> TriBool {

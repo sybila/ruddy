@@ -132,9 +132,9 @@ macro_rules! impl_bdd_node {
 /// counter" and a "use cache" boolean flag.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BddNode16 {
-    variable: VarIdPacked16,
-    low: NodeId16,
-    high: NodeId16,
+    pub variable: VarIdPacked16,
+    pub low: NodeId16,
+    pub high: NodeId16,
 }
 
 impl_bdd_node!(BddNode16, NodeId16, VarIdPacked16);
@@ -145,9 +145,9 @@ impl_bdd_node!(BddNode16, NodeId16, VarIdPacked16);
 /// counter" and a "use cache" boolean flag.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BddNode32 {
-    variable: VarIdPacked32,
-    low: NodeId32,
-    high: NodeId32,
+    pub variable: VarIdPacked32,
+    pub low: NodeId32,
+    pub high: NodeId32,
 }
 
 impl_bdd_node!(BddNode32, NodeId32, VarIdPacked32);
@@ -158,9 +158,9 @@ impl_bdd_node!(BddNode32, NodeId32, VarIdPacked32);
 /// counter" and a "use cache" boolean flag.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BddNode64 {
-    variable: VarIdPacked64,
-    low: NodeId64,
-    high: NodeId64,
+    pub variable: VarIdPacked64,
+    pub low: NodeId64,
+    pub high: NodeId64,
 }
 
 impl_bdd_node!(BddNode64, NodeId64, VarIdPacked64);
