@@ -266,6 +266,7 @@ fn apply_any<
             Err(_) => {
                 results.push(low_result);
                 results.push(high_result);
+                stack.push((left_id, right_id, variable));
 
                 return Err(ApplyState {
                     stack,
