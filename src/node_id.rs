@@ -4,7 +4,6 @@
 use crate::{boolean_operators::TriBool, usize_is_at_least_32_bits, usize_is_at_least_64_bits};
 use std::fmt::{self, Debug};
 use std::hash::Hash;
-use std::num::TryFromIntError;
 
 /// An internal trait implemented by types that can serve as BDD node identifiers. The core
 /// property of this trait is that a node ID must have one designated "undefined" value
@@ -375,13 +374,45 @@ impl_try_from!(NodeId64 => NodeId16);
 impl_try_from!(NodeId64 => NodeId32);
 impl_try_from!(NodeId32 => NodeId16);
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct TryFromUsizeError {
+    id: usize,
+    to_width: usize,
+}
+
+impl fmt::Display for TryFromUsizeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "cannot convert usize {} to {}-bit node ID",
+            self.id, self.to_width
+        )
+    }
+}
+
 macro_rules! impl_try_from_usize {
     ($NodeId:ident) => {
         impl TryFrom<usize> for $NodeId {
-            type Error = TryFromIntError;
+            type Error = TryFromUsizeError;
 
             fn try_from(value: usize) -> Result<Self, Self::Error> {
-                value.try_into().map(Self::new)
+                value
+                    .try_into()
+                    .map(Self)
+                    .map_err(|_| TryFromUsizeError {
+                        id: value,
+                        to_width: std::mem::size_of::<$NodeId>() * 8,
+                    })
+                    .and_then(|id| {
+                        if id.is_undefined() {
+                            Err(TryFromUsizeError {
+                                id: value,
+                                to_width: std::mem::size_of::<$NodeId>() * 8,
+                            })
+                        } else {
+                            Ok(id)
+                        }
+                    })
             }
         }
     };
@@ -405,6 +436,7 @@ impl AsNodeId<NodeId64> for NodeId64 {}
 mod tests {
     use crate::boolean_operators::TriBool;
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
+    use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
 
     fn node_invariants<Node: NodeIdAny>() {
         assert!(Node::undefined().is_undefined());
@@ -561,4 +593,25 @@ mod tests {
     test_node_id_try_from_invalid!(NodeId64 => NodeId16, u64, node_id_16_try_from_64_invalid);
     test_node_id_try_from_invalid!(NodeId64 => NodeId32, u64, node_id_32_try_from_64_invalid);
     test_node_id_try_from_invalid!(NodeId32 => NodeId16, u32, node_id_16_try_from_32_invalid);
+
+    #[test]
+    #[should_panic]
+    fn node_id_16_try_from_usize_invalid() {
+        let m = usize::from(NodeId16::MAX_ID) + 1;
+        let _ = NodeId16::try_from(m).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_32_try_from_usize_invalid() {
+        let m = usize_is_at_least_32_bits(NodeId32::MAX_ID) + 1;
+        let _ = NodeId32::try_from(m).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_64_try_from_usize_invalid() {
+        let m = usize_is_at_least_64_bits(NodeId64::MAX_ID) + 1;
+        let _ = NodeId64::try_from(m).unwrap();
+    }
 }
