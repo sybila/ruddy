@@ -530,7 +530,7 @@ mod tests {
     test_node_id_try_from_undefined!(NodeId32 => NodeId64, node_id_64_try_from_32_undefined);
 
     macro_rules! test_node_id_try_from {
-        ($Small:ident => $Large:ident, $func:ident) => {
+        ($Large:ident => $Small:ident, $func:ident) => {
             #[test]
             fn $func() {
                 assert_eq!($Small::zero(), $Small::try_from($Large::zero()).unwrap());
@@ -546,4 +546,19 @@ mod tests {
     test_node_id_try_from!(NodeId64 => NodeId16, node_id_16_try_from_64);
     test_node_id_try_from!(NodeId64 => NodeId32, node_id_32_try_from_64);
     test_node_id_try_from!(NodeId32 => NodeId16, node_id_16_try_from_32);
+
+    macro_rules! test_node_id_try_from_invalid {
+        ($Large:ident => $Small:ident, $LargeWidth:ident, $func:ident) => {
+            #[test]
+            #[should_panic]
+            fn $func() {
+                let large = $Large::new($LargeWidth::from($Small::MAX_ID) + 2);
+                let _ = $Small::try_from(large).unwrap();
+            }
+        };
+    }
+
+    test_node_id_try_from_invalid!(NodeId64 => NodeId16, u64, node_id_16_try_from_64_invalid);
+    test_node_id_try_from_invalid!(NodeId64 => NodeId32, u64, node_id_32_try_from_64_invalid);
+    test_node_id_try_from_invalid!(NodeId32 => NodeId16, u32, node_id_16_try_from_32_invalid);
 }
