@@ -50,13 +50,17 @@ pub trait NodeTableAny: Default {
 
 /// An error that is returned when [`NodeTableAny`] is full and a new node cannot be added.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct NodeTableFullError {}
+pub struct NodeTableFullError {
+    width: usize,
+}
 
 impl fmt::Display for NodeTableFullError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        "ensuring node on a node table that has filled its capacity".fmt(f)
+        write!(f, "ensuring node on a full {}-bit node table", self.width)
     }
 }
+
+impl std::error::Error for NodeTableFullError {}
 
 /// An element of the [`NodeTable`]. Consists of a [`BddNodeAny`] node, and three node pointers,
 /// referencing the `parent` tree that is rooted in this entry, plus two `next_parent` pointers
@@ -231,7 +235,9 @@ impl<
 
         // Check that the node table is not full. We also save the ID of the new
         // node for later use.
-        let new_node = TNodeId::try_from(self.entries.len()).map_err(|_| NodeTableFullError {})?;
+        let new_node = TNodeId::try_from(self.entries.len()).map_err(|_| NodeTableFullError {
+            width: std::mem::size_of::<TNodeId>() * 8,
+        })?;
 
         debug_assert!((low.as_usize()) < self.entries.len());
         debug_assert!((high.as_usize()) < self.entries.len());

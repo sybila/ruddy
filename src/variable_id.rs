@@ -352,6 +352,8 @@ impl fmt::Display for TryFromVarIdPackedError {
     }
 }
 
+impl std::error::Error for TryFromVarIdPackedError {}
+
 macro_rules! impl_try_from {
     ($Large:ident => $Small:ident) => {
         impl TryFrom<$Large> for $Small {

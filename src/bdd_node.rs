@@ -201,6 +201,8 @@ impl fmt::Display for TryFromBddNodeError {
     }
 }
 
+impl std::error::Error for TryFromBddNodeError {}
+
 macro_rules! impl_try_from {
     ($Large:ident => $Small:ident) => {
         impl TryFrom<$Large> for $Small {
