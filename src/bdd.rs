@@ -255,6 +255,23 @@ impl Bdd {
         Self::Size16(Bdd16::new_literal(var, value))
     }
 
+    /// Returns the number of nodes in the BDD, including the terminal nodes.
+    pub fn len(&self) -> usize {
+        match self {
+            Bdd::Size16(bdd) => bdd.len(),
+            Bdd::Size32(bdd) => bdd.len(),
+            Bdd::Size64(bdd) => bdd.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Bdd::Size16(bdd) => bdd.is_empty(),
+            Bdd::Size32(bdd) => bdd.is_empty(),
+            Bdd::Size64(bdd) => bdd.is_empty(),
+        }
+    }
+
     /// Calculate a [`Bdd`] representing the boolean formula `!self` (negation).
     pub fn not(&self) -> Self {
         match self {
@@ -343,7 +360,7 @@ impl Bdd {
 
 #[cfg(test)]
 mod tests {
-    use crate::bdd::{Bdd16, Bdd32, Bdd64, BddAny};
+    use crate::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::bdd_node::BddNodeAny;
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
@@ -394,4 +411,153 @@ mod tests {
     test_bdd_invariants!(bdd16_invariants, Bdd16, VarIdPacked16, NodeId16);
     test_bdd_invariants!(bdd32_invariants, Bdd32, VarIdPacked32, NodeId32);
     test_bdd_invariants!(bdd64_invariants, Bdd64, VarIdPacked64, NodeId64);
+
+    #[test]
+    fn bdd_expands_to_32_and_shrinks_to_16() {
+        let n: u16 = 16;
+        // Create a BDD with 2n-2 variables v_1, ..., v_{2n-2} for the function
+        // f(v_1, ..., v_{2n-2}) = v_1 * v_2 + v_3 * v_4 + ... + v_{2n-3} * v_{2n-2}.
+        // with the variable ordering v_1 < v_3 < ... < v_{2n-3} < v_2 < v_4 < ... < v_{2n-2}.
+        // The BDD will have 2^n nodes, hence it should grow to a 32-bit BDD.
+        let low_vars: Vec<_> = (1..n).map(VarIdPacked16::new).collect();
+        let high_vars: Vec<_> = (n + 1..2 * n).map(VarIdPacked16::new).collect();
+
+        let mut bdd = Bdd::new_false();
+        let mut bdd32 = Bdd32::new_false();
+
+        for i in 0..high_vars.len() {
+            let prod =
+                Bdd::new_literal(low_vars[i], true).and(&Bdd::new_literal(high_vars[i], true));
+
+            let prod32 = Bdd32::new_literal(low_vars[i].into(), true)
+                .and(&Bdd32::new_literal(high_vars[i].into(), true))
+                .unwrap();
+
+            bdd = bdd.or(&prod);
+            bdd32 = bdd32.or(&prod32).unwrap();
+        }
+
+        assert_eq!(bdd.len(), 1 << n);
+        assert_eq!(bdd32.len(), 1 << n);
+
+        // Check that the BDD grew correctly.
+        match &bdd {
+            Bdd::Size32(bdd_inner) => {
+                // both checks should not be necessary, but they are here as a sanity check
+                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd32));
+            }
+            _ => panic!("expected 32-bit BDD"),
+        }
+
+        // Now, transform the BDD into the function
+        // f(v_1, ..., v_{2n-2}) = v_1 * v_2 * v_3 * v_4 * ... * v_{2n-3} * v_{2n-2}.
+        // The BDD will have 32 nodes and hence should shrink to a 16-bit BDD.
+
+        let mut bdd16_ands = Bdd16::new_true();
+
+        for i in 0..high_vars.len() {
+            let prod =
+                Bdd::new_literal(low_vars[i], true).and(&Bdd::new_literal(high_vars[i], true));
+
+            let prod16 = Bdd16::new_literal(low_vars[i], true)
+                .and(&Bdd16::new_literal(high_vars[i], true))
+                .unwrap();
+
+            bdd = bdd.and(&prod);
+            bdd16_ands = bdd16_ands.and(&prod16).unwrap();
+        }
+
+        assert_eq!(bdd.len(), usize::from(2 * n));
+
+        // Check that the BDD shrank correctly.
+        match &bdd {
+            Bdd::Size16(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd16_ands).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd16_ands));
+            }
+            _ => panic!("expected 16-bit BDD"),
+        }
+    }
+
+    /// Since creating a BDD with more than 2^32 nodes is impractical, we
+    /// have to create a 64-bit BDD manually and then test if it shrinks correctly.
+    ///
+    /// See [`bdd_expands_to_32_and_shrinks_to_16`] for details on the BDD structure.
+    #[test]
+    fn bdd_64_shrink_to_32() {
+        let n = 12;
+        let low_vars: Vec<_> = (1..n).map(VarIdPacked64::new).collect();
+        let high_vars: Vec<_> = (n + 1..2 * n).map(VarIdPacked64::new).collect();
+
+        let mut bdd64 = Bdd64::new_false();
+        let mut bdd32 = Bdd32::new_false();
+
+        for i in 0..high_vars.len() {
+            let prod = Bdd64::new_literal(low_vars[i], true)
+                .and(&Bdd64::new_literal(high_vars[i], true))
+                .unwrap();
+
+            let prod32 = Bdd32::new_literal(low_vars[i].try_into().unwrap(), true)
+                .and(&Bdd32::new_literal(high_vars[i].try_into().unwrap(), true))
+                .unwrap();
+
+            bdd64 = bdd64.or(&prod).unwrap();
+            bdd32 = bdd32.or(&prod32).unwrap();
+        }
+
+        assert_eq!(bdd64.len(), 1 << n);
+
+        let bdd = Bdd::Size64(bdd64).shrink();
+
+        assert_eq!(bdd.len(), 1 << n);
+
+        match bdd {
+            Bdd::Size32(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd32));
+            }
+            _ => panic!("expected 32-bit BDD"),
+        }
+    }
+
+    /// Similar to [`bdd_64_shrink_to_32`], but shrinks to a 16-bit BDD.
+    ///
+    /// See [`bdd_expands_to_32_and_shrinks_to_16`] for details on the BDD structure.
+    #[test]
+    fn bdd_64_shrink_to_16() {
+        let n = 4;
+        let low_vars: Vec<_> = (1..n).map(VarIdPacked64::new).collect();
+        let high_vars: Vec<_> = (n + 1..2 * n).map(VarIdPacked64::new).collect();
+
+        let mut bdd16 = Bdd16::new_false();
+        let mut bdd64 = Bdd64::new_false();
+
+        for i in 0..high_vars.len() {
+            let prod = Bdd64::new_literal(low_vars[i], true)
+                .and(&Bdd64::new_literal(high_vars[i], true))
+                .unwrap();
+
+            let prod16 = Bdd16::new_literal(low_vars[i].try_into().unwrap(), true)
+                .and(&Bdd16::new_literal(high_vars[i].try_into().unwrap(), true))
+                .unwrap();
+
+            bdd64 = bdd64.or(&prod).unwrap();
+            bdd16 = bdd16.or(&prod16).unwrap();
+        }
+
+        assert_eq!(bdd64.len(), 1 << n);
+
+        let bdd = Bdd::Size64(bdd64).shrink();
+
+        assert_eq!(bdd.len(), 1 << n);
+
+        match bdd {
+            Bdd::Size16(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd16));
+            }
+            _ => panic!("expected 16-bit BDD"),
+        }
+    }
 }

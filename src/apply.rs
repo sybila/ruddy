@@ -3,9 +3,12 @@
 
 #![allow(clippy::type_complexity)]
 
+use std::fmt::Display;
+
 use crate::{
     bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     bdd_node::BddNodeAny,
+    boolean_operators,
     boolean_operators::{lift_operator, TriBool},
     node_id::{NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
@@ -332,6 +335,92 @@ impl Bdd {
         .shrink()
     }
 }
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+/// Error returned when the BDD operation overflows the target width.
+pub struct BddOverflowError {
+    width: usize,
+}
+
+impl Display for BddOverflowError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "BDD operation overflowed the target width of {} bits",
+            self.width
+        )
+    }
+}
+
+macro_rules! impl_bdd_operations {
+    ($Bdd:ident, $Cache:ident, $Table:ident) => {
+        impl $Bdd {
+            /// Calculate a Bdd representing the boolean formula `self && other` (conjunction).
+            pub fn and(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
+                    self,
+                    other,
+                    boolean_operators::and,
+                )
+                .map_err(|_| BddOverflowError {
+                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
+                })
+            }
+
+            /// Calculate a Bdd representing the boolean formula `self || other` (disjunction).
+            pub fn or(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
+                    self,
+                    other,
+                    boolean_operators::or,
+                )
+                .map_err(|_| BddOverflowError {
+                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
+                })
+            }
+
+            /// Calculate a Bdd representing the boolean formula `self ^ other` (xor; non-equivalence).
+            pub fn xor(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
+                    self,
+                    other,
+                    boolean_operators::xor,
+                )
+                .map_err(|_| BddOverflowError {
+                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
+                })
+            }
+
+            /// Calculate a Bdd representing the boolean formula `self => other` (implication).
+            pub fn implies(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
+                    self,
+                    other,
+                    boolean_operators::implies,
+                )
+                .map_err(|_| BddOverflowError {
+                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
+                })
+            }
+
+            /// Calculate a Bdd representing the boolean formula `self <=> other` (equivalence).
+            pub fn iff(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
+                    self,
+                    other,
+                    boolean_operators::iff,
+                )
+                .map_err(|_| BddOverflowError {
+                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
+                })
+            }
+        }
+    };
+}
+
+impl_bdd_operations!(Bdd16, TaskCache16, NodeTable16);
+impl_bdd_operations!(Bdd32, TaskCache32, NodeTable32);
+impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64);
 
 #[cfg(test)]
 mod tests {
