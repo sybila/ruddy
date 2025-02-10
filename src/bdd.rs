@@ -153,17 +153,11 @@ macro_rules! impl_bdd {
 
             fn new_literal(var: Self::VarId, value: bool) -> Self {
                 let root = $NodeId::new(2);
-                let low = if value {
-                    $NodeId::one()
+                let node = if value {
+                    $Node::new(var, $NodeId::zero(), $NodeId::one())
                 } else {
-                    $NodeId::zero()
+                    $Node::new(var, $NodeId::one(), $NodeId::zero())
                 };
-                let high = if value {
-                    $NodeId::zero()
-                } else {
-                    $NodeId::one()
-                };
-                let node = $Node::new(var, low, high);
                 Self {
                     root,
                     nodes: vec![$Node::zero(), $Node::one(), node],
