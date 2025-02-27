@@ -7,43 +7,56 @@ use std::{
     hash::Hash,
 };
 
-/// An internal trait implemented by types that can serve as BDD variable identifiers.
-/// The core feature of this trait is that a variable ID must have one designated
-/// "undefined" value (similar to `Option::None`). Furthermore, it must hold that
-/// `id < undefined` for every other `id` value of the same type.
+/// An internal trait implemented by types that can serve as BDD variable identifiers within
+/// BDD nodes.
 ///
-/// The ID should also contain additional information about the node containing
-/// the variable into the variable ID to make the apply algorithm more efficient.
+/// The trait has several features that differentiate it from a simple numeric ID:
 ///
-/// The additional information is needed to track how many parents the node
-/// containing the variable has, and if the node containing the variable should
-/// use the task cache in the apply algorithm.
+///  - The maximum representable value of each ID type serves as an "undefined" value
+///    (similar to `Option::None`).
+///  - Each ID type has a "should use cache" flag (implemented by setting a particular
+///    bit of the identifier), which can be used to control whether the associated BDD
+///    node should be entered into the task cache during the `apply` algorithm.
+///  - Each ID type has a two-bit (`0`, `1`, `many`) counter tracking the number of parent
+///    nodes of the associated BDD node (if any). This is also used to guide heuristics
+///    within the `apply` algorithm.
+///
+/// Note that the last two features are primarily used to speed up the `apply` algorithm and
+/// have no meaning outside of it.
 pub trait VarIdPackedAny: Copy + Clone + PartialEq + Eq + PartialOrd + Ord + Hash + Debug {
     /// Return an instance of the "undefined" variable ID.
     fn undefined() -> Self;
     /// Checks if this ID is [`VarIdPackedAny::undefined`].
     fn is_undefined(self) -> bool;
 
-    /// Unpack the packed variable ID safely into a `u64`, giving the "true" variable ID without the
-    /// additional information.
+    /// Unpack the packed variable ID safely into a `u64`, giving the "true" variable ID without
+    /// the additional information.
     ///
     /// ## Undefined behavior
     ///
-    /// For [`VarIdPackedAny::undefined`], the result is not defined. In debug mode, the method
-    /// will fail. In release mode, unpacking an undefined value results in undefined behavior.
+    /// For [`VarIdPackedAny::undefined`], the result is not defined. *In debug mode, the method
+    /// will panic.* In release mode, unpacking an undefined value results in undefined behavior.
     fn unpack_u64(self) -> u64;
 
     /// Returns true if the internal parent counter is set to `many` (i.e. not `0` or `1`).
+    ///
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
     fn has_many_parents(self) -> bool;
 
     /// Check if the "use cache" flag is set on this variable ID.
+    ///
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
     fn use_cache(self) -> bool;
 
     /// Update the "use cache" flag of this variable ID.
+    ///
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
     fn set_use_cache(&mut self, value: bool);
 
     /// Increment the parent counter, assuming it is not already set to `many` (in that case,
     /// the counter stays the same).
+    ///
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
     fn increment_parents(&mut self);
 }
 
@@ -72,6 +85,8 @@ impl VarIdPacked16 {
     /// An internal "mask bit" that is used when manipulating the "use cache"
     /// flag in packed variable IDs.
     const USE_CACHE_MASK: u16 = 0b100;
+    /// An internal mask that can be used to reset the "packed information".
+    const RESET_MASK: u16 = !0b111;
 
     /// Create a new instance of [`VarIdPacked16`] with the specified variable ID. It must hold
     /// that `0 <= id <= MAX_ID`.
@@ -95,7 +110,7 @@ impl VarIdPacked16 {
     /// Returns the same variable ID, but with the "parent counter" and "use cache" flag reset to
     /// their default state.
     pub(crate) fn reset(self) -> Self {
-        Self((self.0 >> 3) << 3)
+        Self(self.0 & Self::RESET_MASK)
     }
 
     /// Unpack the packed variable ID, giving the "true" variable ID without the
@@ -139,6 +154,8 @@ impl VarIdPacked32 {
     /// An internal "mask bit" that is used when manipulating the "use cache"
     /// flag in packed variable IDs.
     const USE_CACHE_MASK: u32 = 0b100;
+    /// An internal mask that can be used to reset the "packed information".
+    const RESET_MASK: u32 = !0b111;
 
     /// Create a new instance of [`VarIdPacked32`] with the specified variable ID. It must hold
     /// that `0 <= id <= MAX_ID`.
@@ -162,7 +179,7 @@ impl VarIdPacked32 {
     /// Returns the same variable ID, but with the "parent counter" and "use cache" flag reset to
     /// their default state.
     pub(crate) fn reset(self) -> Self {
-        Self((self.0 >> 3) << 3)
+        Self(self.0 & Self::RESET_MASK)
     }
 
     /// Unpack the packed variable ID, giving the "true" variable ID without the
@@ -206,6 +223,8 @@ impl VarIdPacked64 {
     /// An internal "mask bit" that is used when manipulating the "use cache"
     /// flag in packed variable IDs.
     const USE_CACHE_MASK: u64 = 0b100;
+    /// An internal mask that can be used to reset the "packed information".
+    const RESET_MASK: u64 = !0b111;
 
     /// Create a new instance of [`VarIdPacked64`] with the specified variable ID. It must hold
     /// that `0 <= id <= MAX_ID`.
@@ -229,7 +248,7 @@ impl VarIdPacked64 {
     /// Returns the same variable ID, but with the "parent counter" and "use cache" flag reset to
     /// their default state.
     pub(crate) fn reset(self) -> Self {
-        Self((self.0 >> 3) << 3)
+        Self(self.0 & Self::RESET_MASK)
     }
 
     /// Unpack the packed variable ID, giving the "true" variable ID without the
@@ -252,7 +271,10 @@ macro_rules! impl_var_id_packed {
     ($name:ident, $width:ident) => {
         impl PartialEq for $name {
             fn eq(&self, other: &Self) -> bool {
-                self.reset().0 == other.reset().0
+                // After xor, only different bits will be set. Since the "packed" data
+                // is in the three least significant bits, any actual difference must result
+                // in a number that requires more than three bits to represent.
+                (self.0 ^ other.0) <= 0b111
             }
         }
 
@@ -335,6 +357,8 @@ impl_from!(VarIdPacked16 => VarIdPacked32);
 impl_from!(VarIdPacked16 => VarIdPacked64);
 impl_from!(VarIdPacked32 => VarIdPacked64);
 
+/// An implementation of [`std::error::Error`] that is reported when conversion
+/// between instances of [`VarIdPackedAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct TryFromVarIdPackedError {
     id: u64,
@@ -364,22 +388,19 @@ macro_rules! impl_try_from {
                     return Ok(Self::undefined());
                 }
 
-                if id.0 > Self::MAX_ID.into() {
-                    return Err(TryFromVarIdPackedError {
-                        id: id.unpack_u64(),
-                        from_width: std::mem::size_of::<$Large>() * 8,
-                        to_width: std::mem::size_of::<$Small>() * 8,
-                    });
+                if let Ok(id) = id.0.try_into() {
+                    if id <= Self::MAX_ID {
+                        return Ok(Self(id));
+                    }
                 }
 
-                match id.0.try_into() {
-                    Ok(id) => Ok(Self(id)),
-                    Err(_) => Err(TryFromVarIdPackedError {
-                        id: id.unpack_u64(),
-                        from_width: std::mem::size_of::<$Large>() * 8,
-                        to_width: std::mem::size_of::<$Small>() * 8,
-                    }),
-                }
+                // At this point, the value is greater than the largest representable ID
+                // in the smaller type (but not undefined!).
+                Err(TryFromVarIdPackedError {
+                    id: id.unpack_u64(),
+                    from_width: std::mem::size_of::<$Large>() * 8,
+                    to_width: std::mem::size_of::<$Small>() * 8,
+                })
             }
         }
     };
@@ -389,15 +410,12 @@ impl_try_from!(VarIdPacked32 => VarIdPacked16);
 impl_try_from!(VarIdPacked64 => VarIdPacked16);
 impl_try_from!(VarIdPacked64 => VarIdPacked32);
 
-/// A trait for the ability to upcast to the variable ID specified by the generic type.
+/// A trait that ensures that the type implements both [`VarIdPackedAny`] and `Into<TVarId>`.
+///
+/// This mainly allows us to write `AsVarId<T>` instead of needing to write
+/// `VarIdPackedAny + Into<T>` everywhere.
 pub trait AsVarId<TVarId: VarIdPackedAny>: VarIdPackedAny + Into<TVarId> {}
-
-impl AsVarId<VarIdPacked16> for VarIdPacked16 {}
-impl AsVarId<VarIdPacked32> for VarIdPacked16 {}
-impl AsVarId<VarIdPacked64> for VarIdPacked16 {}
-impl AsVarId<VarIdPacked32> for VarIdPacked32 {}
-impl AsVarId<VarIdPacked64> for VarIdPacked32 {}
-impl AsVarId<VarIdPacked64> for VarIdPacked64 {}
+impl<A: VarIdPackedAny, B: VarIdPackedAny + Into<A>> AsVarId<A> for B {}
 
 #[cfg(test)]
 mod tests {
