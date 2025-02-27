@@ -64,17 +64,19 @@ pub trait NodeIdAny:
         }
     }
 
-    /// Convert the ID safely into a `u16` value. Truncates the value if it is larger than [`u16::MAX`].
-    fn as_u16(self) -> u16;
-    /// Convert the ID safely into a `u32` value. Truncates the value if it is larger than [`u32::MAX`].
-    fn as_u32(self) -> u32;
+    /// Convert the ID into a `u16` value, truncating the value if it is larger than [`u16::MAX`].
+    fn as_u16_unchecked(self) -> u16;
+    /// Convert the ID into a `u32` value. Truncates the value if it is larger than [`u32::MAX`].
+    fn as_u32_unchecked(self) -> u32;
 
-    /// Convert the ID safely into a value that can be used for indexing.
+    /// Convert the ID into a value that can be used for indexing. This can truncate IDs wider
+    /// than the index type, but this should never happen on 64-bit systems, hence we consider
+    /// it "safer" than [`Self::as_u16_unchecked`] and [`Self::as_u32_unchecked`].
     ///
     /// ## Undefined behavior
     ///
-    /// The result is not defined for [`NodeIdAny::undefined`]. In debug mode, the method will panic.
-    /// In release mode, the result is undefined behavior.
+    /// The result is not defined for [`NodeIdAny::undefined`]. In debug mode, the method will
+    /// panic. In release mode, the result is undefined behavior.
     fn as_usize(self) -> usize;
 }
 
@@ -101,9 +103,9 @@ impl NodeId16 {
     ///
     /// ## Undefined behavior
     ///
-    /// This method should not be used to create instances of [`NodeId16::undefined`]. In debug mode,
-    /// such operation will panic. In release mode, this is not checked but can cause undefined
-    /// behavior.
+    /// This method should not be used to create instances of [`NodeId16::undefined`]. In debug
+    /// mode, such operation will panic. In release mode, this is not checked but can cause
+    /// undefined behavior.
     pub fn new(id: u16) -> Self {
         debug_assert!(id != u16::MAX, "cannot create 16-bit undefined id");
         Self(id)
@@ -139,20 +141,20 @@ impl NodeIdAny for NodeId16 {
         self.0 <= 1
     }
 
+    fn as_u16_unchecked(self) -> u16 {
+        self.0
+    }
+
+    fn as_u32_unchecked(self) -> u32 {
+        u32::from(self.0)
+    }
+
     fn as_usize(self) -> usize {
         debug_assert!(
             self.0 != u16::MAX,
             "cannot use 16-bit undefined id as index"
         );
         usize::from(self.0)
-    }
-
-    fn as_u16(self) -> u16 {
-        self.0
-    }
-
-    fn as_u32(self) -> u32 {
-        u32::from(self.0)
     }
 }
 
@@ -164,9 +166,9 @@ impl NodeId32 {
     ///
     /// ## Undefined behavior
     ///
-    /// This method should not be used to create instances of [`NodeId32::undefined`]. In debug mode,
-    /// such operation will panic. In release mode, this is not checked but can cause undefined
-    /// behavior.
+    /// This method should not be used to create instances of [`NodeId32::undefined`]. In debug
+    /// mode, such operation will panic. In release mode, this is not checked but can cause
+    /// undefined behavior.
     pub fn new(id: u32) -> Self {
         debug_assert!(id != u32::MAX, "cannot create 32-bit undefined id");
         Self(id)
@@ -212,22 +214,22 @@ impl NodeIdAny for NodeId32 {
         self.0 <= 1
     }
 
+    #[allow(clippy::as_conversions)]
+    fn as_u16_unchecked(self) -> u16 {
+        self.0 as u16
+    }
+
+    /// Convert the ID safely into a `u32` value.
+    fn as_u32_unchecked(self) -> u32 {
+        self.0
+    }
+
     fn as_usize(self) -> usize {
         debug_assert!(
             self.0 != u32::MAX,
             "cannot use 32-bit undefined id as index"
         );
         usize_is_at_least_32_bits(self.0)
-    }
-
-    #[allow(clippy::as_conversions)]
-    fn as_u16(self) -> u16 {
-        self.0 as u16
-    }
-
-    /// Convert the ID safely into a `u32` value.
-    fn as_u32(self) -> u32 {
-        self.0
     }
 }
 
@@ -239,9 +241,9 @@ impl NodeId64 {
     ///
     /// ## Undefined behavior
     ///
-    /// This method should not be used to create instances of [`NodeId64::undefined`]. In debug mode,
-    /// such operation will panic. In release mode, this is not checked but can cause undefined
-    /// behavior.
+    /// This method should not be used to create instances of [`NodeId64::undefined`]. In debug
+    /// mode, such operation will panic. In release mode, this is not checked but can cause
+    /// undefined behavior.
     pub fn new(id: u64) -> Self {
         debug_assert!(id != u64::MAX, "cannot create 64-bit undefined id");
         Self(id)
@@ -277,22 +279,22 @@ impl NodeIdAny for NodeId64 {
         self.0 <= 1
     }
 
+    #[allow(clippy::as_conversions)]
+    fn as_u16_unchecked(self) -> u16 {
+        self.0 as u16
+    }
+
+    #[allow(clippy::as_conversions)]
+    fn as_u32_unchecked(self) -> u32 {
+        self.0 as u32
+    }
+
     fn as_usize(self) -> usize {
         debug_assert!(
             self.0 != u64::MAX,
             "cannot use 64-bit undefined id as index"
         );
         usize_is_at_least_64_bits(self.0)
-    }
-
-    #[allow(clippy::as_conversions)]
-    fn as_u16(self) -> u16 {
-        self.0 as u16
-    }
-
-    #[allow(clippy::as_conversions)]
-    fn as_u32(self) -> u32 {
-        self.0 as u32
     }
 }
 
@@ -330,6 +332,8 @@ impl_from!(NodeId16 => NodeId32);
 impl_from!(NodeId16 => NodeId64);
 impl_from!(NodeId32 => NodeId64);
 
+/// An implementation of [`std::error::Error`] that is reported when conversion
+/// between instances of [`NodeIdAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct TryFromNodeIdError {
     id: u64,
@@ -376,6 +380,8 @@ impl_try_from!(NodeId64 => NodeId16);
 impl_try_from!(NodeId64 => NodeId32);
 impl_try_from!(NodeId32 => NodeId16);
 
+/// An implementation of [`std::error::Error`] that is reported when an instance of
+/// [`NodeIdAny`] cannot be created from a value of type `usize`.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct TryFromUsizeError {
     id: usize,
@@ -398,23 +404,18 @@ macro_rules! impl_try_from_usize {
             type Error = TryFromUsizeError;
 
             fn try_from(value: usize) -> Result<Self, Self::Error> {
-                value
-                    .try_into()
-                    .map(Self)
-                    .map_err(|_| TryFromUsizeError {
-                        id: value,
-                        to_width: std::mem::size_of::<$NodeId>() * 8,
-                    })
-                    .and_then(|id| {
-                        if id.is_undefined() {
-                            Err(TryFromUsizeError {
-                                id: value,
-                                to_width: std::mem::size_of::<$NodeId>() * 8,
-                            })
-                        } else {
-                            Ok(id)
-                        }
-                    })
+                if let Ok(value) = value.try_into() {
+                    if value <= Self::MAX_ID {
+                        return Ok(Self(value));
+                    }
+                }
+
+                // At this point, the vlaue is either undefined, or it does not fit
+                // into the requested node ID type.
+                Err(TryFromUsizeError {
+                    id: value,
+                    to_width: std::mem::size_of::<$NodeId>() * 8,
+                })
             }
         }
     };
@@ -424,15 +425,12 @@ impl_try_from_usize!(NodeId16);
 impl_try_from_usize!(NodeId32);
 impl_try_from_usize!(NodeId64);
 
-/// A trait for the ability to upcast to the node ID specified by the generic type.
+/// A trait that ensures that the type implements both [`NodeIdAny`] and `Into<TNodeId>`.
+///
+/// This mainly allows us to write `AsNodeId<T>` instead of needing to write
+/// `NodeIdAny + Into<T>` everywhere.
 pub trait AsNodeId<TNodeId: NodeIdAny>: NodeIdAny + Into<TNodeId> {}
-
-impl AsNodeId<NodeId16> for NodeId16 {}
-impl AsNodeId<NodeId32> for NodeId16 {}
-impl AsNodeId<NodeId64> for NodeId16 {}
-impl AsNodeId<NodeId32> for NodeId32 {}
-impl AsNodeId<NodeId64> for NodeId32 {}
-impl AsNodeId<NodeId64> for NodeId64 {}
+impl<A: NodeIdAny, B: NodeIdAny + Into<A>> AsNodeId<A> for B {}
 
 #[cfg(test)]
 mod tests {

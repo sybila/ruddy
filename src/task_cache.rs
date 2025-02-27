@@ -64,7 +64,7 @@ impl KnuthHash for u32 {
         let () = Check::<TKeyId1>::IS_AT_MOST_2_BYTES_WIDE;
         let () = Check::<TKeyId2>::IS_AT_MOST_2_BYTES_WIDE;
 
-        let combined = val1.as_u32() << 16 | val2.as_u32();
+        let combined = val1.as_u32_unchecked() << 16 | val2.as_u32_unchecked();
         combined.wrapping_mul(2654435769)
     }
 
