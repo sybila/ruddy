@@ -202,6 +202,8 @@ impl_unchecked_from!(BddNode32 => BddNode16);
 impl_unchecked_from!(BddNode64 => BddNode16);
 impl_unchecked_from!(BddNode64 => BddNode32);
 
+/// An implementation of [`std::error::Error`] that is reported when conversion
+/// between instances of [`BddNodeAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum TryFromBddNodeError {
     Variable(TryFromVarIdPackedError),
