@@ -417,6 +417,110 @@ impl_try_from!(VarIdPacked64 => VarIdPacked32);
 pub trait AsVarId<TVarId: VarIdPackedAny>: VarIdPackedAny + Into<TVarId> {}
 impl<A: VarIdPackedAny, B: VarIdPackedAny + Into<A>> AsVarId<A> for B {}
 
+/// A type for identifying variables in BDDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VariableId(u64);
+
+impl VariableId {
+    #[allow(clippy::as_conversions)]
+    pub const MAX_16_BIT_ID: u64 = VarIdPacked16::MAX_ID as u64;
+    #[allow(clippy::as_conversions)]
+    pub const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
+    pub const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
+
+    /// Create a new `VariableId` from a `u16` value.
+    /// It must hold that `0 <= id <= MAX_16_BIT_ID`.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, range checks on variable IDs are only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is invalid.
+    pub fn from_u16(id: u16) -> Self {
+        debug_assert!(u64::from(id) <= Self::MAX_16_BIT_ID);
+        Self(u64::from(id))
+    }
+
+    /// Create a new `VariableId` from a `u32` value.
+    /// It must hold that `0 <= id <= MAX_32_BIT_ID`.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, range checks on variable IDs are only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is invalid.
+    pub fn from_u32(id: u32) -> Self {
+        debug_assert!(u64::from(id) <= Self::MAX_32_BIT_ID);
+        Self(u64::from(id))
+    }
+
+    /// Create a new `VariableId` from a `u64` value.
+    /// It must hold that `0 <= id <= MAX_64_BIT_ID`.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, range checks on variable IDs are only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is invalid.
+    pub fn from_u64(id: u64) -> Self {
+        debug_assert!(id <= Self::MAX_64_BIT_ID);
+        Self(id)
+    }
+
+    /// Check that the variable ID fits into a 16-bit packed variable ID.
+    pub(crate) fn fits_in_packed16(self) -> bool {
+        self.0 <= Self::MAX_16_BIT_ID
+    }
+
+    /// Check that the variable ID fits into a 32-bit packed variable ID.
+    pub(crate) fn fits_in_packed32(self) -> bool {
+        self.0 <= Self::MAX_32_BIT_ID
+    }
+
+    /// Check that the variable ID fits into a 64-bit packed variable ID.
+    pub(crate) fn fits_in_packed64(self) -> bool {
+        self.0 <= Self::MAX_64_BIT_ID
+    }
+
+    /// Convert the variable ID to a 16-bit packed variable ID.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, checking whether the ID fits into
+    /// `VarIdPacked16` is only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is not actually
+    /// representable by `VarIdPacked16`.
+    pub(crate) fn as_packed16(self) -> VarIdPacked16 {
+        debug_assert!(self.fits_in_packed16());
+        #[allow(clippy::as_conversions)]
+        VarIdPacked16::new(self.0 as u16)
+    }
+
+    /// Convert the variable ID to a 32-bit packed variable ID.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, checking whether the ID fits into
+    /// `VarIdPacked32` is only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is not actually
+    /// representable by `VarIdPacked32`.
+    pub(crate) fn as_packed32(self) -> VarIdPacked32 {
+        debug_assert!(self.fits_in_packed32());
+        #[allow(clippy::as_conversions)]
+        VarIdPacked32::new(self.0 as u32)
+    }
+
+    /// Convert the variable ID to a 64-bit packed variable ID.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, checking whether the ID fits into
+    /// `VarIdPacked64` is only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is not actually
+    /// representable by `VarIdPacked64`.
+    pub(crate) fn as_packed64(self) -> VarIdPacked64 {
+        debug_assert!(self.fits_in_packed64());
+        VarIdPacked64::new(self.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};

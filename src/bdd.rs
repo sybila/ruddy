@@ -6,7 +6,9 @@ use std::fmt::Debug;
 use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny};
 use crate::node_id::{AsNodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
-use crate::variable_id::{AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
+use crate::variable_id::{
+    AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
+};
 
 /// A trait implemented by types that can serve as *standalone* BDDs.
 ///
@@ -243,10 +245,21 @@ impl Bdd {
     }
 
     /// Create a new BDD representing the boolean function `var=value`.
-    /// TODO: just a 16-bit variable ID for now, will need to add a better
-    /// public interface later
-    pub fn new_literal(var: VarIdPacked16, value: bool) -> Self {
-        Self::Size16(Bdd16::new_literal(var, value))
+    ///
+    /// # Memory
+    /// In order to optimize memory usage and performance, please use the
+    /// smallest possible variable identifiers. This will allow the BDD to
+    /// shrink to a smaller width if possible. See [`VariableId::MAX_16_BIT_ID`],
+    /// [`VariableId::MAX_32_BIT_ID`] and [`VariableId::MAX_64_BIT_ID`] for the
+    /// maximum values that can be used for each width.
+    pub fn new_literal(var: VariableId, value: bool) -> Self {
+        if var.fits_in_packed16() {
+            Self::Size16(Bdd16::new_literal(var.as_packed16(), value))
+        } else if var.fits_in_packed32() {
+            Self::Size32(Bdd32::new_literal(var.as_packed32(), value))
+        } else {
+            Self::Size64(Bdd64::new_literal(var.as_packed64(), value))
+        }
     }
 
     /// Returns the number of nodes in the BDD, including the terminal nodes.
@@ -357,7 +370,7 @@ mod tests {
     use crate::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::bdd_node::BddNodeAny;
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
-    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
+    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId};
 
     macro_rules! test_bdd_not_invariants {
         ($func:ident, $Bdd:ident, $VarId:ident) => {
@@ -413,8 +426,8 @@ mod tests {
         // f(v_1, ..., v_{2n-2}) = v_1 * v_2 + v_3 * v_4 + ... + v_{2n-3} * v_{2n-2}.
         // with the variable ordering v_1 < v_3 < ... < v_{2n-3} < v_2 < v_4 < ... < v_{2n-2}.
         // The BDD will have 2^n nodes, hence it should grow to a 32-bit BDD.
-        let low_vars: Vec<_> = (1..n).map(VarIdPacked16::new).collect();
-        let high_vars: Vec<_> = (n + 1..2 * n).map(VarIdPacked16::new).collect();
+        let low_vars: Vec<_> = (1..n).map(VariableId::from_u16).collect();
+        let high_vars: Vec<_> = (n + 1..2 * n).map(VariableId::from_u16).collect();
 
         let mut bdd = Bdd::new_false();
         let mut bdd32 = Bdd32::new_false();
@@ -423,8 +436,8 @@ mod tests {
             let prod =
                 Bdd::new_literal(low_vars[i], true).and(&Bdd::new_literal(high_vars[i], true));
 
-            let prod32 = Bdd32::new_literal(low_vars[i].into(), true)
-                .and(&Bdd32::new_literal(high_vars[i].into(), true))
+            let prod32 = Bdd32::new_literal(low_vars[i].as_packed32(), true)
+                .and(&Bdd32::new_literal(high_vars[i].as_packed32(), true))
                 .unwrap();
 
             bdd = bdd.or(&prod);
@@ -454,8 +467,8 @@ mod tests {
             let prod =
                 Bdd::new_literal(low_vars[i], true).and(&Bdd::new_literal(high_vars[i], true));
 
-            let prod16 = Bdd16::new_literal(low_vars[i], true)
-                .and(&Bdd16::new_literal(high_vars[i], true))
+            let prod16 = Bdd16::new_literal(low_vars[i].as_packed16(), true)
+                .and(&Bdd16::new_literal(high_vars[i].as_packed16(), true))
                 .unwrap();
 
             bdd = bdd.and(&prod);
