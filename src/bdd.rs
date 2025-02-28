@@ -567,4 +567,94 @@ mod tests {
             _ => panic!("expected 16-bit BDD"),
         }
     }
+
+    #[test]
+    fn new_bdd_literal_16() {
+        let var = VariableId::from_u16(1);
+        let bdd = Bdd::new_literal(var, true);
+        let bdd16 = Bdd16::new_literal(var.as_packed16(), true);
+
+        match bdd {
+            Bdd::Size16(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd16));
+            }
+            _ => panic!("expected 16-bit BDD"),
+        }
+    }
+
+    #[test]
+    fn new_bdd_literal_32() {
+        let var = VariableId::from_u32(VariableId::MAX_16_BIT_ID as u32 + 1);
+        let bdd = Bdd::new_literal(var, true);
+        let bdd32 = Bdd32::new_literal(var.as_packed32(), true);
+
+        match bdd {
+            Bdd::Size32(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd32));
+            }
+            _ => panic!("expected 32-bit BDD"),
+        }
+    }
+
+    #[test]
+    fn new_bdd_literal_64() {
+        let var = VariableId::from_u64(VariableId::MAX_32_BIT_ID + 1);
+        let bdd = Bdd::new_literal(var, true);
+        let bdd64 = Bdd64::new_literal(var.as_packed64(), true);
+
+        match bdd {
+            Bdd::Size64(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd64).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd64));
+            }
+            _ => panic!("expected 64-bit BDD"),
+        }
+    }
+
+    #[test]
+    fn new_bdd_literal_64_but_should_be_16() {
+        let var = VariableId::from_u64(1);
+        let bdd = Bdd::new_literal(var, true);
+        let bdd16 = Bdd16::new_literal(var.as_packed16(), true);
+
+        match bdd {
+            Bdd::Size16(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd16));
+            }
+            _ => panic!("expected 16-bit BDD"),
+        }
+    }
+
+    #[test]
+    fn new_bdd_literal_32_but_should_be_16() {
+        let var = VariableId::from_u32(1);
+        let bdd = Bdd::new_literal(var, true);
+        let bdd16 = Bdd16::new_literal(var.as_packed16(), true);
+
+        match bdd {
+            Bdd::Size16(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd16));
+            }
+            _ => panic!("expected 16-bit BDD"),
+        }
+    }
+
+    #[test]
+    fn new_bdd_literal_64_but_should_be_32() {
+        let var = VariableId::from_u64(VariableId::MAX_16_BIT_ID + 1);
+        let bdd = Bdd::new_literal(var, true);
+        let bdd32 = Bdd32::new_literal(var.as_packed32(), true);
+
+        match bdd {
+            Bdd::Size32(bdd_inner) => {
+                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
+                assert!(bdd_inner.structural_eq(&bdd32));
+            }
+            _ => panic!("expected 32-bit BDD"),
+        }
+    }
 }
