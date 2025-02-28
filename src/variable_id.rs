@@ -87,6 +87,8 @@ impl VarIdPacked16 {
     const USE_CACHE_MASK: u16 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u16 = !0b111;
+    /// A special value that represents an "undefined" variable ID.
+    const UNDEFINED: u16 = u16::MAX;
 
     /// Create a new instance of [`VarIdPacked16`] with the specified variable ID. It must hold
     /// that `0 <= id <= MAX_ID`.
@@ -122,7 +124,7 @@ impl VarIdPacked16 {
     /// will fail. In release mode, unpacking an undefined value results in undefined behavior.
     pub fn unpack(self) -> u16 {
         debug_assert!(
-            self.0 != u16::MAX,
+            !self.is_undefined(),
             "cannot unpack undefined 16-bit variable ID"
         );
         self.0 >> 3
@@ -156,6 +158,8 @@ impl VarIdPacked32 {
     const USE_CACHE_MASK: u32 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u32 = !0b111;
+    /// A special value that represents an "undefined" variable ID.
+    const UNDEFINED: u32 = u32::MAX;
 
     /// Create a new instance of [`VarIdPacked32`] with the specified variable ID. It must hold
     /// that `0 <= id <= MAX_ID`.
@@ -191,7 +195,7 @@ impl VarIdPacked32 {
     /// will fail. In release mode, unpacking an undefined value results in undefined behavior.
     pub fn unpack(self) -> u32 {
         debug_assert!(
-            self.0 != u32::MAX,
+            !self.is_undefined(),
             "cannot unpack undefined 32-bit variable ID"
         );
         self.0 >> 3
@@ -225,6 +229,8 @@ impl VarIdPacked64 {
     const USE_CACHE_MASK: u64 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u64 = !0b111;
+    /// A special value that represents an "undefined" variable ID.
+    const UNDEFINED: u64 = u64::MAX;
 
     /// Create a new instance of [`VarIdPacked64`] with the specified variable ID. It must hold
     /// that `0 <= id <= MAX_ID`.
@@ -260,7 +266,7 @@ impl VarIdPacked64 {
     /// will fail. In release mode, unpacking an undefined value results in undefined behavior.
     pub fn unpack(self) -> u64 {
         debug_assert!(
-            self.0 != u64::MAX,
+            !self.is_undefined(),
             "cannot unpack undefined 64-bit variable ID"
         );
         self.0 >> 3
@@ -300,11 +306,11 @@ macro_rules! impl_var_id_packed {
 
         impl VarIdPackedAny for $name {
             fn undefined() -> Self {
-                $name($width::MAX)
+                $name(Self::UNDEFINED)
             }
 
             fn is_undefined(self) -> bool {
-                self.0 == $width::MAX
+                self.0 == Self::UNDEFINED
             }
 
             fn unpack_u64(self) -> u64 {
@@ -343,11 +349,10 @@ macro_rules! impl_from {
     ($Small:ident => $Large:ident) => {
         impl From<$Small> for $Large {
             fn from(id: $Small) -> Self {
-                if id.is_undefined() {
-                    return Self::undefined();
+                match id.0 {
+                    $Small::UNDEFINED => Self::undefined(),
+                    _ => Self(id.0.into()),
                 }
-
-                Self(id.0.into())
             }
         }
     };

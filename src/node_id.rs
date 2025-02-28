@@ -98,6 +98,8 @@ pub struct NodeId64(u64);
 impl NodeId16 {
     /// The largest ID representable by [`NodeId16`].
     pub const MAX_ID: u16 = u16::MAX - 1;
+    /// A special value representing an undefined node ID.
+    const UNDEFINED: u16 = u16::MAX;
 
     /// Create a new valid [`NodeId16`] from the underlying type `u16`.
     ///
@@ -107,14 +109,14 @@ impl NodeId16 {
     /// mode, such operation will panic. In release mode, this is not checked but can cause
     /// undefined behavior.
     pub fn new(id: u16) -> Self {
-        debug_assert!(id != u16::MAX, "cannot create 16-bit undefined id");
+        debug_assert!(id != Self::UNDEFINED, "cannot create 16-bit undefined id");
         Self(id)
     }
 }
 
 impl NodeIdAny for NodeId16 {
     fn undefined() -> Self {
-        Self(u16::MAX)
+        Self(Self::UNDEFINED)
     }
 
     fn zero() -> Self {
@@ -126,7 +128,7 @@ impl NodeIdAny for NodeId16 {
     }
 
     fn is_undefined(self) -> bool {
-        self.0 == u16::MAX
+        self.0 == Self::UNDEFINED
     }
 
     fn is_zero(self) -> bool {
@@ -151,7 +153,7 @@ impl NodeIdAny for NodeId16 {
 
     fn as_usize(self) -> usize {
         debug_assert!(
-            self.0 != u16::MAX,
+            !self.is_undefined(),
             "cannot use 16-bit undefined id as index"
         );
         usize::from(self.0)
@@ -161,6 +163,8 @@ impl NodeIdAny for NodeId16 {
 impl NodeId32 {
     /// The largest ID representable by [`NodeId32`].
     pub const MAX_ID: u32 = u32::MAX - 1;
+    /// A special value representing an undefined node ID.
+    const UNDEFINED: u32 = u32::MAX;
 
     /// Create a new valid [`NodeId32`] from the underlying type `u32`.
     ///
@@ -170,7 +174,7 @@ impl NodeId32 {
     /// mode, such operation will panic. In release mode, this is not checked but can cause
     /// undefined behavior.
     pub fn new(id: u32) -> Self {
-        debug_assert!(id != u32::MAX, "cannot create 32-bit undefined id");
+        debug_assert!(id != Self::UNDEFINED, "cannot create 32-bit undefined id");
         Self(id)
     }
 
@@ -187,7 +191,7 @@ impl NodeId32 {
 
 impl NodeIdAny for NodeId32 {
     fn undefined() -> Self {
-        Self(u32::MAX)
+        Self(Self::UNDEFINED)
     }
 
     fn zero() -> Self {
@@ -199,7 +203,7 @@ impl NodeIdAny for NodeId32 {
     }
 
     fn is_undefined(self) -> bool {
-        self.0 == u32::MAX
+        self.0 == Self::UNDEFINED
     }
 
     fn is_zero(self) -> bool {
@@ -226,7 +230,7 @@ impl NodeIdAny for NodeId32 {
 
     fn as_usize(self) -> usize {
         debug_assert!(
-            self.0 != u32::MAX,
+            !self.is_undefined(),
             "cannot use 32-bit undefined id as index"
         );
         usize_is_at_least_32_bits(self.0)
@@ -236,6 +240,8 @@ impl NodeIdAny for NodeId32 {
 impl NodeId64 {
     /// The largest ID representable by [`NodeId64`].
     pub const MAX_ID: u64 = u64::MAX - 1;
+    /// A special value representing an undefined node ID.
+    const UNDEFINED: u64 = u64::MAX;
 
     /// Create a new valid [`NodeId64`] from the underlying type `u64`.
     ///
@@ -245,14 +251,14 @@ impl NodeId64 {
     /// mode, such operation will panic. In release mode, this is not checked but can cause
     /// undefined behavior.
     pub fn new(id: u64) -> Self {
-        debug_assert!(id != u64::MAX, "cannot create 64-bit undefined id");
+        debug_assert!(id != Self::UNDEFINED, "cannot create 64-bit undefined id");
         Self(id)
     }
 }
 
 impl NodeIdAny for NodeId64 {
     fn undefined() -> Self {
-        Self(u64::MAX)
+        Self(Self::UNDEFINED)
     }
 
     fn zero() -> Self {
@@ -264,7 +270,7 @@ impl NodeIdAny for NodeId64 {
     }
 
     fn is_undefined(self) -> bool {
-        self.0 == u64::MAX
+        self.0 == Self::UNDEFINED
     }
 
     fn is_zero(self) -> bool {
@@ -291,7 +297,7 @@ impl NodeIdAny for NodeId64 {
 
     fn as_usize(self) -> usize {
         debug_assert!(
-            self.0 != u64::MAX,
+            !self.is_undefined(),
             "cannot use 64-bit undefined id as index"
         );
         usize_is_at_least_64_bits(self.0)
@@ -319,10 +325,10 @@ macro_rules! impl_from {
     ($Small:ident => $Large:ident) => {
         impl From<$Small> for $Large {
             fn from(id: $Small) -> Self {
-                if id.is_undefined() {
-                    return Self::undefined();
+                match id.0 {
+                    $Small::UNDEFINED => Self::undefined(),
+                    _ => Self(id.0.into()),
                 }
-                Self(id.0.into())
             }
         }
     };
