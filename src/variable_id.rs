@@ -200,6 +200,31 @@ impl VarIdPacked32 {
         );
         self.0 >> 3
     }
+
+    /// Check if the variable ID is representable by `VarIdPacked16`.
+    pub(crate) fn fits_in_packed16(self) -> bool {
+        self.0 <= VarIdPacked16::MAX_ID.into() || self.is_undefined()
+    }
+
+    /// Convert the variable ID to a [`VarIdPacked16`].
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, checking whether the ID fits into
+    /// `VarIdPacked16` is only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is not actually
+    /// representable by `VarIdPacked16`.
+    #[allow(clippy::as_conversions)]
+    pub(crate) fn as_packed16_unchecked(self) -> VarIdPacked16 {
+        debug_assert!(
+            self.fits_in_packed16(),
+            "32-bit variable ID {self} does not fit into 16-bit variable ID"
+        );
+        match self.0 {
+            Self::UNDEFINED => VarIdPacked16::undefined(),
+            _ => VarIdPacked16(self.0 as u16),
+        }
+    }
 }
 
 /// A 64-bit implementation of the [`VarIdPackedAny`] trait that packs additional
@@ -270,6 +295,56 @@ impl VarIdPacked64 {
             "cannot unpack undefined 64-bit variable ID"
         );
         self.0 >> 3
+    }
+
+    /// Check if the variable ID is representable by `VarIdPacked16`.
+    pub(crate) fn fits_in_packed16(self) -> bool {
+        self.0 <= VarIdPacked16::MAX_ID.into() || self.is_undefined()
+    }
+
+    /// Convert the variable ID to a [`VarIdPacked16`].
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, checking whether the ID fits into
+    /// `VarIdPacked16` is only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is not actually
+    /// representable by `VarIdPacked16`.
+    #[allow(clippy::as_conversions)]
+    pub(crate) fn as_packed16_unchecked(self) -> VarIdPacked16 {
+        debug_assert!(
+            self.fits_in_packed16(),
+            "64-bit variable ID {self} does not fit into 16-bit variable ID"
+        );
+        match self.0 {
+            Self::UNDEFINED => VarIdPacked16::undefined(),
+            _ => VarIdPacked16(self.0 as u16),
+        }
+    }
+
+    /// Check if the variable ID is representable by `VarIdPacked32`.
+    pub(crate) fn fits_in_packed32(self) -> bool {
+        self.0 <= VarIdPacked32::MAX_ID.into() || self.is_undefined()
+    }
+
+    /// Convert the variable ID to a [`VarIdPacked32`].
+    ///
+    /// ## Undefined behavior
+    ///
+    /// For performance reasons, checking whether the ID fits into
+    /// `VarIdPacked32` is only performed in debug mode.
+    /// In release mode, undefined behavior can occur if the ID is not actually
+    /// representable by `VarIdPacked32`.
+    #[allow(clippy::as_conversions)]
+    pub(crate) fn as_packed32_unchecked(self) -> VarIdPacked32 {
+        debug_assert!(
+            self.fits_in_packed32(),
+            "64-bit variable ID {self} does not fit into 32-bit variable ID"
+        );
+        match self.0 {
+            Self::UNDEFINED => VarIdPacked32::undefined(),
+            _ => VarIdPacked32(self.0 as u32),
+        }
     }
 }
 
@@ -523,6 +598,24 @@ impl VariableId {
     pub(crate) fn as_packed64(self) -> VarIdPacked64 {
         debug_assert!(self.fits_in_packed64());
         VarIdPacked64::new(self.0)
+    }
+}
+
+impl fmt::Display for VarIdPacked16 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.unpack())
+    }
+}
+
+impl fmt::Display for VarIdPacked32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.unpack())
+    }
+}
+
+impl fmt::Display for VarIdPacked64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.unpack())
     }
 }
 

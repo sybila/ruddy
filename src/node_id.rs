@@ -143,10 +143,12 @@ impl NodeIdAny for NodeId16 {
         self.0 <= 1
     }
 
+    /// Convert the ID safely into a `u16` value.
     fn as_u16_unchecked(self) -> u16 {
         self.0
     }
 
+    /// Convert the ID safely into a `u32` value.
     fn as_u32_unchecked(self) -> u32 {
         u32::from(self.0)
     }
@@ -187,6 +189,27 @@ impl NodeId32 {
     pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
         Self(u32::from_le_bytes(bytes))
     }
+
+    /// Convert the ID into a [`NodeId16`] value.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// This method will panic in debug mode if the node ID does not
+    /// fit into a `NodeId16`. In release mode, this is not checked but can cause
+    /// undefined behavior.
+    #[allow(clippy::as_conversions)]
+    pub(crate) fn as_node_id16_unchecked(self) -> NodeId16 {
+        match self.0 {
+            Self::UNDEFINED => NodeId16::undefined(),
+            _ => {
+                debug_assert!(
+                    self.0 <= NodeId16::MAX_ID.into(),
+                    "32-bit node ID {self} does not fit into 16-bit node ID"
+                );
+                NodeId16::new(self.0 as u16)
+            }
+        }
+    }
 }
 
 impl NodeIdAny for NodeId32 {
@@ -220,6 +243,10 @@ impl NodeIdAny for NodeId32 {
 
     #[allow(clippy::as_conversions)]
     fn as_u16_unchecked(self) -> u16 {
+        debug_assert!(
+            self.0 <= u16::MAX.into(),
+            "32-bit node ID {self} does not fit into u16"
+        );
         self.0 as u16
     }
 
@@ -254,6 +281,48 @@ impl NodeId64 {
         debug_assert!(id != Self::UNDEFINED, "cannot create 64-bit undefined id");
         Self(id)
     }
+
+    /// Convert the ID into a [`NodeId16`] value.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// This method will panic in debug mode if the node ID does not
+    /// fit into a `NodeId16`. In release mode, this is not checked but can cause
+    /// undefined behavior.
+    #[allow(clippy::as_conversions)]
+    pub(crate) fn as_node_id16_unchecked(self) -> NodeId16 {
+        match self.0 {
+            Self::UNDEFINED => NodeId16::undefined(),
+            _ => {
+                debug_assert!(
+                    self.0 <= NodeId16::MAX_ID.into(),
+                    "64-bit node ID {self} does not fit into 16-bit node ID"
+                );
+                NodeId16::new(self.0 as u16)
+            }
+        }
+    }
+
+    /// Convert the ID into a [`NodeId32`] value.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// This method will panic in debug mode if the node ID does not
+    /// fit into a `NodeId32`. In release mode, this is not checked but can cause
+    /// undefined behavior.
+    #[allow(clippy::as_conversions)]
+    pub(crate) fn as_node_id32_unchecked(self) -> NodeId32 {
+        match self.0 {
+            Self::UNDEFINED => NodeId32::undefined(),
+            _ => {
+                debug_assert!(
+                    self.0 <= NodeId32::MAX_ID.into(),
+                    "64-bit node ID {self} does not fit into 32-bit node ID"
+                );
+                NodeId32::new(self.0 as u32)
+            }
+        }
+    }
 }
 
 impl NodeIdAny for NodeId64 {
@@ -287,11 +356,19 @@ impl NodeIdAny for NodeId64 {
 
     #[allow(clippy::as_conversions)]
     fn as_u16_unchecked(self) -> u16 {
+        debug_assert!(
+            self.0 <= u16::MAX.into(),
+            "64-bit node ID {self} does not fit into u16"
+        );
         self.0 as u16
     }
 
     #[allow(clippy::as_conversions)]
     fn as_u32_unchecked(self) -> u32 {
+        debug_assert!(
+            self.0 <= u32::MAX.into(),
+            "64-bit node ID {self} does not fit into u32"
+        );
         self.0 as u32
     }
 
@@ -437,6 +514,24 @@ impl_try_from_usize!(NodeId64);
 /// `NodeIdAny + Into<T>` everywhere.
 pub trait AsNodeId<TNodeId: NodeIdAny>: NodeIdAny + Into<TNodeId> {}
 impl<A: NodeIdAny, B: NodeIdAny + Into<A>> AsNodeId<A> for B {}
+
+impl fmt::Display for NodeId16 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Display for NodeId32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Display for NodeId64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -226,6 +226,47 @@ impl AsBdd<Bdd32> for Bdd32 {}
 impl AsBdd<Bdd64> for Bdd32 {}
 impl AsBdd<Bdd64> for Bdd64 {}
 
+macro_rules! impl_shrink_bdd_to_16_unchecked {
+    ($Large:ident) => {
+        impl $Large {
+            fn shrink_to_16_unchecked(self) -> Bdd16 {
+                Bdd16 {
+                    root: self.root.as_node_id16_unchecked(),
+                    nodes: self
+                        .nodes
+                        .into_iter()
+                        .map(|node| BddNode16 {
+                            variable: node.variable.as_packed16_unchecked(),
+                            low: node.low.as_node_id16_unchecked(),
+                            high: node.high.as_node_id16_unchecked(),
+                        })
+                        .collect(),
+                }
+            }
+        }
+    };
+}
+
+impl_shrink_bdd_to_16_unchecked!(Bdd32);
+impl_shrink_bdd_to_16_unchecked!(Bdd64);
+
+impl Bdd64 {
+    fn shrink_to_32_unchecked(self) -> Bdd32 {
+        Bdd32 {
+            root: self.root.as_node_id32_unchecked(),
+            nodes: self
+                .nodes
+                .into_iter()
+                .map(|node| BddNode32 {
+                    variable: node.variable.as_packed32_unchecked(),
+                    low: node.low.as_node_id32_unchecked(),
+                    high: node.high.as_node_id32_unchecked(),
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Bdd {
     Size16(Bdd16),
@@ -288,62 +329,43 @@ impl Bdd {
         }
     }
 
-    /// Shrink the BDD to a [`Bdd16`], if it has less than `2**8` nodes or a [`Bdd32`] if it has
-    /// less than `2**16` nodes. This function is a no-op otherwise.
+    /// Shrink the BDD to the smallest possible bit-width.
+    ///
+    /// - If the BDD has less than `2**16` nodes and all variables fit in 16 bits, it will be
+    ///   shrunk to a 16-bit BDD.
+    /// - If the BDD has less than `2**32` nodes and all variables fit in 32 bits, it will be
+    ///   shrunk to a 32-bit BDD.
+    /// - Otherwise, the BDD will remain the same bit-width.
     pub(crate) fn shrink(self) -> Self {
-        // TODO: correctly handle variables
-        // Currently, it is possible that the variable IDs will be
-        // out of bounds when shrinking into a smaller width.
-        // Not sure how to handle this now.
-
         match self {
-            Bdd::Size64(bdd) => {
-                if bdd.len() < 1 << 8 {
-                    Bdd::Size16(Bdd16 {
-                        root: bdd
-                            .root
-                            .try_into()
-                            .expect("root of 64-bit BDD with less than 2**8 nodes fits into 16 bits"),
-                        nodes: bdd
-                            .nodes
-                            .into_iter()
-                            .map(|node| {
-                                node.try_into().expect(
-                                    "id and variable id of node of 64-bit BDD with less than 2**8 nodes fits into 16 bits",
-                                )
-                            })
-                            .collect(),
-                    })
-                } else if bdd.len() < 1 << 16 {
-                    Bdd::Size32(Bdd32 {
-                        root: bdd.root.try_into().expect(
-                            "root of 64-bit BDD with less than 2**16 nodes fits into 32 bits",
-                        ),
-                        nodes: bdd
-                            .nodes
-                            .into_iter()
-                            .map(|node| node.try_into().expect("id and variable id of node of 64-bit BDD with less than 2**16 nodes fits into 32 bits"))
-                            .collect(),
-                    })
-                } else {
-                    Bdd::Size64(bdd)
+            Bdd::Size64(bdd) if bdd.len() < 1 << 32 => {
+                let (mut vars_fit_in_16, mut vars_fit_in_32) = (true, true);
+                for node in bdd.nodes.iter() {
+                    vars_fit_in_16 &= node.variable().fits_in_packed16();
+                    vars_fit_in_32 &= node.variable().fits_in_packed32();
+
+                    if !vars_fit_in_16 && !vars_fit_in_32 {
+                        break;
+                    }
                 }
+
+                if (bdd.len() < 1 << 16) && vars_fit_in_16 {
+                    return Bdd::Size16(bdd.shrink_to_16_unchecked());
+                }
+
+                if vars_fit_in_32 {
+                    return Bdd::Size32(bdd.shrink_to_32_unchecked());
+                }
+                Bdd::Size64(bdd)
             }
-            Bdd::Size32(bdd) => {
-                if bdd.len() < 1 << 8 {
-                    Bdd::Size16(Bdd16 {
-                        root: bdd.root.try_into().expect(
-                            "root of 32-bit BDD with less than 2**8 nodes fits into 16 bits",
-                        ),
-                        nodes: bdd
-                            .nodes
-                            .into_iter()
-                            .map(|node| node.try_into().expect("id and variable id of node of 32-bit BDD with less than 2**8 nodes fits into 16 bits"))
-                            .collect(),
-                    })
-                } else {
-                    Bdd::Size32(bdd)
-                }
+            Bdd::Size32(bdd)
+                if (bdd.len() < 1 << 16)
+                    && bdd
+                        .nodes
+                        .iter()
+                        .all(|node| node.variable().fits_in_packed16()) =>
+            {
+                Bdd::Size16(bdd.shrink_to_16_unchecked())
             }
             _ => self,
         }
@@ -493,7 +515,7 @@ mod tests {
     /// See [`bdd_expands_to_32_and_shrinks_to_16`] for details on the BDD structure.
     #[test]
     fn bdd_64_shrink_to_32() {
-        let n = 12;
+        let n = 17;
         let low_vars: Vec<_> = (1..n).map(VarIdPacked64::new).collect();
         let high_vars: Vec<_> = (n + 1..2 * n).map(VarIdPacked64::new).collect();
 
