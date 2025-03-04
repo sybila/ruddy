@@ -647,20 +647,20 @@ mod tests {
     test_node_id_from_undefined!(NodeId32 => NodeId64, node_id_64_from_32_undefined);
 
     macro_rules! test_node_id_try_from_undefined {
-        ($Small:ident => $Large:ident, $func:ident) => {
+        ($Large:ident => $Small:ident, $func:ident) => {
             #[test]
             fn $func() {
                 let large_undefined = $Large::undefined();
                 let small_undefined = $Small::undefined();
 
-                assert_eq!(large_undefined, $Large::from(small_undefined));
+                assert_eq!(small_undefined, $Small::try_from(large_undefined).unwrap());
             }
         };
     }
 
-    test_node_id_try_from_undefined!(NodeId16 => NodeId32, node_id_32_try_from_16_undefined);
-    test_node_id_try_from_undefined!(NodeId16 => NodeId64, node_id_64_try_from_16_undefined);
-    test_node_id_try_from_undefined!(NodeId32 => NodeId64, node_id_64_try_from_32_undefined);
+    test_node_id_try_from_undefined!(NodeId32 => NodeId16, node_id_16_try_from_32_undefined);
+    test_node_id_try_from_undefined!(NodeId64 => NodeId16, node_id_16_try_from_64_undefined);
+    test_node_id_try_from_undefined!(NodeId64 => NodeId32, node_id_32_try_from_64_undefined);
 
     macro_rules! test_node_id_try_from {
         ($Large:ident => $Small:ident, $func:ident) => {
