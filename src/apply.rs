@@ -431,10 +431,10 @@ mod tests {
         // These are obviously not all invariants/equalities, but at least something to
         // check that we have the major corner cases covered.
 
-        let a = Bdd::new_literal(VariableId::from_u16(1), true);
-        let b = Bdd::new_literal(VariableId::from_u16(2), true);
-        let a_n = Bdd::new_literal(VariableId::from_u16(1), false);
-        let b_n = Bdd::new_literal(VariableId::from_u16(2), false);
+        let a = Bdd::new_literal(VariableId::from(1u32), true);
+        let b = Bdd::new_literal(VariableId::from(2u32), true);
+        let a_n = Bdd::new_literal(VariableId::from(1u32), false);
+        let b_n = Bdd::new_literal(VariableId::from(2u32), false);
         let tt = Bdd::new_true();
         let ff = Bdd::new_false();
 

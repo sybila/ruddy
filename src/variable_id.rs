@@ -488,30 +488,6 @@ impl VariableId {
     pub const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
     pub const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
 
-    /// Create a new `VariableId` from a `u16` value.
-    /// It must hold that `0 <= id <= MAX_16_BIT_ID`.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, range checks on variable IDs are only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is invalid.
-    pub fn from_u16(id: u16) -> Self {
-        debug_assert!(u64::from(id) <= Self::MAX_16_BIT_ID);
-        Self(u64::from(id))
-    }
-
-    /// Create a new `VariableId` from a `u32` value.
-    /// It must hold that `0 <= id <= MAX_32_BIT_ID`.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, range checks on variable IDs are only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is invalid.
-    pub fn from_u32(id: u32) -> Self {
-        debug_assert!(u64::from(id) <= Self::MAX_32_BIT_ID);
-        Self(u64::from(id))
-    }
-
     /// Create a new `VariableId` from a `u64` value.
     /// It must hold that `0 <= id <= MAX_64_BIT_ID`.
     ///
@@ -519,7 +495,7 @@ impl VariableId {
     ///
     /// For performance reasons, range checks on variable IDs are only performed in debug mode.
     /// In release mode, undefined behavior can occur if the ID is invalid.
-    pub fn from_u64(id: u64) -> Self {
+    pub fn new(id: u64) -> Self {
         debug_assert!(id <= Self::MAX_64_BIT_ID);
         Self(id)
     }
@@ -538,46 +514,46 @@ impl VariableId {
     pub(crate) fn fits_in_packed64(self) -> bool {
         self.0 <= Self::MAX_64_BIT_ID
     }
+}
 
-    /// Convert the variable ID to a 16-bit packed variable ID.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, checking whether the ID fits into
-    /// `VarIdPacked16` is only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is not actually
-    /// representable by `VarIdPacked16`.
-    pub(crate) fn as_packed16(self) -> VarIdPacked16 {
-        debug_assert!(self.fits_in_packed16());
-        #[allow(clippy::as_conversions)]
-        VarIdPacked16::new(self.0 as u16)
+impl UncheckedFrom<VariableId> for VarIdPacked64 {
+    fn unchecked_from(value: VariableId) -> Self {
+        debug_assert!(value.fits_in_packed64());
+        VarIdPacked64::new(value.0)
     }
+}
 
-    /// Convert the variable ID to a 32-bit packed variable ID.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, checking whether the ID fits into
-    /// `VarIdPacked32` is only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is not actually
-    /// representable by `VarIdPacked32`.
-    pub(crate) fn as_packed32(self) -> VarIdPacked32 {
-        debug_assert!(self.fits_in_packed32());
-        #[allow(clippy::as_conversions)]
-        VarIdPacked32::new(self.0 as u32)
+impl UncheckedFrom<VariableId> for VarIdPacked32 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(value: VariableId) -> Self {
+        debug_assert!(value.fits_in_packed32());
+        VarIdPacked32::new(value.0 as u32)
     }
+}
 
-    /// Convert the variable ID to a 64-bit packed variable ID.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, checking whether the ID fits into
-    /// `VarIdPacked64` is only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is not actually
-    /// representable by `VarIdPacked64`.
-    pub(crate) fn as_packed64(self) -> VarIdPacked64 {
-        debug_assert!(self.fits_in_packed64());
-        VarIdPacked64::new(self.0)
+impl UncheckedFrom<VariableId> for VarIdPacked16 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(value: VariableId) -> Self {
+        debug_assert!(value.fits_in_packed32());
+        VarIdPacked16::new(value.0 as u16)
+    }
+}
+
+impl From<u16> for VariableId {
+    fn from(value: u16) -> Self {
+        VariableId::new(u64::from(value))
+    }
+}
+
+impl From<u32> for VariableId {
+    fn from(value: u32) -> Self {
+        VariableId::new(u64::from(value))
+    }
+}
+
+impl From<u64> for VariableId {
+    fn from(value: u64) -> Self {
+        VariableId::new(value)
     }
 }
 
@@ -602,7 +578,9 @@ impl fmt::Display for VarIdPacked64 {
 #[cfg(test)]
 mod tests {
     use crate::conversion::UncheckedFrom;
-    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
+    use crate::variable_id::{
+        VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
+    };
 
     macro_rules! test_var_packed_undefined {
         ($func:ident, $VarId:ident) => {
@@ -911,11 +889,21 @@ mod tests {
     fn invalid_downsizing_conversions() {
         let almost_u16a = VarIdPacked32::new(u32::from(VarIdPacked16::MAX_ID + 1));
         let almost_u16b = VarIdPacked64::new(u64::from(VarIdPacked16::MAX_ID + 1));
-        let almost_u32 = VarIdPacked64::new(u64::from(VarIdPacked32::MAX_ID + 1));
+        let almost_u16c = VariableId::new(u64::from(VarIdPacked16::MAX_ID + 1));
+        let almost_u32a = VarIdPacked64::new(u64::from(VarIdPacked32::MAX_ID + 1));
+        let almost_u32b = VariableId::new(u64::from(VarIdPacked32::MAX_ID + 1));
 
         assert!(!almost_u16a.fits_in_packed16());
         assert!(!almost_u16b.fits_in_packed16());
-        assert!(!almost_u32.fits_in_packed32());
+        assert!(!almost_u32a.fits_in_packed32());
         assert!(almost_u16b.fits_in_packed32());
+
+        assert!(!almost_u16c.fits_in_packed16());
+        assert!(almost_u16c.fits_in_packed32());
+        assert!(almost_u16c.fits_in_packed64());
+
+        assert!(!almost_u32b.fits_in_packed16());
+        assert!(!almost_u32b.fits_in_packed32());
+        assert!(almost_u32b.fits_in_packed64());
     }
 }

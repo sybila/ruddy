@@ -276,11 +276,13 @@ impl Bdd {
     /// maximum values that can be used for each width.
     pub fn new_literal(var: VariableId, value: bool) -> Self {
         if var.fits_in_packed16() {
-            Self::Size16(Bdd16::new_literal(var.as_packed16(), value))
+            Self::Size16(Bdd16::new_literal(var.unchecked_into(), value))
         } else if var.fits_in_packed32() {
-            Self::Size32(Bdd32::new_literal(var.as_packed32(), value))
+            Self::Size32(Bdd32::new_literal(var.unchecked_into(), value))
+        } else if var.fits_in_packed64() {
+            Self::Size64(Bdd64::new_literal(var.unchecked_into(), value))
         } else {
-            Self::Size64(Bdd64::new_literal(var.as_packed64(), value))
+            panic!("Maximum representable variable identifier exceeded.");
         }
     }
 
@@ -372,6 +374,7 @@ impl Bdd {
 mod tests {
     use crate::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::bdd_node::BddNodeAny;
+    use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId};
 
@@ -429,8 +432,8 @@ mod tests {
         // f(v_1, ..., v_{2n-2}) = v_1 * v_2 + v_3 * v_4 + ... + v_{2n-3} * v_{2n-2}.
         // with the variable ordering v_1 < v_3 < ... < v_{2n-3} < v_2 < v_4 < ... < v_{2n-2}.
         // The BDD will have 2^n nodes, hence it should grow to a 32-bit BDD.
-        let low_vars: Vec<_> = (1..n).map(VariableId::from_u16).collect();
-        let high_vars: Vec<_> = (n + 1..2 * n).map(VariableId::from_u16).collect();
+        let low_vars: Vec<_> = (1..n).map(VariableId::from).collect();
+        let high_vars: Vec<_> = (n + 1..2 * n).map(VariableId::from).collect();
 
         let mut bdd = Bdd::new_false();
         let mut bdd32 = Bdd32::new_false();
@@ -439,8 +442,8 @@ mod tests {
             let prod =
                 Bdd::new_literal(low_vars[i], true).and(&Bdd::new_literal(high_vars[i], true));
 
-            let prod32 = Bdd32::new_literal(low_vars[i].as_packed32(), true)
-                .and(&Bdd32::new_literal(high_vars[i].as_packed32(), true))
+            let prod32 = Bdd32::new_literal(low_vars[i].unchecked_into(), true)
+                .and(&Bdd32::new_literal(high_vars[i].unchecked_into(), true))
                 .unwrap();
 
             bdd = bdd.or(&prod);
@@ -470,8 +473,8 @@ mod tests {
             let prod =
                 Bdd::new_literal(low_vars[i], true).and(&Bdd::new_literal(high_vars[i], true));
 
-            let prod16 = Bdd16::new_literal(low_vars[i].as_packed16(), true)
-                .and(&Bdd16::new_literal(high_vars[i].as_packed16(), true))
+            let prod16 = Bdd16::new_literal(low_vars[i].unchecked_into(), true)
+                .and(&Bdd16::new_literal(high_vars[i].unchecked_into(), true))
                 .unwrap();
 
             bdd = bdd.and(&prod);
@@ -573,9 +576,9 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_16() {
-        let var = VariableId::from_u16(1);
+        let var = VariableId::from(1u32);
         let bdd = Bdd::new_literal(var, true);
-        let bdd16 = Bdd16::new_literal(var.as_packed16(), true);
+        let bdd16 = Bdd16::new_literal(var.unchecked_into(), true);
 
         match bdd {
             Bdd::Size16(bdd_inner) => {
@@ -589,9 +592,9 @@ mod tests {
     #[test]
     fn new_bdd_literal_32() {
         let max_id: u32 = VariableId::MAX_16_BIT_ID.try_into().unwrap();
-        let var = VariableId::from_u32(max_id + 1);
+        let var = VariableId::from(max_id + 1);
         let bdd = Bdd::new_literal(var, true);
-        let bdd32 = Bdd32::new_literal(var.as_packed32(), true);
+        let bdd32 = Bdd32::new_literal(var.unchecked_into(), true);
 
         match bdd {
             Bdd::Size32(bdd_inner) => {
@@ -604,9 +607,9 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_64() {
-        let var = VariableId::from_u64(VariableId::MAX_32_BIT_ID + 1);
+        let var = VariableId::from(VariableId::MAX_32_BIT_ID + 1);
         let bdd = Bdd::new_literal(var, true);
-        let bdd64 = Bdd64::new_literal(var.as_packed64(), true);
+        let bdd64 = Bdd64::new_literal(var.unchecked_into(), true);
 
         match bdd {
             Bdd::Size64(bdd_inner) => {
@@ -619,9 +622,9 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_64_but_should_be_16() {
-        let var = VariableId::from_u64(1);
+        let var = VariableId::from(1u32);
         let bdd = Bdd::new_literal(var, true);
-        let bdd16 = Bdd16::new_literal(var.as_packed16(), true);
+        let bdd16 = Bdd16::new_literal(var.unchecked_into(), true);
 
         match bdd {
             Bdd::Size16(bdd_inner) => {
@@ -634,9 +637,9 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_32_but_should_be_16() {
-        let var = VariableId::from_u32(1);
+        let var = VariableId::from(1u32);
         let bdd = Bdd::new_literal(var, true);
-        let bdd16 = Bdd16::new_literal(var.as_packed16(), true);
+        let bdd16 = Bdd16::new_literal(var.unchecked_into(), true);
 
         match bdd {
             Bdd::Size16(bdd_inner) => {
@@ -649,9 +652,9 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_64_but_should_be_32() {
-        let var = VariableId::from_u64(VariableId::MAX_16_BIT_ID + 1);
+        let var = VariableId::from(VariableId::MAX_16_BIT_ID + 1);
         let bdd = Bdd::new_literal(var, true);
-        let bdd32 = Bdd32::new_literal(var.as_packed32(), true);
+        let bdd32 = Bdd32::new_literal(var.unchecked_into(), true);
 
         match bdd {
             Bdd::Size32(bdd_inner) => {
