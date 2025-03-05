@@ -205,7 +205,7 @@ impl VarIdPacked32 {
 
     /// Check if the variable ID is representable by `VarIdPacked16`.
     pub(crate) fn fits_in_packed16(self) -> bool {
-        self.0 <= VarIdPacked16::MAX_ID.into() || self.is_undefined()
+        self.is_undefined() || self.unpack() <= u32::from(VarIdPacked16::MAX_ID)
     }
 }
 
@@ -281,12 +281,12 @@ impl VarIdPacked64 {
 
     /// Check if the variable ID is representable by `VarIdPacked16`.
     pub(crate) fn fits_in_packed16(self) -> bool {
-        self.0 <= VarIdPacked16::MAX_ID.into() || self.is_undefined()
+        self.is_undefined() || self.unpack() <= u64::from(VarIdPacked16::MAX_ID)
     }
 
     /// Check if the variable ID is representable by `VarIdPacked32`.
     pub(crate) fn fits_in_packed32(self) -> bool {
-        self.0 <= VarIdPacked32::MAX_ID.into() || self.is_undefined()
+        self.is_undefined() || self.unpack() <= u64::from(VarIdPacked32::MAX_ID)
     }
 }
 
@@ -386,10 +386,10 @@ impl UncheckedFrom<VarIdPacked64> for VarIdPacked16 {
             id.fits_in_packed16(),
             "64-bit variable ID {id} does not fit into 16-bit variable ID"
         );
-        VarIdPacked16(match id.0 {
-            VarIdPacked64::UNDEFINED => Self::UNDEFINED,
-            id => id as u16,
-        })
+        // Assuming the number fits into u16 (which is checked by the debug assert), it's safe
+        // to just "forget" the top 48 bits (undefined value will stay undefined, rest maps
+        // to valid 16-bit values).
+        VarIdPacked16(id.0 as u16)
     }
 }
 
@@ -400,10 +400,8 @@ impl UncheckedFrom<VarIdPacked64> for VarIdPacked32 {
             id.fits_in_packed32(),
             "64-bit variable ID {id} does not fit into 32-bit variable ID"
         );
-        VarIdPacked32(match id.0 {
-            VarIdPacked64::UNDEFINED => Self::UNDEFINED,
-            id => id as u32,
-        })
+        // See also VarIdPacked16::unchecked_from::<VarIdPacked64>.
+        VarIdPacked32(id.0 as u32)
     }
 }
 
@@ -414,14 +412,12 @@ impl UncheckedFrom<VarIdPacked32> for VarIdPacked16 {
             id.fits_in_packed16(),
             "32-bit variable ID {id} does not fit into 16-bit variable ID"
         );
-        VarIdPacked16(match id.0 {
-            VarIdPacked32::UNDEFINED => Self::UNDEFINED,
-            id => id as u16,
-        })
+        // See also VarIdPacked16::unchecked_from::<VarIdPacked64>.
+        VarIdPacked16(id.0 as u16)
     }
 }
 
-/// An implementation of [`std::error::Error`] that is reported when conversion
+/// An implementation of [`std::error::Error`] that is reported when checked conversion
 /// between instances of [`VarIdPackedAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct TryFromVarIdPackedError {
@@ -910,4 +906,16 @@ mod tests {
     test_var_packed_try_from!(VarIdPacked32 => VarIdPacked16, var_packed_16_try_from_32);
     test_var_packed_try_from!(VarIdPacked64 => VarIdPacked16, var_packed_16_try_from_64);
     test_var_packed_try_from!(VarIdPacked64 => VarIdPacked32, var_packed_32_try_from_64);
+
+    #[test]
+    fn invalid_downsizing_conversions() {
+        let almost_u16a = VarIdPacked32::new(u32::from(VarIdPacked16::MAX_ID + 1));
+        let almost_u16b = VarIdPacked64::new(u64::from(VarIdPacked16::MAX_ID + 1));
+        let almost_u32 = VarIdPacked64::new(u64::from(VarIdPacked32::MAX_ID + 1));
+
+        assert!(!almost_u16a.fits_in_packed16());
+        assert!(!almost_u16b.fits_in_packed16());
+        assert!(!almost_u32.fits_in_packed32());
+        assert!(almost_u16b.fits_in_packed32());
+    }
 }
