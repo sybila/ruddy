@@ -45,12 +45,19 @@ pub trait UncheckedInto<T>: Sized {
     fn unchecked_into(self) -> T;
 }
 
-// UncheckedFrom implies UncheckedInto
+// `UncheckedFrom` implies `UncheckedInto`.
 impl<T, U> UncheckedInto<U> for T
 where
     U: UncheckedFrom<T>,
 {
     fn unchecked_into(self) -> U {
         U::unchecked_from(self)
+    }
+}
+
+// `UncheckedFrom` (and thus `UncheckedInto`) is reflexive.
+impl<T> UncheckedFrom<T> for T {
+    fn unchecked_from(value: T) -> Self {
+        value
     }
 }
