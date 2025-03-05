@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 
 use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny};
+use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
 use crate::variable_id::{
@@ -226,20 +227,16 @@ impl AsBdd<Bdd32> for Bdd32 {}
 impl AsBdd<Bdd64> for Bdd32 {}
 impl AsBdd<Bdd64> for Bdd64 {}
 
-macro_rules! impl_shrink_bdd_to_16_unchecked {
-    ($Large:ident) => {
-        impl $Large {
-            fn shrink_to_16_unchecked(self) -> Bdd16 {
-                Bdd16 {
-                    root: self.root.as_node_id16_unchecked(),
-                    nodes: self
+macro_rules! impl_unchecked_from {
+    ($Large:ident => $Small:ident) => {
+        impl UncheckedFrom<$Large> for $Small {
+            fn unchecked_from(large: $Large) -> Self {
+                Self {
+                    root: large.root.unchecked_into(),
+                    nodes: large
                         .nodes
                         .into_iter()
-                        .map(|node| BddNode16 {
-                            variable: node.variable.as_packed16_unchecked(),
-                            low: node.low.as_node_id16_unchecked(),
-                            high: node.high.as_node_id16_unchecked(),
-                        })
+                        .map(UncheckedInto::unchecked_into)
                         .collect(),
                 }
             }
@@ -247,25 +244,9 @@ macro_rules! impl_shrink_bdd_to_16_unchecked {
     };
 }
 
-impl_shrink_bdd_to_16_unchecked!(Bdd32);
-impl_shrink_bdd_to_16_unchecked!(Bdd64);
-
-impl Bdd64 {
-    fn shrink_to_32_unchecked(self) -> Bdd32 {
-        Bdd32 {
-            root: self.root.as_node_id32_unchecked(),
-            nodes: self
-                .nodes
-                .into_iter()
-                .map(|node| BddNode32 {
-                    variable: node.variable.as_packed32_unchecked(),
-                    low: node.low.as_node_id32_unchecked(),
-                    high: node.high.as_node_id32_unchecked(),
-                })
-                .collect(),
-        }
-    }
-}
+impl_unchecked_from!(Bdd32 => Bdd16);
+impl_unchecked_from!(Bdd64 => Bdd16);
+impl_unchecked_from!(Bdd64 => Bdd32);
 
 #[derive(Clone, Debug)]
 pub enum Bdd {
@@ -350,11 +331,11 @@ impl Bdd {
                 }
 
                 if (bdd.len() < 1 << 16) && vars_fit_in_16 {
-                    return Bdd::Size16(bdd.shrink_to_16_unchecked());
+                    return Bdd::Size16(bdd.unchecked_into());
                 }
 
                 if vars_fit_in_32 {
-                    return Bdd::Size32(bdd.shrink_to_32_unchecked());
+                    return Bdd::Size32(bdd.unchecked_into());
                 }
                 Bdd::Size64(bdd)
             }
@@ -365,7 +346,7 @@ impl Bdd {
                         .iter()
                         .all(|node| node.variable().fits_in_packed16()) =>
             {
-                Bdd::Size16(bdd.shrink_to_16_unchecked())
+                Bdd::Size16(bdd.unchecked_into())
             }
             _ => self,
         }
@@ -607,7 +588,8 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_32() {
-        let var = VariableId::from_u32(VariableId::MAX_16_BIT_ID as u32 + 1);
+        let max_id: u32 = VariableId::MAX_16_BIT_ID.try_into().unwrap();
+        let var = VariableId::from_u32(max_id + 1);
         let bdd = Bdd::new_literal(var, true);
         let bdd32 = Bdd32::new_literal(var.as_packed32(), true);
 

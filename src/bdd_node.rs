@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::{convert::TryFrom, fmt};
 
 use crate::{
+    conversion::{UncheckedFrom, UncheckedInto},
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny, TryFromNodeIdError},
     variable_id::{
         TryFromVarIdPackedError, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
@@ -182,6 +183,24 @@ macro_rules! impl_from {
 impl_from!(BddNode16 => BddNode32);
 impl_from!(BddNode16 => BddNode64);
 impl_from!(BddNode32 => BddNode64);
+
+macro_rules! impl_unchecked_from {
+    ($Large:ident => $Small:ident) => {
+        impl UncheckedFrom<$Large> for $Small {
+            fn unchecked_from(node: $Large) -> Self {
+                Self {
+                    variable: node.variable().unchecked_into(),
+                    low: node.low().unchecked_into(),
+                    high: node.high().unchecked_into(),
+                }
+            }
+        }
+    };
+}
+
+impl_unchecked_from!(BddNode32 => BddNode16);
+impl_unchecked_from!(BddNode64 => BddNode16);
+impl_unchecked_from!(BddNode64 => BddNode32);
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum TryFromBddNodeError {

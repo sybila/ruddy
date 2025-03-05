@@ -53,18 +53,13 @@ impl KnuthHash for u32 {
 
     /// Compute the hash of a pair of [`NodeIdAny`] instances using Knuth multiplicative hashing.
     ///
-    /// We don't allow the input types to be wider than 16 bits, so that the hash is guaranteed
-    /// to be a bijection. While the `TKeyId` generic types permit wider node ID types, the function
-    /// contains a compile-time assertion to ensure that the input types are at most 16 bits wide.
+    /// This function assumes that both input keys can be losslessly represented as 16-bit integers.
+    /// Under this assumption, the hash function is a bijection.
     fn knuth_hash<TKeyId1: NodeIdAny, TKeyId2: NodeIdAny>(val1: TKeyId1, val2: TKeyId2) -> Self {
-        struct Check<TNodeId>(TNodeId);
-        impl<TNodeId> Check<TNodeId> {
-            const IS_AT_MOST_2_BYTES_WIDE: () = assert!(std::mem::size_of::<TNodeId>() <= 2);
-        }
-        let () = Check::<TKeyId1>::IS_AT_MOST_2_BYTES_WIDE;
-        let () = Check::<TKeyId2>::IS_AT_MOST_2_BYTES_WIDE;
+        let val1: u16 = val1.unchecked_into();
+        let val2: u16 = val2.unchecked_into();
 
-        let combined = val1.as_u32_unchecked() << 16 | val2.as_u32_unchecked();
+        let combined = u32::from(val1) << 16 | u32::from(val2);
         combined.wrapping_mul(2654435769)
     }
 
@@ -80,19 +75,13 @@ impl KnuthHash for u64 {
 
     /// Compute the hash of a pair of [`NodeIdAny`] instances using Knuth multiplicative hashing.
     ///
-    /// We don't allow the input types to be wider than 32 bits, so that the hash is guaranteed
-    /// to be a bijection. While the `TKeyId` generic types permit wider node ID types, the function
-    /// contains a compile-time assertion to ensure that the input types are at most 32 bits wide.
+    /// This function assumes that both input keys can be losslessly represented as 32-bit integers.
+    /// Under this assumption, the hash function is a bijection.
     fn knuth_hash<TKeyId1: NodeIdAny, TKeyId2: NodeIdAny>(val1: TKeyId1, val2: TKeyId2) -> Self {
-        struct Check<TNodeId>(TNodeId);
-        impl<TNodeId> Check<TNodeId> {
-            const IS_AT_MOST_4_BYTES_WIDE: () = assert!(std::mem::size_of::<TNodeId>() <= 4);
-        }
+        let val1: u32 = val1.unchecked_into();
+        let val2: u32 = val2.unchecked_into();
 
-        let () = Check::<TKeyId1>::IS_AT_MOST_4_BYTES_WIDE;
-        let () = Check::<TKeyId2>::IS_AT_MOST_4_BYTES_WIDE;
-
-        let combined = Into::<u64>::into(val1) << 32 | Into::<u64>::into(val2);
+        let combined = u64::from(val1) << 32 | u64::from(val2);
         combined.wrapping_mul(14695981039346656039)
     }
 
@@ -107,19 +96,7 @@ impl KnuthHash for u128 {
     }
 
     /// Compute the hash of a pair of [`NodeIdAny`] instances using Knuth multiplicative hashing.
-    ///
-    /// We don't allow the input types to be wider than 64 bits, so that the hash is guaranteed
-    /// to be a bijection. While the `TKeyId` generic types permit wider node ID types, the function
-    /// contains a compile-time assertion to ensure that the input types are at most 64 bits wide.
     fn knuth_hash<TKeyId1: NodeIdAny, TKeyId2: NodeIdAny>(val1: TKeyId1, val2: TKeyId2) -> Self {
-        struct Check<TNodeId>(TNodeId);
-        impl<TNodeId> Check<TNodeId> {
-            const IS_AT_MOST_8_BYTES_WIDE: () = assert!(std::mem::size_of::<TNodeId>() <= 8);
-        }
-
-        let () = Check::<TKeyId1>::IS_AT_MOST_8_BYTES_WIDE;
-        let () = Check::<TKeyId2>::IS_AT_MOST_8_BYTES_WIDE;
-
         let combined: u128 = Into::<u128>::into(val1) << 64 | Into::<u128>::into(val2);
         combined.wrapping_mul(210306068529402873165736369884012333108)
     }

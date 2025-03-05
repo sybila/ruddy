@@ -7,6 +7,8 @@ use std::{
     hash::Hash,
 };
 
+use crate::conversion::UncheckedFrom;
+
 /// An internal trait implemented by types that can serve as BDD variable identifiers within
 /// BDD nodes.
 ///
@@ -205,26 +207,6 @@ impl VarIdPacked32 {
     pub(crate) fn fits_in_packed16(self) -> bool {
         self.0 <= VarIdPacked16::MAX_ID.into() || self.is_undefined()
     }
-
-    /// Convert the variable ID to a [`VarIdPacked16`].
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, checking whether the ID fits into
-    /// `VarIdPacked16` is only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is not actually
-    /// representable by `VarIdPacked16`.
-    #[allow(clippy::as_conversions)]
-    pub(crate) fn as_packed16_unchecked(self) -> VarIdPacked16 {
-        debug_assert!(
-            self.fits_in_packed16(),
-            "32-bit variable ID {self} does not fit into 16-bit variable ID"
-        );
-        match self.0 {
-            Self::UNDEFINED => VarIdPacked16::undefined(),
-            _ => VarIdPacked16(self.0 as u16),
-        }
-    }
 }
 
 /// A 64-bit implementation of the [`VarIdPackedAny`] trait that packs additional
@@ -302,49 +284,9 @@ impl VarIdPacked64 {
         self.0 <= VarIdPacked16::MAX_ID.into() || self.is_undefined()
     }
 
-    /// Convert the variable ID to a [`VarIdPacked16`].
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, checking whether the ID fits into
-    /// `VarIdPacked16` is only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is not actually
-    /// representable by `VarIdPacked16`.
-    #[allow(clippy::as_conversions)]
-    pub(crate) fn as_packed16_unchecked(self) -> VarIdPacked16 {
-        debug_assert!(
-            self.fits_in_packed16(),
-            "64-bit variable ID {self} does not fit into 16-bit variable ID"
-        );
-        match self.0 {
-            Self::UNDEFINED => VarIdPacked16::undefined(),
-            _ => VarIdPacked16(self.0 as u16),
-        }
-    }
-
     /// Check if the variable ID is representable by `VarIdPacked32`.
     pub(crate) fn fits_in_packed32(self) -> bool {
         self.0 <= VarIdPacked32::MAX_ID.into() || self.is_undefined()
-    }
-
-    /// Convert the variable ID to a [`VarIdPacked32`].
-    ///
-    /// ## Undefined behavior
-    ///
-    /// For performance reasons, checking whether the ID fits into
-    /// `VarIdPacked32` is only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is not actually
-    /// representable by `VarIdPacked32`.
-    #[allow(clippy::as_conversions)]
-    pub(crate) fn as_packed32_unchecked(self) -> VarIdPacked32 {
-        debug_assert!(
-            self.fits_in_packed32(),
-            "64-bit variable ID {self} does not fit into 32-bit variable ID"
-        );
-        match self.0 {
-            Self::UNDEFINED => VarIdPacked32::undefined(),
-            _ => VarIdPacked32(self.0 as u32),
-        }
     }
 }
 
@@ -436,6 +378,48 @@ macro_rules! impl_from {
 impl_from!(VarIdPacked16 => VarIdPacked32);
 impl_from!(VarIdPacked16 => VarIdPacked64);
 impl_from!(VarIdPacked32 => VarIdPacked64);
+
+impl UncheckedFrom<VarIdPacked64> for VarIdPacked16 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: VarIdPacked64) -> Self {
+        debug_assert!(
+            id.fits_in_packed16(),
+            "64-bit variable ID {id} does not fit into 16-bit variable ID"
+        );
+        VarIdPacked16(match id.0 {
+            VarIdPacked64::UNDEFINED => Self::UNDEFINED,
+            id => id as u16,
+        })
+    }
+}
+
+impl UncheckedFrom<VarIdPacked64> for VarIdPacked32 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: VarIdPacked64) -> Self {
+        debug_assert!(
+            id.fits_in_packed32(),
+            "64-bit variable ID {id} does not fit into 32-bit variable ID"
+        );
+        VarIdPacked32(match id.0 {
+            VarIdPacked64::UNDEFINED => Self::UNDEFINED,
+            id => id as u32,
+        })
+    }
+}
+
+impl UncheckedFrom<VarIdPacked32> for VarIdPacked16 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: VarIdPacked32) -> Self {
+        debug_assert!(
+            id.fits_in_packed16(),
+            "32-bit variable ID {id} does not fit into 16-bit variable ID"
+        );
+        VarIdPacked16(match id.0 {
+            VarIdPacked32::UNDEFINED => Self::UNDEFINED,
+            id => id as u16,
+        })
+    }
+}
 
 /// An implementation of [`std::error::Error`] that is reported when conversion
 /// between instances of [`VarIdPackedAny`] is not possible.
@@ -621,6 +605,7 @@ impl fmt::Display for VarIdPacked64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::conversion::UncheckedFrom;
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
 
     macro_rules! test_var_packed_undefined {
@@ -783,6 +768,77 @@ mod tests {
     test_var_packed_from!(VarIdPacked16 => VarIdPacked32, var_packed_16_from_32);
     test_var_packed_from!(VarIdPacked16 => VarIdPacked64, var_packed_16_from_64);
     test_var_packed_from!(VarIdPacked32 => VarIdPacked64, var_packed_32_from_64);
+
+    macro_rules! test_var_packed_unchecked_from_undefined {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                assert_eq!(
+                    $Small::undefined(),
+                    $Small::unchecked_from($Large::undefined())
+                );
+            }
+        };
+    }
+
+    test_var_packed_unchecked_from_undefined!(VarIdPacked32 => VarIdPacked16, var_packed_16_unchecked_from_32_undefined);
+    test_var_packed_unchecked_from_undefined!(VarIdPacked64 => VarIdPacked16, var_packed_16_unchecked_from_64_undefined);
+    test_var_packed_unchecked_from_undefined!(VarIdPacked64 => VarIdPacked32, var_packed_32_unchecked_from_64_undefined);
+
+    macro_rules! test_var_packed_unchecked_from_invalid {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            #[should_panic]
+            fn $func() {
+                let large = $Large::new(($Small::MAX_ID + 1).into());
+                let _ = $Small::try_from(large).unwrap();
+            }
+        };
+    }
+
+    test_var_packed_unchecked_from_invalid!(VarIdPacked32 => VarIdPacked16, var_packed_16_unchecked_from_32_invalid);
+    test_var_packed_unchecked_from_invalid!(VarIdPacked64 => VarIdPacked16, var_packed_16_unchecked_from_64_invalid);
+    test_var_packed_unchecked_from_invalid!(VarIdPacked64 => VarIdPacked32, var_packed_32_unchecked_from_64_invalid);
+
+    macro_rules! test_var_packed_unchecked_from {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let mut large = $Large::new(256);
+                large.increment_parents();
+                large.increment_parents();
+
+                let small = $Small::unchecked_from(large);
+
+                assert_eq!(small.unpack(), 256);
+
+                assert!(!small.use_cache());
+                assert!(small.has_many_parents());
+
+                let mut large = $Large::new(0);
+                large.set_use_cache(true);
+
+                let small = $Small::unchecked_from(large);
+
+                assert_eq!(small.unpack(), 0);
+                assert!(small.use_cache());
+                assert!(!small.has_many_parents());
+
+                let mut large = $Large::new(1);
+                large.increment_parents();
+
+                let small = $Small::unchecked_from(large);
+
+                assert_eq!(small.unpack(), 1);
+                assert!(!small.use_cache());
+                assert!(!small.has_many_parents());
+            }
+        };
+    }
+
+    test_var_packed_unchecked_from!(VarIdPacked32 => VarIdPacked16, var_packed_16_unchecked_from_32);
+    test_var_packed_unchecked_from!(VarIdPacked64 => VarIdPacked16, var_packed_16_unchecked_from_64);
+    test_var_packed_unchecked_from!(VarIdPacked64 => VarIdPacked32, var_packed_32_unchecked_from_64);
 
     macro_rules! test_var_packed_try_from_undefined {
         ($Large:ident => $Small:ident, $func:ident) => {

@@ -391,7 +391,7 @@ mod tests {
 
         for (i, id) in ids.iter().enumerate() {
             let id_p = table.ensure_node(
-                VarIdPacked32::new(i as u32),
+                VarIdPacked32::new(i.try_into().unwrap()),
                 NodeId32::zero(),
                 NodeId32::one(),
             );

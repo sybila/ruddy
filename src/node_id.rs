@@ -1,6 +1,7 @@
 //! Defines the representation of node identifiers. Includes: [`NodeIdAny`], [`NodeId16`],
 //! [`NodeId32`] and [`NodeId64`].
 
+use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::{boolean_operators::TriBool, usize_is_at_least_32_bits, usize_is_at_least_64_bits};
 use std::fmt::{self, Debug};
 use std::hash::Hash;
@@ -11,7 +12,16 @@ use std::hash::Hash;
 /// designated "terminal" values equivalent to `0` and `1`. Every other node id must
 /// fall in the `1 < id < undefined` interval.
 pub trait NodeIdAny:
-    Eq + Ord + Copy + Hash + Debug + Into<u64> + Into<u128> + TryFrom<usize>
+    Eq
+    + Ord
+    + Copy
+    + Hash
+    + Debug
+    + Into<u64>
+    + Into<u128>
+    + TryFrom<usize>
+    + UncheckedInto<u16>
+    + UncheckedInto<u32>
 {
     /// Return an instance of the "undefined" node ID.
     fn undefined() -> Self;
@@ -64,14 +74,8 @@ pub trait NodeIdAny:
         }
     }
 
-    /// Convert the ID into a `u16` value, truncating the value if it is larger than [`u16::MAX`].
-    fn as_u16_unchecked(self) -> u16;
-    /// Convert the ID into a `u32` value. Truncates the value if it is larger than [`u32::MAX`].
-    fn as_u32_unchecked(self) -> u32;
-
     /// Convert the ID into a value that can be used for indexing. This can truncate IDs wider
-    /// than the index type, but this should never happen on 64-bit systems, hence we consider
-    /// it "safer" than [`Self::as_u16_unchecked`] and [`Self::as_u32_unchecked`].
+    /// than the index type, but this should never happen on 64-bit systems.
     ///
     /// ## Undefined behavior
     ///
@@ -143,16 +147,6 @@ impl NodeIdAny for NodeId16 {
         self.0 <= 1
     }
 
-    /// Convert the ID safely into a `u16` value.
-    fn as_u16_unchecked(self) -> u16 {
-        self.0
-    }
-
-    /// Convert the ID safely into a `u32` value.
-    fn as_u32_unchecked(self) -> u32 {
-        u32::from(self.0)
-    }
-
     fn as_usize(self) -> usize {
         debug_assert!(
             !self.is_undefined(),
@@ -189,27 +183,6 @@ impl NodeId32 {
     pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
         Self(u32::from_le_bytes(bytes))
     }
-
-    /// Convert the ID into a [`NodeId16`] value.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// This method will panic in debug mode if the node ID does not
-    /// fit into a `NodeId16`. In release mode, this is not checked but can cause
-    /// undefined behavior.
-    #[allow(clippy::as_conversions)]
-    pub(crate) fn as_node_id16_unchecked(self) -> NodeId16 {
-        match self.0 {
-            Self::UNDEFINED => NodeId16::undefined(),
-            _ => {
-                debug_assert!(
-                    self.0 <= NodeId16::MAX_ID.into(),
-                    "32-bit node ID {self} does not fit into 16-bit node ID"
-                );
-                NodeId16::new(self.0 as u16)
-            }
-        }
-    }
 }
 
 impl NodeIdAny for NodeId32 {
@@ -241,20 +214,6 @@ impl NodeIdAny for NodeId32 {
         self.0 <= 1
     }
 
-    #[allow(clippy::as_conversions)]
-    fn as_u16_unchecked(self) -> u16 {
-        debug_assert!(
-            self.0 <= u16::MAX.into(),
-            "32-bit node ID {self} does not fit into u16"
-        );
-        self.0 as u16
-    }
-
-    /// Convert the ID safely into a `u32` value.
-    fn as_u32_unchecked(self) -> u32 {
-        self.0
-    }
-
     fn as_usize(self) -> usize {
         debug_assert!(
             !self.is_undefined(),
@@ -280,48 +239,6 @@ impl NodeId64 {
     pub fn new(id: u64) -> Self {
         debug_assert!(id != Self::UNDEFINED, "cannot create 64-bit undefined id");
         Self(id)
-    }
-
-    /// Convert the ID into a [`NodeId16`] value.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// This method will panic in debug mode if the node ID does not
-    /// fit into a `NodeId16`. In release mode, this is not checked but can cause
-    /// undefined behavior.
-    #[allow(clippy::as_conversions)]
-    pub(crate) fn as_node_id16_unchecked(self) -> NodeId16 {
-        match self.0 {
-            Self::UNDEFINED => NodeId16::undefined(),
-            _ => {
-                debug_assert!(
-                    self.0 <= NodeId16::MAX_ID.into(),
-                    "64-bit node ID {self} does not fit into 16-bit node ID"
-                );
-                NodeId16::new(self.0 as u16)
-            }
-        }
-    }
-
-    /// Convert the ID into a [`NodeId32`] value.
-    ///
-    /// ## Undefined behavior
-    ///
-    /// This method will panic in debug mode if the node ID does not
-    /// fit into a `NodeId32`. In release mode, this is not checked but can cause
-    /// undefined behavior.
-    #[allow(clippy::as_conversions)]
-    pub(crate) fn as_node_id32_unchecked(self) -> NodeId32 {
-        match self.0 {
-            Self::UNDEFINED => NodeId32::undefined(),
-            _ => {
-                debug_assert!(
-                    self.0 <= NodeId32::MAX_ID.into(),
-                    "64-bit node ID {self} does not fit into 32-bit node ID"
-                );
-                NodeId32::new(self.0 as u32)
-            }
-        }
     }
 }
 
@@ -352,24 +269,6 @@ impl NodeIdAny for NodeId64 {
 
     fn is_terminal(self) -> bool {
         self.0 <= 1
-    }
-
-    #[allow(clippy::as_conversions)]
-    fn as_u16_unchecked(self) -> u16 {
-        debug_assert!(
-            self.0 <= u16::MAX.into(),
-            "64-bit node ID {self} does not fit into u16"
-        );
-        self.0 as u16
-    }
-
-    #[allow(clippy::as_conversions)]
-    fn as_u32_unchecked(self) -> u32 {
-        debug_assert!(
-            self.0 <= u32::MAX.into(),
-            "64-bit node ID {self} does not fit into u32"
-        );
-        self.0 as u32
     }
 
     fn as_usize(self) -> usize {
@@ -414,6 +313,105 @@ macro_rules! impl_from {
 impl_from!(NodeId16 => NodeId32);
 impl_from!(NodeId16 => NodeId64);
 impl_from!(NodeId32 => NodeId64);
+
+impl UncheckedFrom<NodeId16> for u16 {
+    fn unchecked_from(id: NodeId16) -> Self {
+        id.0
+    }
+}
+
+impl UncheckedFrom<NodeId16> for u32 {
+    fn unchecked_from(id: NodeId16) -> Self {
+        u32::from(id.0)
+    }
+}
+
+impl UncheckedFrom<NodeId32> for NodeId16 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: NodeId32) -> Self {
+        Self(match id.0 {
+            NodeId32::UNDEFINED => NodeId16::UNDEFINED,
+            id => {
+                debug_assert!(
+                    id <= NodeId16::MAX_ID.into(),
+                    "32-bit node ID {id} does not fit into 16-bit node ID"
+                );
+                id as u16
+            }
+        })
+    }
+}
+
+impl UncheckedFrom<NodeId32> for u16 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: NodeId32) -> Self {
+        debug_assert!(
+            id.0 <= u16::MAX.into(),
+            "32-bit node ID {id} does not fit into u16"
+        );
+        id.0 as u16
+    }
+}
+
+impl UncheckedFrom<NodeId32> for u32 {
+    fn unchecked_from(id: NodeId32) -> Self {
+        id.0
+    }
+}
+
+impl UncheckedFrom<NodeId64> for u16 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: NodeId64) -> Self {
+        debug_assert!(
+            id.0 <= u16::MAX.into(),
+            "64-bit node ID {id} does not fit into u16"
+        );
+        id.0 as u16
+    }
+}
+
+impl UncheckedFrom<NodeId64> for u32 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: NodeId64) -> Self {
+        debug_assert!(
+            id.0 <= u32::MAX.into(),
+            "64-bit node ID {id} does not fit into u32"
+        );
+        id.0 as u32
+    }
+}
+
+impl UncheckedFrom<NodeId64> for NodeId16 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: NodeId64) -> Self {
+        Self(match id.0 {
+            NodeId64::UNDEFINED => NodeId16::UNDEFINED,
+            id => {
+                debug_assert!(
+                    id <= NodeId16::MAX_ID.into(),
+                    "64-bit node ID {id} does not fit into 16-bit node ID"
+                );
+                id as u16
+            }
+        })
+    }
+}
+
+impl UncheckedFrom<NodeId64> for NodeId32 {
+    #[allow(clippy::as_conversions)]
+    fn unchecked_from(id: NodeId64) -> Self {
+        Self(match id.0 {
+            NodeId64::UNDEFINED => NodeId32::UNDEFINED,
+            id => {
+                debug_assert!(
+                    id <= NodeId32::MAX_ID.into(),
+                    "64-bit node ID {id} does not fit into 32-bit node ID"
+                );
+                id as u32
+            }
+        })
+    }
+}
 
 /// An implementation of [`std::error::Error`] that is reported when conversion
 /// between instances of [`NodeIdAny`] is not possible.
@@ -493,7 +491,7 @@ macro_rules! impl_try_from_usize {
                     }
                 }
 
-                // At this point, the vlaue is either undefined, or it does not fit
+                // At this point, the value is either undefined, or it does not fit
                 // into the requested node ID type.
                 Err(TryFromUsizeError {
                     id: value,
@@ -536,6 +534,7 @@ impl fmt::Display for NodeId64 {
 #[cfg(test)]
 mod tests {
     use crate::boolean_operators::TriBool;
+    use crate::conversion::UncheckedFrom;
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
 
@@ -645,6 +644,52 @@ mod tests {
     test_node_id_from_undefined!(NodeId16 => NodeId32, node_id_32_from_16_undefined);
     test_node_id_from_undefined!(NodeId16 => NodeId64, node_id_64_from_16_undefined);
     test_node_id_from_undefined!(NodeId32 => NodeId64, node_id_64_from_32_undefined);
+
+    macro_rules! test_node_id_unchecked_from_undefined {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let large_undefined = $Large::undefined();
+                let small_undefined = $Small::undefined();
+
+                assert_eq!(small_undefined, $Small::unchecked_from(large_undefined));
+            }
+        };
+    }
+
+    test_node_id_unchecked_from_undefined!(NodeId32 => NodeId16, node_id_16_unchecked_from_32_undefined);
+    test_node_id_unchecked_from_undefined!(NodeId64 => NodeId16, node_id_16_unchecked_from_64_undefined);
+    test_node_id_unchecked_from_undefined!(NodeId64 => NodeId32, node_id_32_unchecked_from_16_undefined);
+
+    macro_rules! test_node_id_unchecked_from {
+        ($Large:ident => $Small:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                assert_eq!($Small::zero(), $Small::unchecked_from($Large::zero()));
+                assert_eq!($Small::one(), $Small::unchecked_from($Large::one()));
+                assert_eq!($Small::new(256), $Small::unchecked_from($Large::new(256)));
+            }
+        };
+    }
+
+    test_node_id_unchecked_from!(NodeId64 => NodeId16, node_id_16_unchecked_from_64);
+    test_node_id_unchecked_from!(NodeId64 => NodeId32, node_id_32_unchecked_from_64);
+    test_node_id_unchecked_from!(NodeId32 => NodeId16, node_id_16_unchecked_from_32);
+
+    macro_rules! test_node_id_unchecked_from_invalid {
+        ($Large:ident => $Small:ident, $LargeWidth:ident, $func:ident) => {
+            #[test]
+            #[should_panic]
+            fn $func() {
+                let large = $Large::new($LargeWidth::from($Small::MAX_ID) + 2);
+                let _ = $Small::unchecked_from(large);
+            }
+        };
+    }
+
+    test_node_id_unchecked_from_invalid!(NodeId64 => NodeId16, u64, node_id_16_unchecked_from_64_invalid);
+    test_node_id_unchecked_from_invalid!(NodeId64 => NodeId32, u64, node_id_32_unchecked_from_64_invalid);
+    test_node_id_unchecked_from_invalid!(NodeId32 => NodeId16, u32, node_id_16_unchecked_from_32_invalid);
 
     macro_rules! test_node_id_try_from_undefined {
         ($Large:ident => $Small:ident, $func:ident) => {
