@@ -7,7 +7,7 @@ use std::{
     hash::Hash,
 };
 
-use crate::conversion::UncheckedFrom;
+use crate::conversion::{UncheckedFrom, UncheckedInto};
 
 /// An internal trait implemented by types that can serve as BDD variable identifiers within
 /// BDD nodes.
@@ -388,7 +388,8 @@ impl UncheckedFrom<VarIdPacked64> for VarIdPacked16 {
         );
         // Assuming the number fits into u16 (which is checked by the debug assert), it's safe
         // to just "forget" the top 48 bits (undefined value will stay undefined, rest maps
-        // to valid 16-bit values).
+        // to valid 16-bit values). Note that we can't use `UncheckedInto` here, as that would
+        // panic in debug mode for undefined values.
         VarIdPacked16(id.0 as u16)
     }
 }
@@ -524,18 +525,16 @@ impl UncheckedFrom<VariableId> for VarIdPacked64 {
 }
 
 impl UncheckedFrom<VariableId> for VarIdPacked32 {
-    #[allow(clippy::as_conversions)]
     fn unchecked_from(value: VariableId) -> Self {
         debug_assert!(value.fits_in_packed32());
-        VarIdPacked32::new(value.0 as u32)
+        VarIdPacked32::new(value.0.unchecked_into())
     }
 }
 
 impl UncheckedFrom<VariableId> for VarIdPacked16 {
-    #[allow(clippy::as_conversions)]
     fn unchecked_from(value: VariableId) -> Self {
         debug_assert!(value.fits_in_packed32());
-        VarIdPacked16::new(value.0 as u16)
+        VarIdPacked16::new(value.0.unchecked_into())
     }
 }
 
