@@ -21,16 +21,6 @@ pub trait UncheckedFrom<T>: Sized {
     fn unchecked_from(value: T) -> Self;
 }
 
-/// A value-to-value conversion that consumes the input value, without any checks.
-/// The opposite of [`UncheckedFrom`].
-///
-/// This trait is intended for cases where the conversion is **expected** to *succeed*
-/// and be *lossless*. As such, it inherently less safe than [`TryInto`], but typically faster.
-///
-/// One should avoid implementing `UncheckedInto` and implement [`UncheckedFrom`] instead.
-/// Implementing [`UncheckedFrom`] automatically provides one with an implementation of
-/// `UncheckedInto` thanks to the blanket implementation in the library.
-
 /// Prefer using `UncheckedInto` over [`UncheckedFrom`] when specifying trait bounds
 /// on a generic function to ensure that types that only implement `UncheckedInto`
 ///  can be used as well.
@@ -79,6 +69,7 @@ macro_rules! derive_unchecked_from {
     };
     ($A:ident as $B:ident) => {
         impl UncheckedFrom<$A> for $B {
+            #[allow(clippy::as_conversions)]
             fn unchecked_from(x: $A) -> Self {
                 debug_assert!($B::try_from(x).is_ok());
                 x as $B

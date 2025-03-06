@@ -119,6 +119,7 @@ impl KnuthHash for u128 {
         combined.wrapping_mul(210306068529402873165736369884012333108)
     }
 
+    #[allow(clippy::as_conversions)]
     fn to_slot(self, log_size: u32) -> usize {
         // Here, we can assume the conversion is safe, because the size of the task cache
         // should not exceed 2^64, meaning the integer should have at most 64 bits after the shift.
