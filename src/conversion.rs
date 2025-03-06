@@ -61,3 +61,37 @@ impl<T> UncheckedFrom<T> for T {
         value
     }
 }
+
+// A macro that can derive `UncheckedFrom` for types where `From` or `as` already exists.
+// The reason why this isn't a blanket implementation for all applicable types is that
+// the blanket implementation could break if upstream crates later add extra implementations
+// of `From` for types that don't have it yet.
+macro_rules! derive_unchecked_from {
+    ($A:ident => $B:ident) => {
+        impl UncheckedFrom<$A> for $B {
+            fn unchecked_from(x: $A) -> Self {
+                x.into()
+            }
+        }
+    };
+    ($A:ident => $($B:ident),+) => {
+        $(derive_unchecked_from!($A => $B);)+
+    };
+    ($A:ident as $B:ident) => {
+        impl UncheckedFrom<$A> for $B {
+            fn unchecked_from(x: $A) -> Self {
+                debug_assert!($B::try_from(x).is_ok());
+                x as $B
+            }
+        }
+    };
+    ($A:ident as $($B:ident),+) => {
+        $(derive_unchecked_from!($A as $B);)+
+    };
+}
+
+derive_unchecked_from!(u16 => u32, u64, u128, usize);
+derive_unchecked_from!(u32 => u64, u128);
+derive_unchecked_from!(u64 => u128);
+derive_unchecked_from!(u64 as u16, u32, usize);
+derive_unchecked_from!(u32 as u16, usize);
