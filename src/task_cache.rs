@@ -13,11 +13,20 @@ use crate::{
 ///
 /// The table can "lose" any value that is stored in it, especially in case of a collision with
 /// another value. The cache is responsible for growing itself when too many collisions occur.
+///
+/// The `get`/`set` methods are generic to allow combinations of different bit-widths in one
+/// computation. For example, we can create an instance of [`TaskCacheAny`] where the keys are
+/// 16-bit identifiers, but the result is a 32-bit identifier. Importantly, the hash function
+/// only depends on the bit-width of the keys, meaning that increasing the bit-width of
+/// [`Self::ResultId`] can be done without recomputing the hashes.
 pub trait TaskCacheAny: Default {
     type ResultId: NodeIdAny;
 
     /// Retrieve the result value that is stored for the given `task`, or [`NodeIdAny::undefined`]
     /// when the `task` has not been encountered before.
+    ///
+    /// The `task` consists of two [`NodeIdAny`] instances. These can be any implementations of
+    /// said trait, as long as they can be safely converted to [`Self::ResultId`].
     fn get<TKeyId1: AsNodeId<Self::ResultId>, TKeyId2: AsNodeId<Self::ResultId>>(
         &self,
         task: (TKeyId1, TKeyId2),
@@ -25,6 +34,9 @@ pub trait TaskCacheAny: Default {
 
     /// Update the `result` value for the given `task`, possibly overwriting any previously
     /// stored data.
+    ///
+    /// Just as [`TaskCacheAny::get`], the `task` can be represented using any combination of
+    /// [`NodeIdAny`] implementations as long as conversion into [`Self::ResultId`] is possible.
     fn set<TKeyId1: AsNodeId<Self::ResultId>, TKeyId2: AsNodeId<Self::ResultId>>(
         &mut self,
         task: (TKeyId1, TKeyId2),
@@ -43,6 +55,9 @@ pub trait KnuthHash: Clone + Copy + PartialEq + Eq + Debug {
 
     /// Compute the table index where a particular `hash` should be stored.
     /// The `log_size` is the base-2 logarithm of the table size.
+    ///
+    /// Traditionally, in the multiplicative hashing, the index is determined by the
+    /// most significant bits of the hash, as these are the most "random".
     fn to_slot(self, log_size: u32) -> usize;
 }
 
@@ -53,12 +68,11 @@ impl KnuthHash for u32 {
 
     /// Compute the hash of a pair of [`NodeIdAny`] instances using Knuth multiplicative hashing.
     ///
-    /// This function assumes that both input keys can be losslessly represented as 16-bit integers.
-    /// Under this assumption, the hash function is a bijection.
+    /// This function assumes that both input keys can undergo lossless conversion to
+    /// 16-bit integers. Under this assumption, the hash function is a bijection.
     fn knuth_hash<TKeyId1: NodeIdAny, TKeyId2: NodeIdAny>(val1: TKeyId1, val2: TKeyId2) -> Self {
         let val1: u16 = val1.unchecked_into();
         let val2: u16 = val2.unchecked_into();
-
         let combined = u32::from(val1) << 16 | u32::from(val2);
         combined.wrapping_mul(2654435769)
     }
@@ -75,12 +89,11 @@ impl KnuthHash for u64 {
 
     /// Compute the hash of a pair of [`NodeIdAny`] instances using Knuth multiplicative hashing.
     ///
-    /// This function assumes that both input keys can be losslessly represented as 32-bit integers.
-    /// Under this assumption, the hash function is a bijection.
+    /// This function assumes that both input keys can undergo lossless conversion to
+    /// 32-bit integers. Under this assumption, the hash function is a bijection.
     fn knuth_hash<TKeyId1: NodeIdAny, TKeyId2: NodeIdAny>(val1: TKeyId1, val2: TKeyId2) -> Self {
         let val1: u32 = val1.unchecked_into();
         let val2: u32 = val2.unchecked_into();
-
         let combined = u64::from(val1) << 32 | u64::from(val2);
         combined.wrapping_mul(14695981039346656039)
     }
@@ -96,6 +109,9 @@ impl KnuthHash for u128 {
     }
 
     /// Compute the hash of a pair of [`NodeIdAny`] instances using Knuth multiplicative hashing.
+    ///
+    /// This function assumes that both input keys can undergo lossless conversion to
+    /// 64-bit integers. Under this assumption, the hash function is a bijection.
     fn knuth_hash<TKeyId1: NodeIdAny, TKeyId2: NodeIdAny>(val1: TKeyId1, val2: TKeyId2) -> Self {
         let val1: u128 = val1.unchecked_into();
         let val2: u128 = val2.unchecked_into();
@@ -103,14 +119,15 @@ impl KnuthHash for u128 {
         combined.wrapping_mul(210306068529402873165736369884012333108)
     }
 
-    // TODO: how to handle conversions to usize here?
-    #[allow(clippy::as_conversions)]
     fn to_slot(self, log_size: u32) -> usize {
-        (self >> (u128::BITS - log_size)) as usize
+        // Here, we can assume the conversion is safe, because the size of the task cache
+        // should not exceed 2^64, meaning the integer should have at most 64 bits after the shift.
+        usize_is_at_least_64_bits((self >> (u128::BITS - log_size)) as u64)
     }
 }
 
-/// Implementation of [`TaskCacheAny`] based on [`NodeIdAny`] and using Knuth multiplicative hashing.
+/// Implementation of [`TaskCacheAny`] based on [`NodeIdAny`] and using Knuth multiplicative
+/// hashing (via [`KnuthHash`]).
 ///
 /// This implementation uses a hash table with its size always being a power of two. The table
 /// is expanded (doubles its size) when the number of collisions exceeds half of the current
@@ -123,8 +140,9 @@ impl KnuthHash for u128 {
 ///
 /// Finally, note that we are using `0` as the hash of an "empty" key-value pair. This is valid,
 /// since the `(0, 0)` key should never be stored in this table because it is a "trivial" task
-/// that does not need to be resolved via task cache. However, we could also use the hash of
-/// `(undefined, undefined)` for the same purpose.
+/// that does not need to be resolved via task cache. We could also use the hash of
+/// `(undefined, undefined)` for the same purpose, but this is slightly less efficient because
+/// initializing memory to zero often has special system-level optimizations.
 #[derive(Debug)]
 pub struct TaskCache<THashSize, TResultId> {
     table: Vec<(THashSize, TResultId)>,
@@ -326,8 +344,8 @@ impl_from_task_cache!(NodeId16, NodeId64);
 
 #[cfg(test)]
 mod tests {
-    use crate::node_id::{NodeId32, NodeIdAny};
-    use crate::task_cache::{TaskCache32, TaskCacheAny};
+    use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
+    use crate::task_cache::{TaskCache16, TaskCache32, TaskCacheAny};
 
     #[test]
     pub fn task_cache_basic() {
@@ -376,5 +394,32 @@ mod tests {
         cache.set((p0, p1), p1);
         cache.set((p0, p2), p1);
         assert!(cache.size() > 2);
+    }
+
+    #[test]
+    pub fn task_cache_upcast() {
+        let mut cache = TaskCache16::<NodeId16>::with_log_size(4);
+
+        let p0 = NodeId16::zero();
+        let p1 = NodeId16::one();
+        let p2 = NodeId16::new(2);
+
+        cache.set((p0, p1), p2);
+
+        let mut cache = TaskCache16::<NodeId32>::from(cache);
+        assert_eq!(cache.get((p0, p1)), NodeId32::from(p2));
+
+        let p3 = NodeId32::new(3);
+        cache.set((p1, p0), p3);
+        assert_eq!(cache.get((p0, p1)), NodeId32::from(p2));
+        assert_eq!(cache.get((p1, p0)), p3);
+
+        let mut cache = TaskCache16::<NodeId64>::from(cache);
+
+        let p4 = NodeId64::new(4);
+        cache.set((p1, p1), p4);
+        assert_eq!(cache.get((p0, p1)), NodeId64::from(p2));
+        assert_eq!(cache.get((p1, p0)), NodeId64::from(p3));
+        assert_eq!(cache.get((p1, p1)), p4);
     }
 }
