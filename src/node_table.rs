@@ -251,7 +251,8 @@ impl<
         // https://stackoverflow.com/a/27952689
         // TODO: is this a good hash?
         let min_child = min(low, high);
-        let hash_child: u64 = Into::<u64>::into(min_child).wrapping_mul(14695981039346656039);
+        let min_child_u64: u64 = min_child.unchecked_into();
+        let hash_child: u64 = min_child_u64.wrapping_mul(14695981039346656039);
         let hash_variable: u64 = variable.unpack_u64().wrapping_mul(14695981039346656039);
         let mut hash = hash_child.wrapping_mul(3).wrapping_add(hash_variable);
 

@@ -97,7 +97,9 @@ impl KnuthHash for u128 {
 
     /// Compute the hash of a pair of [`NodeIdAny`] instances using Knuth multiplicative hashing.
     fn knuth_hash<TKeyId1: NodeIdAny, TKeyId2: NodeIdAny>(val1: TKeyId1, val2: TKeyId2) -> Self {
-        let combined: u128 = Into::<u128>::into(val1) << 64 | Into::<u128>::into(val2);
+        let val1: u128 = val1.unchecked_into();
+        let val2: u128 = val2.unchecked_into();
+        let combined: u128 = val1 << 64 | val2;
         combined.wrapping_mul(210306068529402873165736369884012333108)
     }
 
