@@ -489,16 +489,27 @@ impl VariableId {
     pub const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
     pub const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
 
-    /// Create a new `VariableId` from a `u64` value.
-    /// It must hold that `0 <= id <= MAX_64_BIT_ID`.
+    /// Create a new variable ID.
     ///
-    /// ## Undefined behavior
+    /// This operation must always succeed; we require that the underlying algorithms all
+    /// support at least 2^32 distinct variable IDs.
+    pub fn new(id: u32) -> Self {
+        Self(u64::from(id))
+    }
+
+    /// Create a new `VariableId` from a larger, `u64` value.
     ///
-    /// For performance reasons, range checks on variable IDs are only performed in debug mode.
-    /// In release mode, undefined behavior can occur if the ID is invalid.
-    pub fn new(id: u64) -> Self {
-        debug_assert!(id <= Self::MAX_64_BIT_ID);
-        Self(id)
+    /// This operation can fail, since the underlying algorithms are not required to support
+    /// all 2^64 distinct IDs. You can assume that most IDs are still supported
+    /// (at least on 64-bit systems). However, for the purpose of ensuring backwards compatibility
+    /// in the future, we do not provide a guaranteed maximum ID that is always supported and
+    /// is larger than 2^32.
+    pub fn new_long(id: u64) -> Option<Self> {
+        if id <= Self::MAX_64_BIT_ID {
+            Some(Self(id))
+        } else {
+            None
+        }
     }
 
     /// Check that the variable ID fits into a 16-bit packed variable ID.
@@ -540,18 +551,12 @@ impl UncheckedFrom<VariableId> for VarIdPacked16 {
 
 impl From<u16> for VariableId {
     fn from(value: u16) -> Self {
-        VariableId::new(u64::from(value))
+        VariableId::new(u32::from(value))
     }
 }
 
 impl From<u32> for VariableId {
     fn from(value: u32) -> Self {
-        VariableId::new(u64::from(value))
-    }
-}
-
-impl From<u64> for VariableId {
-    fn from(value: u64) -> Self {
         VariableId::new(value)
     }
 }
@@ -888,9 +893,9 @@ mod tests {
     fn invalid_downsizing_conversions() {
         let almost_u16a = VarIdPacked32::new(u32::from(VarIdPacked16::MAX_ID + 1));
         let almost_u16b = VarIdPacked64::new(u64::from(VarIdPacked16::MAX_ID + 1));
-        let almost_u16c = VariableId::new(u64::from(VarIdPacked16::MAX_ID + 1));
+        let almost_u16c = VariableId::new_long(u64::from(VarIdPacked16::MAX_ID + 1)).unwrap();
         let almost_u32a = VarIdPacked64::new(u64::from(VarIdPacked32::MAX_ID + 1));
-        let almost_u32b = VariableId::new(u64::from(VarIdPacked32::MAX_ID + 1));
+        let almost_u32b = VariableId::new_long(u64::from(VarIdPacked32::MAX_ID + 1)).unwrap();
 
         assert!(!almost_u16a.fits_in_packed16());
         assert!(!almost_u16b.fits_in_packed16());

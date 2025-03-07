@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_64() {
-        let var = VariableId::from(VariableId::MAX_32_BIT_ID + 1);
+        let var = VariableId::new_long(VariableId::MAX_32_BIT_ID + 1).unwrap();
         let bdd = Bdd::new_literal(var, true);
         let bdd64 = Bdd64::new_literal(var.unchecked_into(), true);
 
@@ -652,7 +652,7 @@ mod tests {
 
     #[test]
     fn new_bdd_literal_64_but_should_be_32() {
-        let var = VariableId::from(VariableId::MAX_16_BIT_ID + 1);
+        let var = VariableId::new_long(VariableId::MAX_16_BIT_ID + 1).unwrap();
         let bdd = Bdd::new_literal(var, true);
         let bdd32 = Bdd32::new_literal(var.unchecked_into(), true);
 
