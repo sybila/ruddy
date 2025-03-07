@@ -690,4 +690,40 @@ mod tests {
         let m = usize_is_at_least_64_bits(NodeId64::MAX_ID) + 1;
         let _ = NodeId64::try_from(m).unwrap();
     }
+
+    #[test]
+    fn node_id_display() {
+        let x16 = NodeId16::new(1234);
+        let x32 = NodeId32::new(1234);
+        let x64 = NodeId64::new(1234);
+
+        assert_eq!(x16.to_string(), x32.to_string());
+        assert_eq!(x32.to_string(), x64.to_string());
+        assert_eq!(x64.to_string(), x16.to_string());
+    }
+
+    #[test]
+    fn node_id_try_from_conversion() {
+        let id = NodeId32::new((u16::MAX as u32) + 1);
+        let err = NodeId16::try_from(id).unwrap_err();
+        println!("{}", err);
+        assert_eq!(err.from_width, 32);
+        assert_eq!(err.to_width, 16);
+
+        let size_id = (u16::MAX as usize) + 1;
+        let err = NodeId16::try_from(size_id).unwrap_err();
+        println!("{}", err);
+        assert_eq!(err.id, size_id);
+        assert_eq!(err.to_width, 16);
+    }
+
+    #[test]
+    fn node_id_flip() {
+        let zero = NodeId16::zero();
+        let one = NodeId16::one();
+        let two = NodeId16::new(2);
+        assert_eq!(zero.flipped_if_terminal(), one);
+        assert_eq!(one.flipped_if_terminal(), zero);
+        assert_eq!(two.flipped_if_terminal(), two);
+    }
 }
