@@ -471,4 +471,24 @@ mod tests {
             &a.and(&b).or(&a_n.and(&b_n))
         ));
     }
+
+    #[test]
+    fn bdd_size_combinations_apply() {
+        // Make BDDs of different sizes and combine them to ensure every size combination
+        // is tested using at least basic operations.
+
+        let data = vec![
+            Bdd::new_literal(VariableId::new(1u32 << 8), true),
+            Bdd::new_literal(VariableId::new(1u32 << 24), true),
+            Bdd::new_literal(VariableId::new_long(1u64 << 48).unwrap(), true),
+        ];
+
+        for a in &data {
+            for b in &data {
+                let iff = a.xor(&b);
+                let other_iff = (a.and(&b.not())).or(&a.not().and(&b));
+                assert!(iff.structural_eq(&other_iff));
+            }
+        }
+    }
 }
