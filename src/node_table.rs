@@ -19,12 +19,15 @@ pub trait NodeTableAny: Default {
     type Node: BddNodeAny<Id = Self::Id, VarId = Self::VarId>;
 
     /// Searches the `NodeTableAny` for a node matching node `(var, (low, high))`, and returns its
-    /// identifier (i.e. the node's variable is `variable`, and the node's low and high children
+    /// identifier (i.e. the node's variable is `var`, and the node's low and high children
     /// are `low` and `high`, respectively). If such a node is not found, a new node is created
     /// and added to the node table.
     ///
     /// This method should not be used to "create" terminal nodes, i.e. it must hold that
-    /// `variable != VarId::undefined`.
+    /// `variable != VarId::undefined`. Furthermore, the method can fail if the node table is
+    /// "full", meaning no new nodes can be created. Typically, the table is responsible
+    /// for resizing itself, but some implementations can be limited in the number of representable
+    /// nodes through other means (e.g. the bit width of the underlying ID types).
     fn ensure_node(
         &mut self,
         variable: Self::VarId,
@@ -49,6 +52,8 @@ pub trait NodeTableAny: Default {
 }
 
 /// An error that is returned when [`NodeTableAny`] is full and a new node cannot be added.
+///
+/// It carries the bit-width of the current node ID type for which the error was raised.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeTableFullError {
     width: usize,
@@ -188,9 +193,13 @@ where
     ///
     /// ## Safety
     ///
-    /// The function requires that `low` and `high` point to existing entries in this node table.
-    /// This requirement is not checked and if broken results in undefined behavior.
+    /// The function requires that `low` and `high` IDs point to existing entries in this node
+    /// table. This requirement is not checked in release mode and if broken results
+    /// in undefined behavior.
     unsafe fn push_node(&mut self, variable: TVarId, low: TNodeId, high: TNodeId) {
+        debug_assert!(low.as_usize() < self.len());
+        debug_assert!(high.as_usize() < self.len());
+
         let low_entry = self.entries.get_unchecked_mut(low.as_usize());
         low_entry.node.increment_parent_counter();
 
