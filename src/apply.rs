@@ -352,67 +352,51 @@ impl Display for BddOverflowError {
     }
 }
 
+impl BddOverflowError {
+    pub fn new<T: BddAny>() -> BddOverflowError {
+        BddOverflowError {
+            width: std::mem::size_of::<NodeId<T>>() * 8,
+        }
+    }
+}
+
 macro_rules! impl_bdd_operations {
     ($Bdd:ident, $Cache:ident, $Table:ident) => {
         impl $Bdd {
             /// Calculate a Bdd representing the boolean formula `self && other` (conjunction).
             pub fn and(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
-                    self,
-                    other,
-                    boolean_operators::and,
-                )
-                .map_err(|_| BddOverflowError {
-                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
-                })
+                Self::apply(self, other, boolean_operators::and)
             }
 
             /// Calculate a Bdd representing the boolean formula `self || other` (disjunction).
             pub fn or(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
-                    self,
-                    other,
-                    boolean_operators::or,
-                )
-                .map_err(|_| BddOverflowError {
-                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
-                })
+                Self::apply(self, other, boolean_operators::or)
             }
 
             /// Calculate a Bdd representing the boolean formula `self ^ other` (xor; non-equivalence).
             pub fn xor(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
-                    self,
-                    other,
-                    boolean_operators::xor,
-                )
-                .map_err(|_| BddOverflowError {
-                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
-                })
+                Self::apply(self, other, boolean_operators::xor)
             }
 
             /// Calculate a Bdd representing the boolean formula `self => other` (implication).
             pub fn implies(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
-                    self,
-                    other,
-                    boolean_operators::implies,
-                )
-                .map_err(|_| BddOverflowError {
-                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
-                })
+                Self::apply(self, other, boolean_operators::implies)
             }
 
             /// Calculate a Bdd representing the boolean formula `self <=> other` (equivalence).
             pub fn iff(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                Self::apply(self, other, boolean_operators::iff)
+            }
+
+            pub fn apply<TBooleanOp: Fn(NodeId<$Bdd>, NodeId<$Bdd>) -> NodeId<$Bdd>>(
+                left: &$Bdd,
+                right: &$Bdd,
+                operator: TBooleanOp,
+            ) -> Result<$Bdd, BddOverflowError> {
                 apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
-                    self,
-                    other,
-                    boolean_operators::iff,
+                    left, right, operator,
                 )
-                .map_err(|_| BddOverflowError {
-                    width: std::mem::size_of::<NodeId<$Bdd>>() * 8,
-                })
+                .map_err(|_| BddOverflowError::new::<$Bdd>())
             }
         }
     };
@@ -424,6 +408,7 @@ impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64);
 
 #[cfg(test)]
 mod tests {
+    use crate::apply::BddOverflowError;
     use crate::bdd::{Bdd16, Bdd32, Bdd64, BddAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
     use crate::{bdd::Bdd, variable_id::VariableId};
@@ -523,5 +508,34 @@ mod tests {
         assert!(bdd16.iff(&bdd16).unwrap().is_true());
         assert!(bdd32.iff(&bdd32).unwrap().is_true());
         assert!(bdd64.iff(&bdd64).unwrap().is_true());
+    }
+
+    #[test]
+    fn bdd_size_overflow_test() {
+        fn ripple_carry_adder(num_vars: u16) -> Result<Bdd16, BddOverflowError> {
+            let mut result = Bdd16::new_false();
+            for x in 0..(num_vars / 2) {
+                let x1 = Bdd16::new_literal(VarIdPacked16::new(x), true);
+                let x2 = Bdd16::new_literal(VarIdPacked16::new(x + num_vars / 2), true);
+                result = result.or(&x1.and(&x2)?)?;
+            }
+            Ok(result)
+        }
+
+        let result = ripple_carry_adder(4).unwrap();
+        assert_eq!(result.node_count(), 8);
+
+        let result = ripple_carry_adder(8).unwrap();
+        assert_eq!(result.node_count(), 32);
+
+        let result = ripple_carry_adder(16).unwrap();
+        assert_eq!(result.node_count(), 512);
+
+        let result = ripple_carry_adder(24).unwrap();
+        assert_eq!(result.node_count(), 8192);
+
+        let err = ripple_carry_adder(32).unwrap_err();
+        println!("{}", err);
+        assert_eq!(err.width, 16);
     }
 }
