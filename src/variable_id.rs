@@ -581,7 +581,7 @@ impl fmt::Display for VarIdPacked64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::conversion::UncheckedFrom;
+    use crate::conversion::{UncheckedFrom, UncheckedInto};
     use crate::variable_id::{
         VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     };
@@ -909,5 +909,51 @@ mod tests {
         assert!(!almost_u32b.fits_in_packed16());
         assert!(!almost_u32b.fits_in_packed32());
         assert!(almost_u32b.fits_in_packed64());
+    }
+
+    #[test]
+    fn variable_id_display() {
+        let x16 = VarIdPacked16::new(1234);
+        let x32 = VarIdPacked32::new(1234);
+        let x64 = VarIdPacked64::new(1234);
+        assert_eq!(x16.to_string(), x32.to_string());
+        assert_eq!(x32.to_string(), x64.to_string());
+        assert_eq!(x64.to_string(), x16.to_string());
+    }
+
+    #[test]
+    fn variable_id_too_large() {
+        assert!(VariableId::new_long((u32::MAX as u64) + 1).is_some());
+        assert!(VariableId::new_long(u64::MAX).is_none());
+    }
+
+    #[test]
+    fn packed_id_unsuccessful_conversion() {
+        let id = VarIdPacked32::new((u16::MAX as u32) + 1);
+        let err = VarIdPacked16::try_from(id).unwrap_err();
+        println!("{}", err);
+        assert_eq!(err.from_width, 32);
+        assert_eq!(err.to_width, 16);
+    }
+
+    #[test]
+    #[should_panic]
+    fn packed_id_unsuccessful_conversion_32_16_panic() {
+        let id = VarIdPacked32::new((u16::MAX as u32) + 1);
+        let _id: VarIdPacked16 = id.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn packed_id_unsuccessful_conversion_64_16_panic() {
+        let id = VarIdPacked64::new((u16::MAX as u64) + 1);
+        let _id: VarIdPacked16 = id.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn packed_id_unsuccessful_conversion_64_32_panic() {
+        let id = VarIdPacked64::new((u32::MAX as u64) + 1);
+        let _id: VarIdPacked32 = id.unchecked_into();
     }
 }
