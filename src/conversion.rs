@@ -86,3 +86,21 @@ derive_unchecked_from!(u32 => u64, u128);
 derive_unchecked_from!(u64 => u128);
 derive_unchecked_from!(u64 as u16, u32, usize);
 derive_unchecked_from!(u32 as u16, usize);
+
+#[cfg(test)]
+mod tests {
+    use crate::conversion::{UncheckedFrom, UncheckedInto};
+
+    #[test]
+    fn basic_successful_unchecked_conversions() {
+        assert_eq!(u64::from(u16::MAX), u16::MAX.unchecked_into());
+        assert_eq!(u64::from(u32::MAX), u32::MAX.unchecked_into());
+        assert_eq!(u64::from(u64::MAX), u64::MAX.unchecked_into());
+    }
+
+    #[test]
+    #[should_panic]
+    fn basic_unsuccessful_unchecked_conversion() {
+        u16::unchecked_from(u32::MAX);
+    }
+}
