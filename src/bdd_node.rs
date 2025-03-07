@@ -249,7 +249,7 @@ impl_try_from!(BddNode64 => BddNode32);
 
 #[cfg(test)]
 mod tests {
-    use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny};
+    use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, TryFromBddNodeError};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
 
@@ -356,4 +356,35 @@ mod tests {
     test_bdd_node_invalid_3!(bdd_node_16_invalid_3, BddNode16, VarIdPacked16, NodeId16);
     test_bdd_node_invalid_3!(bdd_node_32_invalid_3, BddNode32, VarIdPacked32, NodeId32);
     test_bdd_node_invalid_3!(bdd_node_64_invalid_3, BddNode64, VarIdPacked64, NodeId64);
+
+    #[test]
+    fn bdd_node_invalid_checked_conversion() {
+        let invalid_var = BddNode32::new(
+            VarIdPacked32::new(u32::MAX >> 8),
+            NodeId32::zero(),
+            NodeId32::one(),
+        );
+        let invalid_low = BddNode32::new(
+            VarIdPacked32::new(123),
+            NodeId32::new(u32::MAX >> 8),
+            NodeId32::one(),
+        );
+        let invalid_high = BddNode32::new(
+            VarIdPacked32::new(123),
+            NodeId32::zero(),
+            NodeId32::new(u32::MAX >> 8),
+        );
+
+        let err_var = BddNode16::try_from(invalid_var.clone()).unwrap_err();
+        let err_low = BddNode16::try_from(invalid_low.clone()).unwrap_err();
+        let err_high = BddNode16::try_from(invalid_high.clone()).unwrap_err();
+
+        println!("{}", err_var);
+        println!("{}", err_low);
+        println!("{}", err_high);
+
+        assert!(matches!(err_var, TryFromBddNodeError::Variable(_)));
+        assert!(matches!(err_low, TryFromBddNodeError::Low(_)));
+        assert!(matches!(err_high, TryFromBddNodeError::High(_)));
+    }
 }
