@@ -424,6 +424,8 @@ impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64);
 
 #[cfg(test)]
 mod tests {
+    use crate::bdd::{Bdd16, Bdd32, Bdd64, BddAny};
+    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
     use crate::{bdd::Bdd, variable_id::VariableId};
 
     #[test]
@@ -490,5 +492,36 @@ mod tests {
                 assert!(iff.structural_eq(&other_iff));
             }
         }
+    }
+
+    #[test]
+    fn bdd_test_checked_logical_operators() {
+        // This only covers very basic "positive" outcomes (i.e. no size overflow).
+        // Making the BDDs overflow is much harder because we actually need the result to have
+        // at least 2^16 (resp. 2^32) nodes.
+
+        let bdd16 = Bdd16::new_literal(VarIdPacked16::new(1u16 << 8), true);
+        let bdd32 = Bdd32::new_literal(VarIdPacked32::new(1u32 << 24), true);
+        let bdd64 = Bdd64::new_literal(VarIdPacked64::new(1u64 << 48), true);
+
+        assert!(bdd16.structural_eq(&bdd16.and(&bdd16).unwrap()));
+        assert!(bdd32.structural_eq(&bdd32.and(&bdd32).unwrap()));
+        assert!(bdd64.structural_eq(&bdd64.and(&bdd64).unwrap()));
+
+        assert!(bdd16.structural_eq(&bdd16.or(&bdd16).unwrap()));
+        assert!(bdd32.structural_eq(&bdd32.or(&bdd32).unwrap()));
+        assert!(bdd64.structural_eq(&bdd64.or(&bdd64).unwrap()));
+
+        assert!(bdd16.xor(&bdd16).unwrap().is_false());
+        assert!(bdd32.xor(&bdd32).unwrap().is_false());
+        assert!(bdd64.xor(&bdd64).unwrap().is_false());
+
+        assert!(bdd16.implies(&bdd16).unwrap().is_true());
+        assert!(bdd32.implies(&bdd32).unwrap().is_true());
+        assert!(bdd64.implies(&bdd64).unwrap().is_true());
+
+        assert!(bdd16.iff(&bdd16).unwrap().is_true());
+        assert!(bdd32.iff(&bdd32).unwrap().is_true());
+        assert!(bdd64.iff(&bdd64).unwrap().is_true());
     }
 }
