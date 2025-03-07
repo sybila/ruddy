@@ -248,6 +248,9 @@ impl_unchecked_from!(Bdd32 => Bdd16);
 impl_unchecked_from!(Bdd64 => Bdd16);
 impl_unchecked_from!(Bdd64 => Bdd32);
 
+/// A public facade of the existing [`BddAny`] types.
+///
+/// TODO: Write documentation for this type.
 #[derive(Clone, Debug)]
 pub enum Bdd {
     Size16(Bdd16),
