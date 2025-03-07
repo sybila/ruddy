@@ -177,15 +177,10 @@ where
         Self { entries }
     }
 
-    /// Returns the number of entries in the node table, including the entries for the terminal nodes.
-    pub fn len(&self) -> usize {
+    /// Returns the number of entries in the node table,
+    /// including the entries for the terminal nodes.
+    pub fn node_count(&self) -> usize {
         self.entries.len()
-    }
-
-    /// Returns `true` if the node table has no entries other than entries for the
-    /// terminal nodes and `false` otherwise.
-    pub fn is_empty(&self) -> bool {
-        self.len() <= 2
     }
 
     /// Create a new [`NodeEntry`] in this table (without checking for uniqueness), and increment
@@ -197,8 +192,8 @@ where
     /// table. This requirement is not checked in release mode and if broken results
     /// in undefined behavior.
     unsafe fn push_node(&mut self, variable: TVarId, low: TNodeId, high: TNodeId) {
-        debug_assert!(low.as_usize() < self.len());
-        debug_assert!(high.as_usize() < self.len());
+        debug_assert!(low.as_usize() < self.node_count());
+        debug_assert!(high.as_usize() < self.node_count());
 
         let low_entry = self.entries.get_unchecked_mut(low.as_usize());
         low_entry.node.increment_parent_counter();
@@ -373,8 +368,7 @@ mod tests {
     #[test]
     pub fn node_table_32_basic() {
         let mut table = NodeTable32::new();
-        assert!(table.is_empty());
-        assert_eq!(2, table.len());
+        assert_eq!(2, table.node_count());
         assert_eq!(table, NodeTable32::with_capacity(1024));
 
         // Create some nodes
@@ -408,7 +402,7 @@ mod tests {
             assert_eq!(*id, id_p);
         }
 
-        assert_eq!(1003, table.len());
+        assert_eq!(1003, table.node_count());
     }
 
     #[test]

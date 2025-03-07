@@ -78,14 +78,8 @@ macro_rules! impl_bdd {
     ($name:ident, $NodeId:ident, $VarId:ident, $Node:ident) => {
         impl $name {
             /// Returns the number of nodes in the BDD, including the terminal nodes.
-            pub fn len(&self) -> usize {
+            pub fn node_count(&self) -> usize {
                 self.nodes.len()
-            }
-
-            /// Returns `true` if the BDD has no nodes other than the terminal nodes and
-            /// `false` otherwise.
-            pub fn is_empty(&self) -> bool {
-                self.len() <= 2
             }
 
             /// Convert the BDD into a raw list of nodes.
@@ -285,24 +279,16 @@ impl Bdd {
         } else if var.fits_in_packed64() {
             Self::Size64(Bdd64::new_literal(var.unchecked_into(), value))
         } else {
-            panic!("Maximum representable variable identifier exceeded.");
+            unreachable!("Maximum representable variable identifier exceeded.");
         }
     }
 
     /// Returns the number of nodes in the BDD, including the terminal nodes.
-    pub fn len(&self) -> usize {
+    pub fn node_count(&self) -> usize {
         match self {
-            Bdd::Size16(bdd) => bdd.len(),
-            Bdd::Size32(bdd) => bdd.len(),
-            Bdd::Size64(bdd) => bdd.len(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        match self {
-            Bdd::Size16(bdd) => bdd.is_empty(),
-            Bdd::Size32(bdd) => bdd.is_empty(),
-            Bdd::Size64(bdd) => bdd.is_empty(),
+            Bdd::Size16(bdd) => bdd.node_count(),
+            Bdd::Size32(bdd) => bdd.node_count(),
+            Bdd::Size64(bdd) => bdd.node_count(),
         }
     }
 
@@ -324,7 +310,7 @@ impl Bdd {
     /// - Otherwise, the BDD will remain the same bit-width.
     pub(crate) fn shrink(self) -> Self {
         match self {
-            Bdd::Size64(bdd) if bdd.len() < 1 << 32 => {
+            Bdd::Size64(bdd) if bdd.node_count() < 1 << 32 => {
                 let (mut vars_fit_in_16, mut vars_fit_in_32) = (true, true);
                 for node in bdd.nodes.iter() {
                     vars_fit_in_16 &= node.variable().fits_in_packed16();
@@ -335,7 +321,7 @@ impl Bdd {
                     }
                 }
 
-                if (bdd.len() < 1 << 16) && vars_fit_in_16 {
+                if (bdd.node_count() < 1 << 16) && vars_fit_in_16 {
                     return Bdd::Size16(bdd.unchecked_into());
                 }
 
@@ -345,7 +331,7 @@ impl Bdd {
                 Bdd::Size64(bdd)
             }
             Bdd::Size32(bdd)
-                if (bdd.len() < 1 << 16)
+                if (bdd.node_count() < 1 << 16)
                     && bdd
                         .nodes
                         .iter()
@@ -404,17 +390,16 @@ mod tests {
             #[test]
             pub fn $func() {
                 assert!($Bdd::new_true().root().is_one());
-                assert!($Bdd::new_true().is_empty());
+                assert!($Bdd::new_true().is_true());
                 assert!($Bdd::new_false().root().is_zero());
-                assert!($Bdd::new_false().is_empty());
+                assert!($Bdd::new_false().is_false());
 
                 let v = $VarId::new(1);
                 let x = $Bdd::new_literal(v, true);
-                assert!(!x.is_empty());
                 assert!(!x.root().is_terminal());
                 assert!(x.get($NodeId::new(3)).is_none());
                 assert_eq!(v, x.get(x.root()).unwrap().variable());
-                assert_eq!(x.len(), 3);
+                assert_eq!(x.node_count(), 3);
                 unsafe {
                     assert_eq!(v, x.get_node_unchecked(x.root()).variable());
                     let x_p = $Bdd::new_unchecked(x.root(), x.clone().into_nodes());
@@ -453,8 +438,8 @@ mod tests {
             bdd32 = bdd32.or(&prod32).unwrap();
         }
 
-        assert_eq!(bdd.len(), 1 << n);
-        assert_eq!(bdd32.len(), 1 << n);
+        assert_eq!(bdd.node_count(), 1 << n);
+        assert_eq!(bdd32.node_count(), 1 << n);
 
         // Check that the BDD grew correctly.
         match &bdd {
@@ -484,7 +469,7 @@ mod tests {
             bdd16_ands = bdd16_ands.and(&prod16).unwrap();
         }
 
-        assert_eq!(bdd.len(), usize::from(2 * n));
+        assert_eq!(bdd.node_count(), usize::from(2 * n));
 
         // Check that the BDD shrank correctly.
         match &bdd {
@@ -522,11 +507,11 @@ mod tests {
             bdd32 = bdd32.or(&prod32).unwrap();
         }
 
-        assert_eq!(bdd64.len(), 1 << n);
+        assert_eq!(bdd64.node_count(), 1 << n);
 
         let bdd = Bdd::Size64(bdd64).shrink();
 
-        assert_eq!(bdd.len(), 1 << n);
+        assert_eq!(bdd.node_count(), 1 << n);
 
         match bdd {
             Bdd::Size32(bdd_inner) => {
@@ -562,11 +547,11 @@ mod tests {
             bdd16 = bdd16.or(&prod16).unwrap();
         }
 
-        assert_eq!(bdd64.len(), 1 << n);
+        assert_eq!(bdd64.node_count(), 1 << n);
 
         let bdd = Bdd::Size64(bdd64).shrink();
 
-        assert_eq!(bdd.len(), 1 << n);
+        assert_eq!(bdd.node_count(), 1 << n);
 
         match bdd {
             Bdd::Size16(bdd_inner) => {
