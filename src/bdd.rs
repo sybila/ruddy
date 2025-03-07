@@ -652,4 +652,44 @@ mod tests {
             _ => panic!("expected 32-bit BDD"),
         }
     }
+
+    #[test]
+    fn bdd_node_count() {
+        let bdd16 = Bdd::new_literal(VariableId::new(1u32 << 8), true);
+        let bdd32 = Bdd::new_literal(VariableId::new(1u32 << 24), true);
+        let bdd64 = Bdd::new_literal(VariableId::new_long(1u64 << 48).unwrap(), true);
+
+        assert_eq!(bdd16.node_count(), 3);
+        assert_eq!(bdd32.node_count(), 3);
+        assert_eq!(bdd64.node_count(), 3);
+    }
+
+    #[test]
+    fn bdd_simple_not() {
+        let bdd16_1 = Bdd::new_literal(VariableId::new(1u32 << 8), true);
+        let bdd32_1 = Bdd::new_literal(VariableId::new(1u32 << 24), true);
+        let bdd64_1 = Bdd::new_literal(VariableId::new_long(1u64 << 48).unwrap(), true);
+
+        let bdd16_0 = Bdd::new_literal(VariableId::new(1u32 << 8), false);
+        let bdd32_0 = Bdd::new_literal(VariableId::new(1u32 << 24), false);
+        let bdd64_0 = Bdd::new_literal(VariableId::new_long(1u64 << 48).unwrap(), false);
+
+        assert!(bdd16_1.not().structural_eq(&bdd16_0));
+        assert!(bdd32_1.not().structural_eq(&bdd32_0));
+        assert!(bdd64_1.not().structural_eq(&bdd64_0));
+    }
+
+    #[test]
+    fn bdd_structural_eq() {
+        // Test that BDDs of different sizes are not equal even if they have "the same" nodes.
+        let bdd16 = Bdd::Size16(Bdd16::new_literal(VarIdPacked16::new(1234), true));
+        let bdd32 = Bdd::Size32(Bdd32::new_literal(VarIdPacked32::new(1234), true));
+        assert!(!bdd16.structural_eq(&bdd32));
+    }
+
+    #[test]
+    fn bdd_cannot_shrink() {
+        let bdd64 = Bdd::new_literal(VariableId::new_long(1u64 << 48).unwrap(), true);
+        assert!(bdd64.clone().shrink().structural_eq(&bdd64));
+    }
 }
