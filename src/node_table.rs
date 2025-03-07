@@ -366,9 +366,9 @@ impl_from_node_table!(NodeTable32, NodeTable64);
 
 #[cfg(test)]
 mod tests {
-    use crate::node_id::{NodeId32, NodeIdAny};
-    use crate::node_table::{NodeTable32, NodeTableAny};
-    use crate::variable_id::VarIdPacked32;
+    use crate::node_id::{NodeId16, NodeId32, NodeIdAny};
+    use crate::node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny};
+    use crate::variable_id::{VarIdPacked16, VarIdPacked32};
 
     #[test]
     pub fn node_table_32_basic() {
@@ -409,5 +409,31 @@ mod tests {
         }
 
         assert_eq!(1003, table.len());
+    }
+
+    #[test]
+    pub fn node_table_conversions() {
+        let table = NodeTable16::default();
+        let converted = NodeTable32::from(table);
+        assert_eq!(converted, NodeTable32::default());
+        let converted = NodeTable64::from(converted);
+        assert_eq!(converted, NodeTable64::default());
+    }
+
+    #[test]
+    pub fn node_table_full() {
+        let v = VarIdPacked16::new(10);
+        let mut table = NodeTable16::default();
+        for i in 2..u16::MAX {
+            let j = NodeId16::new(i - 1);
+            let k = NodeId16::new(i - 2);
+            assert!(table.ensure_node(v, j, k).is_ok());
+        }
+
+        let err = table
+            .ensure_node(v, NodeId16::zero(), NodeId16::one())
+            .unwrap_err();
+        println!("{}", err);
+        assert_eq!(err.width, 16);
     }
 }
