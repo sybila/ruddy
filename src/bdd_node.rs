@@ -54,6 +54,13 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     /// return [`VarIdPackedAny::undefined`].
     fn variable(&self) -> Self::VarId;
 
+    /// Return a mutable reference to the low-child, assuming this is a decision node.
+    /// For terminal nodes, return a mutable reference to `self`.
+    fn low_mut(&mut self) -> &mut Self::Id;
+    /// Return a mutable reference to the high-child, assuming this is a decision node.
+    /// For terminal nodes, return a mutable reference to `self`.
+    fn high_mut(&mut self) -> &mut Self::Id;
+
     /// Increment the parent counter of the node.
     fn increment_parent_counter(&mut self);
 
@@ -112,8 +119,16 @@ macro_rules! impl_bdd_node {
                 self.low
             }
 
+            fn low_mut(&mut self) -> &mut Self::Id {
+                &mut self.low
+            }
+
             fn high(&self) -> Self::Id {
                 self.high
+            }
+
+            fn high_mut(&mut self) -> &mut Self::Id {
+                &mut self.high
             }
 
             fn variable(&self) -> Self::VarId {
