@@ -295,7 +295,7 @@ impl_from!(NodeId16 => NodeId64);
 impl_from!(NodeId32 => NodeId64);
 
 impl UncheckedFrom<NodeId32> for NodeId16 {
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(id: NodeId32) -> Self {
         Self(match id.0 {
             NodeId32::UNDEFINED => NodeId16::UNDEFINED,
@@ -311,7 +311,7 @@ impl UncheckedFrom<NodeId32> for NodeId16 {
 }
 
 impl UncheckedFrom<NodeId64> for NodeId16 {
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(id: NodeId64) -> Self {
         Self(match id.0 {
             NodeId64::UNDEFINED => NodeId16::UNDEFINED,
@@ -327,7 +327,7 @@ impl UncheckedFrom<NodeId64> for NodeId16 {
 }
 
 impl UncheckedFrom<NodeId64> for NodeId32 {
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(id: NodeId64) -> Self {
         Self(match id.0 {
             NodeId64::UNDEFINED => NodeId32::UNDEFINED,
