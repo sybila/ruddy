@@ -1,5 +1,5 @@
 //! Defines the representation of node tables (used to represent BDDs). Includes: [`NodeTableAny`],
-//! [`NodeTable`], [`NodeTable16`], [`NodeTable32`], and [`NodeTable64`].
+//! [`NodeTableImpl`], [`NodeTable16`], [`NodeTable32`], and [`NodeTable64`].
 //!
 use std::cmp::{max, min};
 use std::fmt;
@@ -11,6 +11,7 @@ use crate::{
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny},
 };
+use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
 
 /// The `NodeTableAny` is a data structure that enforces uniqueness of BDD nodes created
 /// during the BDD construction process.
@@ -73,11 +74,11 @@ impl fmt::Display for NodeTableFullError {
 
 impl std::error::Error for NodeTableFullError {}
 
-/// An element of the [`NodeTable`]. Consists of a [`BddNodeAny`] node, and three node pointers,
+/// An element of the [`NodeTableImpl`]. Consists of a [`BddNodeAny`] node, and three node pointers,
 /// referencing the `parent` tree that is rooted in this entry, plus two `next_parent` pointers
 /// that define the parent tree which contains the entry itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct NodeEntry<
+pub(crate) struct NodeEntry<
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
@@ -157,7 +158,7 @@ impl_from_node_entry!(NodeEntry16, NodeEntry32);
 impl_from_node_entry!(NodeEntry16, NodeEntry64);
 impl_from_node_entry!(NodeEntry32, NodeEntry64);
 
-/// A mutable view into a deleted entry in a [`NodeTable`].
+/// A mutable view into a deleted entry in a [`NodeTableImpl`].
 struct DeletedEntryMut<
     'a,
     TNodeId: NodeIdAny,
@@ -211,10 +212,10 @@ fn top_bit_is_one(hash: u64) -> bool {
 /// (Note that we could obtain a tight `O(log)` bound by using a search tree instead of
 /// a hash-prefix tree, but this would require balancing, which adds a lot of overhead)
 ///
-/// The `NodeTable` also supports deletion of nodes. When a node is deleted,
+/// The `NodeTableImpl` also supports deletion of nodes. When a node is deleted,
 /// it is not actually removed from the table, but only marked as deleted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeTable<
+pub struct NodeTableImpl<
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
@@ -224,13 +225,13 @@ pub struct NodeTable<
     deleted: usize,
 }
 
-impl<TNodeId, TVarId, TNode> NodeTable<TNodeId, TVarId, TNode>
+impl<TNodeId, TVarId, TNode> NodeTableImpl<TNodeId, TVarId, TNode>
 where
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
 {
-    /// Make a new [`NodeTable`] containing nodes `0` and `1`.
+    /// Make a new [`NodeTableImpl`] containing nodes `0` and `1`.
     pub fn new() -> Self {
         Self {
             entries: vec![NodeEntry::zero(), NodeEntry::one()],
@@ -239,7 +240,7 @@ where
         }
     }
 
-    /// Make a new [`NodeTable`] containing nodes `0` and `1`, but make sure the underlying
+    /// Make a new [`NodeTableImpl`] containing nodes `0` and `1`, but make sure the underlying
     /// vector has at least the specified amount of `capacity`.
     pub fn with_capacity(capacity: usize) -> Self {
         let mut entries = Vec::with_capacity(capacity);
@@ -295,7 +296,7 @@ where
     }
 
     /// Get a checked reference to the entry with the given `id`, or `None` if the entry does not exist.
-    fn get_entry(&self, id: TNodeId) -> Option<&NodeEntry<TNodeId, TVarId, TNode>> {
+    pub(crate) fn get_entry(&self, id: TNodeId) -> Option<&NodeEntry<TNodeId, TVarId, TNode>> {
         self.entries
             .get(id.as_usize())
             .filter(|entry| !entry.is_deleted())
@@ -308,7 +309,7 @@ where
             .filter(|entry| !entry.is_deleted())
     }
 
-    /// An unchecked variant of [`NodeTable::get_entry`].
+    /// An unchecked variant of [`NodeTableImpl::get_entry`].
     ///
     /// # Safety
     ///
@@ -320,7 +321,7 @@ where
         entry
     }
 
-    /// An unchecked variant of [`NodeTable::get_entry_mut`].
+    /// An unchecked variant of [`NodeTableImpl::get_entry_mut`].
     ///
     /// # Safety
     ///
@@ -348,6 +349,26 @@ where
         let entry = self.entries.get_unchecked_mut(id.as_usize());
         debug_assert!(entry.is_deleted());
         DeletedEntryMut(entry)
+    }
+
+    /// Get an unchecked reference to the node with the given `id`.
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an `id` that is not in the table is undefined behavior.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn get_node_unchecked(&self, id: TNodeId) -> &TNode {
+        &self.get_entry_unchecked(id).node
+    }
+
+    /// Get an unchecked mutable reference to the node with the given `id`.
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an `id` that is not in the table is undefined behavior.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn get_node_unchecked_mut(&mut self, id: TNodeId) -> &mut TNode {
+        &mut self.get_entry_unchecked_mut(id).node
     }
 
     /// Find the parent of `node` in the tree rooted in `start` by following the `hash`.
@@ -496,13 +517,32 @@ where
         self.first_free = id;
         self.deleted += 1;
     }
+
+    /// Searches for a node representing `variable=value`, i.e.,
+    /// `(variable, (0, 1))` if `value` is `true` or `(variable, (1, 0))` otherwise,
+    /// and returns its identifier. If such a node is not found,
+    /// a new node is created and added to the node table.
+    ///
+    /// This method should not be used to "create" terminal nodes, i.e. it must hold that
+    /// `variable != VarId::undefined`.
+    pub(crate) fn ensure_literal(
+        &mut self,
+        variable: TVarId,
+        value: bool,
+    ) -> Result<TNodeId, NodeTableFullError> {
+        if value {
+            self.ensure_node(variable, TNodeId::zero(), TNodeId::one())
+        } else {
+            self.ensure_node(variable, TNodeId::one(), TNodeId::zero())
+        }
+    }
 }
 
 impl<
         TNodeId: NodeIdAny,
         TVarId: VarIdPackedAny,
         TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > Default for NodeTable<TNodeId, TVarId, TNode>
+    > Default for NodeTableImpl<TNodeId, TVarId, TNode>
 {
     fn default() -> Self {
         Self::new()
@@ -513,7 +553,7 @@ impl<
         TNodeId: NodeIdAny,
         TVarId: VarIdPackedAny,
         TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > NodeTableAny for NodeTable<TNodeId, TVarId, TNode>
+    > NodeTableAny for NodeTableImpl<TNodeId, TVarId, TNode>
 {
     type Id = TNodeId;
     type VarId = TVarId;
@@ -620,7 +660,7 @@ impl<
     ///
     /// Deleting an entry which has a parent (i.e., its `parent` pointer is not `undefined`)
     /// will result in the parent getting disconnected and unable to be found in
-    /// the node table's search trees (such as in [`NodeTable::ensure_node`]). This is
+    /// the node table's search trees (such as in [`NodeTableImpl::ensure_node`]). This is
     /// okay as long as the parent is also deleted after.
     fn delete(&mut self, id: TNodeId) {
         debug_assert!(!id.is_terminal());
@@ -820,9 +860,9 @@ impl<
     }
 }
 
-pub type NodeTable16 = NodeTable<NodeId16, VarIdPacked16, BddNode16>;
-pub type NodeTable32 = NodeTable<NodeId32, VarIdPacked32, BddNode32>;
-pub type NodeTable64 = NodeTable<NodeId64, VarIdPacked64, BddNode64>;
+pub type NodeTable16 = NodeTableImpl<NodeId16, VarIdPacked16, BddNode16>;
+pub type NodeTable32 = NodeTableImpl<NodeId32, VarIdPacked32, BddNode32>;
+pub type NodeTable64 = NodeTableImpl<NodeId64, VarIdPacked64, BddNode64>;
 
 macro_rules! impl_from_node_table {
     ($from:ident, $to:ident) => {
@@ -846,6 +886,87 @@ macro_rules! impl_from_node_table {
 impl_from_node_table!(NodeTable16, NodeTable32);
 impl_from_node_table!(NodeTable16, NodeTable64);
 impl_from_node_table!(NodeTable32, NodeTable64);
+
+const MAX_16_BIT_ID_USIZE: usize = NodeId16::MAX_ID as usize;
+const MAX_32_BIT_ID_USIZE: usize = usize_is_at_least_32_bits(NodeId32::MAX_ID);
+const MAX_64_BIT_ID_USIZE: usize = usize_is_at_least_64_bits(NodeId64::MAX_ID);
+
+impl NodeTable16 {
+    /// Returns `true` if the node table is full and a new node cannot be added.
+    pub fn is_full(&self) -> bool {
+        let is_full = self.first_free.is_undefined() && self.size() == MAX_16_BIT_ID_USIZE + 1;
+        // This assertion is here to ensure that the fullness check in `ensure_node` is
+        // conceptually the same as the one here.
+        debug_assert_eq!(
+            is_full,
+            self.first_free.is_undefined() && TryInto::<NodeId16>::try_into(self.size()).is_err()
+        );
+        is_full
+    }
+}
+
+impl NodeTable32 {
+    /// Returns `true` if the node table is full and a new node cannot be added.
+    pub fn is_full(&self) -> bool {
+        let is_full = self.first_free.is_undefined() && self.size() == MAX_32_BIT_ID_USIZE + 1;
+        // This assertion is here to ensure that the fullness check in `ensure_node` is
+        // conceptually the same as the one here.
+        debug_assert_eq!(
+            is_full,
+            self.first_free.is_undefined() && TryInto::<NodeId32>::try_into(self.size()).is_err()
+        );
+        is_full
+    }
+}
+
+impl NodeTable64 {
+    /// Returns `true` if the node table is full and a new node cannot be added.
+    pub fn is_full(&self) -> bool {
+        let is_full = self.first_free.is_undefined() && self.size() == MAX_64_BIT_ID_USIZE + 1;
+        // This assertion is here to ensure that the fullness check in `ensure_node` is
+        // conceptually the same as the one here.
+        debug_assert_eq!(
+            is_full,
+            self.first_free.is_undefined() && TryInto::<NodeId64>::try_into(self.size()).is_err()
+        );
+        is_full
+    }
+}
+
+#[derive(Debug)]
+pub enum NodeTable {
+    Size16(NodeTable16),
+    Size32(NodeTable32),
+    Size64(NodeTable64),
+}
+
+impl NodeTable {
+    /// Returns `true` if the node table is full and a new node cannot be
+    /// added until the table is grown.
+    pub fn is_full(&self) -> bool {
+        match self {
+            NodeTable::Size16(table) => table.is_full(),
+            NodeTable::Size32(table) => table.is_full(),
+            NodeTable::Size64(table) => table.is_full(),
+        }
+    }
+
+    /// Returns the number of entries in the node table,
+    /// including the entries for the terminal nodes.
+    pub fn node_count(&self) -> usize {
+        match self {
+            NodeTable::Size16(table) => table.node_count(),
+            NodeTable::Size32(table) => table.node_count(),
+            NodeTable::Size64(table) => table.node_count(),
+        }
+    }
+}
+
+impl Default for NodeTable {
+    fn default() -> Self {
+        NodeTable::Size16(NodeTable16::new())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -907,17 +1028,30 @@ mod tests {
     pub fn node_table_full() {
         let v = VarIdPacked16::new(10);
         let mut table = NodeTable16::default();
+
         for i in 2..u16::MAX {
+            assert!(!table.is_full());
             let j = NodeId16::new(i - 1);
             let k = NodeId16::new(i - 2);
             assert!(table.ensure_node(v, j, k).is_ok());
         }
 
+        assert!(table.is_full());
         let err = table
             .ensure_node(v, NodeId16::zero(), NodeId16::one())
             .unwrap_err();
         println!("{}", err);
         assert_eq!(err.width, 16);
+
+        table.delete(NodeId16::new(2));
+        assert!(!table.is_full());
+        assert!(table
+            .ensure_node(VarIdPacked16::new(11), NodeId16::zero(), NodeId16::one())
+            .is_ok());
+        assert!(table.is_full());
+        assert!(table
+            .ensure_node(VarIdPacked16::new(12), NodeId16::zero(), NodeId16::one())
+            .is_err());
     }
 
     #[test]

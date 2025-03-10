@@ -510,6 +510,18 @@ impl VariableId {
         }
     }
 
+    /// Check that the variable ID fits exclusively into a 32-bit packed
+    /// variable ID (i.e., it fits into a 32-bit packed variable ID, but not 16-bit).
+    pub(crate) fn fits_only_in_packed32(self) -> bool {
+        self.0 > Self::MAX_16_BIT_ID && self.0 <= Self::MAX_32_BIT_ID
+    }
+
+    /// Check that the variable ID fits exclusively into a 64-bit packed
+    /// variable ID (i.e., it fits into a 64-bit packed variable ID, but not 32-bit).
+    pub(crate) fn fits_only_in_packed64(self) -> bool {
+        self.0 > Self::MAX_32_BIT_ID && self.0 <= Self::MAX_64_BIT_ID
+    }
+
     /// Check that the variable ID fits into a 16-bit packed variable ID.
     pub(crate) fn fits_in_packed16(self) -> bool {
         self.0 <= Self::MAX_16_BIT_ID

@@ -19,3 +19,4 @@ ptr_as_ptr = "warn"
 unnecessary_cast = "warn"
 
 [dependencies]
+replace_with = "0.1.7"

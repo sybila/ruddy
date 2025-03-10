@@ -461,6 +461,84 @@ impl fmt::Display for NodeId64 {
     }
 }
 
+/// A type for identifying nodes in BDDs.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NodeId(u64);
+
+impl NodeId {
+    /// Create a new `NodeId` representing the terminal node `0`.
+    pub(crate) fn zero() -> Self {
+        Self(0)
+    }
+
+    /// Create a new `NodeId` representing the terminal node `1`.
+    pub(crate) fn one() -> Self {
+        Self(1)
+    }
+
+    /// Returns `true` if the ID is representable by a [`NodeId16`].
+    pub(crate) fn fits_in_node_id16(self) -> bool {
+        self.0 <= NodeId16::MAX_ID.into()
+    }
+
+    /// Returns `true` if the ID is representable by a [`NodeId32`].
+    pub(crate) fn fits_in_node_id32(self) -> bool {
+        self.0 <= NodeId32::MAX_ID.into()
+    }
+}
+
+impl fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl UncheckedFrom<NodeId> for NodeId16 {
+    #[allow(clippy::cast_possible_truncation)]
+    fn unchecked_from(value: NodeId) -> NodeId16 {
+        debug_assert!(
+            value.fits_in_node_id16(),
+            "node ID {value} does not fit into 16-bit node ID"
+        );
+        NodeId16(value.0 as u16)
+    }
+}
+
+impl UncheckedFrom<NodeId> for NodeId32 {
+    #[allow(clippy::cast_possible_truncation)]
+    fn unchecked_from(value: NodeId) -> NodeId32 {
+        debug_assert!(
+            value.fits_in_node_id32(),
+            "node ID {value} does not fit into 32-bit node ID"
+        );
+        NodeId32(value.0 as u32)
+    }
+}
+
+impl UncheckedFrom<NodeId> for NodeId64 {
+    fn unchecked_from(value: NodeId) -> NodeId64 {
+        NodeId64::new(value.0)
+    }
+}
+
+impl From<NodeId16> for NodeId {
+    fn from(val: NodeId16) -> Self {
+        NodeId(u64::from(val.0))
+    }
+}
+
+impl From<NodeId32> for NodeId {
+    fn from(val: NodeId32) -> Self {
+        NodeId(u64::from(val.0))
+    }
+}
+
+impl From<NodeId64> for NodeId {
+    fn from(val: NodeId64) -> Self {
+        NodeId(val.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::boolean_operators::TriBool;
