@@ -69,7 +69,7 @@ macro_rules! derive_unchecked_from {
     };
     ($A:ident as $B:ident) => {
         impl UncheckedFrom<$A> for $B {
-            #[allow(clippy::as_conversions)]
+            #[allow(clippy::cast_possible_truncation)]
             fn unchecked_from(x: $A) -> Self {
                 debug_assert!($B::try_from(x).is_ok());
                 x as $B
@@ -95,7 +95,7 @@ mod tests {
     fn basic_successful_unchecked_conversions() {
         assert_eq!(u64::from(u16::MAX), u16::MAX.unchecked_into());
         assert_eq!(u64::from(u32::MAX), u32::MAX.unchecked_into());
-        assert_eq!(u64::from(u64::MAX), u64::MAX.unchecked_into());
+        assert_eq!(u64::MAX, u64::MAX.unchecked_into());
     }
 
     #[test]

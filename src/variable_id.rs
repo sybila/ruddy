@@ -380,7 +380,7 @@ impl_from!(VarIdPacked16 => VarIdPacked64);
 impl_from!(VarIdPacked32 => VarIdPacked64);
 
 impl UncheckedFrom<VarIdPacked64> for VarIdPacked16 {
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(id: VarIdPacked64) -> Self {
         debug_assert!(
             id.fits_in_packed16(),
@@ -395,7 +395,7 @@ impl UncheckedFrom<VarIdPacked64> for VarIdPacked16 {
 }
 
 impl UncheckedFrom<VarIdPacked64> for VarIdPacked32 {
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(id: VarIdPacked64) -> Self {
         debug_assert!(
             id.fits_in_packed32(),
@@ -407,7 +407,7 @@ impl UncheckedFrom<VarIdPacked64> for VarIdPacked32 {
 }
 
 impl UncheckedFrom<VarIdPacked32> for VarIdPacked16 {
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(id: VarIdPacked32) -> Self {
         debug_assert!(
             id.fits_in_packed16(),
@@ -483,9 +483,7 @@ impl<A: VarIdPackedAny, B: VarIdPackedAny + Into<A>> AsVarId<A> for B {}
 pub struct VariableId(u64);
 
 impl VariableId {
-    #[allow(clippy::as_conversions)]
     pub const MAX_16_BIT_ID: u64 = VarIdPacked16::MAX_ID as u64;
-    #[allow(clippy::as_conversions)]
     pub const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
     pub const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
 

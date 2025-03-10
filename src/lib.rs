@@ -20,14 +20,14 @@ pub mod variable_id;
 
 /// A conversion function asserting that we are running on (at least) a 32-bit platform.
 #[inline(always)]
-#[allow(clippy::as_conversions)]
+#[allow(clippy::cast_possible_truncation)]
 pub fn usize_is_at_least_32_bits(x: u32) -> usize {
     x as usize
 }
 
 /// A conversion function asserting that we are running on (at least) a 64-bit platform.
 #[inline(always)]
-#[allow(clippy::as_conversions)]
+#[allow(clippy::cast_possible_truncation)]
 pub fn usize_is_at_least_64_bits(x: u64) -> usize {
     x as usize
 }
