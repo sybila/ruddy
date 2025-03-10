@@ -7,7 +7,10 @@ use std::{
     hash::Hash,
 };
 
-use crate::conversion::{UncheckedFrom, UncheckedInto};
+use crate::{
+    conversion::{UncheckedFrom, UncheckedInto},
+    node_table::ReachabilityCycle,
+};
 
 /// An internal trait implemented by types that can serve as BDD variable identifiers within
 /// BDD nodes.
@@ -16,6 +19,8 @@ use crate::conversion::{UncheckedFrom, UncheckedInto};
 ///
 ///  - The maximum representable value of each ID type serves as an "undefined" value
 ///    (similar to `Option::None`).
+///  - Each ID type has a reachability flag, which is used to mark the associated BDD
+///    node as reachable in the garbage collection algorithm.
 ///  - Each ID type has a "should use cache" flag (implemented by setting a particular
 ///    bit of the identifier), which can be used to control whether the associated BDD
 ///    node should be entered into the task cache during the `apply` algorithm.
@@ -60,11 +65,33 @@ pub trait VarIdPackedAny: Copy + Clone + PartialEq + Eq + PartialOrd + Ord + Has
     ///
     /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
     fn increment_parents(&mut self);
+
+    /// Update the reachability flag of this variable ID to be considered reachable
+    /// in the given reachability cycle.
+    ///
+    /// After calling `mark_as_reachable`, the variable ID will return `true`
+    /// when `is_reachable` is called with the reachability cycle.
+    fn mark_as_reachable(&mut self, cycle: ReachabilityCycle);
+
+    /// Check if the variable ID is reachable in the given reachability cycle.
+    ///
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    fn is_reachable(self, cycle: ReachabilityCycle) -> bool;
+
+    /// Returns the same variable ID, but with the internal flags reset to their default state.
+    fn reset(self) -> Self;
+
+    /// Returns the same variable ID, but with the parent counter set to `0`.
+    fn reset_parents(self) -> Self;
+
+    /// Returns the maximum of the two given variable IDs, treating `undefined`
+    /// as the smallest possible value.
+    fn max_defined(self, other: Self) -> Self;
 }
 
 /// A 16-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply algorithm more efficient.
+/// to make the apply and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked16`] can only represent `2**13 - 1` unique variables (see also
 /// [`VarIdPacked16::MAX_ID`]).
@@ -72,8 +99,13 @@ pub trait VarIdPackedAny: Copy + Clone + PartialEq + Eq + PartialOrd + Ord + Has
 /// The packed information is as follows:
 ///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
 ///    many parents the node containing the variable has.
-///  - Third least-significant bit is used to indicate if the node containing the variable should
-///    use the task cache in the apply algorithm.
+///  - Third least-significant serves a dual purpose:
+///     - In the apply algorithm, it indicates whether the node containing the variable
+///       should use the task cache.
+///     - During garbage collection, it marks whether the node containing the variable is
+///       considered reachable.
+///
+/// The two flags share the third least-significant bit as their usage is mutually exclusive.
 ///
 /// Note that the "packed metadata" is ignored when comparing variable IDs using `Eq`,
 /// `Ord` or `Hash`.
@@ -86,9 +118,11 @@ impl VarIdPacked16 {
     pub const MAX_ID: u16 = (u16::MAX >> 3) - 1;
     /// An internal "mask bit" that is used when manipulating the "use cache"
     /// flag in packed variable IDs.
-    const USE_CACHE_MASK: u16 = 0b100;
+    const USE_CACHE_AND_REACHABILITY_MASK: u16 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u16 = !0b111;
+    /// An internal mask that can be used to reset the "parent counter".
+    const RESET_PARENTS_MASK: u16 = !0b11;
     /// A special value that represents an "undefined" variable ID.
     const UNDEFINED: u16 = u16::MAX;
 
@@ -135,7 +169,7 @@ impl VarIdPacked16 {
 
 /// A 32-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply algorithm more efficient.
+/// to make the apply and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked32`] can only represent `2**29 - 1` unique variables (see also
 /// [`VarIdPacked32::MAX_ID`]).
@@ -143,8 +177,13 @@ impl VarIdPacked16 {
 /// The packed information is as follows:
 ///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
 ///    many parents the node containing the variable has.
-///  - Third least-significant bit is used to indicate if the node containing the variable should
-///    use the task cache in the apply algorithm.
+///  - Third least-significant serves a dual purpose:
+///     - In the apply algorithm, it indicates whether the node containing the variable
+///       should use the task cache.
+///     - During garbage collection, it marks whether the node containing the variable is
+///       considered reachable.
+///
+/// The two flags share the third least-significant bit as their usage is mutually exclusive.
 ///
 /// Note that the "packed metadata" is ignored when comparing variable IDs using `Eq`,
 /// `Ord` or `Hash`.
@@ -157,9 +196,11 @@ impl VarIdPacked32 {
     pub const MAX_ID: u32 = (u32::MAX >> 3) - 1;
     /// An internal "mask bit" that is used when manipulating the "use cache"
     /// flag in packed variable IDs.
-    const USE_CACHE_MASK: u32 = 0b100;
+    const USE_CACHE_AND_REACHABILITY_MASK: u32 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u32 = !0b111;
+    /// An internal mask that can be used to reset the "parent counter".
+    const RESET_PARENTS_MASK: u32 = !0b11;
     /// A special value that represents an "undefined" variable ID.
     const UNDEFINED: u32 = u32::MAX;
 
@@ -211,7 +252,7 @@ impl VarIdPacked32 {
 
 /// A 64-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply algorithm more efficient.
+/// to make the apply and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked64`] can only represent `2**61 - 1` unique variables (see also
 /// [`VarIdPacked64::MAX_ID`]).
@@ -219,8 +260,13 @@ impl VarIdPacked32 {
 /// The packed information is as follows:
 ///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
 ///    many parents the node containing the variable has.
-///  - Third least-significant bit is used to indicate if the node containing the variable should
-///    use the task cache in the apply algorithm.
+///  - Third least-significant serves a dual purpose:
+///     - In the apply algorithm, it indicates whether the node containing the variable
+///       should use the task cache.
+///     - During garbage collection, it marks whether the node containing the variable is
+///       considered reachable.
+///
+/// The two flags share the third least-significant bit as their usage is mutually exclusive.
 ///
 /// Note that the "packed metadata" is ignored when comparing variable IDs using `Eq`,
 /// `Ord` or `Hash`.
@@ -233,9 +279,11 @@ impl VarIdPacked64 {
     pub const MAX_ID: u64 = (u64::MAX >> 3) - 1;
     /// An internal "mask bit" that is used when manipulating the "use cache"
     /// flag in packed variable IDs.
-    const USE_CACHE_MASK: u64 = 0b100;
+    const USE_CACHE_AND_REACHABILITY_MASK: u64 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u64 = !0b111;
+    /// An internal mask that can be used to reset the "parent counter".
+    const RESET_PARENTS_MASK: u64 = !0b11;
     /// A special value that represents an "undefined" variable ID.
     const UNDEFINED: u64 = u64::MAX;
 
@@ -339,11 +387,12 @@ macro_rules! impl_var_id_packed {
             }
 
             fn use_cache(self) -> bool {
-                self.0 & Self::USE_CACHE_MASK != 0
+                self.0 & Self::USE_CACHE_AND_REACHABILITY_MASK != 0
             }
 
             fn set_use_cache(&mut self, value: bool) {
-                self.0 = (self.0 & !Self::USE_CACHE_MASK) | ($width::from(value) << 2);
+                self.0 =
+                    (self.0 & !Self::USE_CACHE_AND_REACHABILITY_MASK) | ($width::from(value) << 2);
             }
 
             fn increment_parents(&mut self) {
@@ -353,6 +402,34 @@ macro_rules! impl_var_id_packed {
                 // 11 -> 00 -> 11 | 00 -> 11
                 let counter = self.0.wrapping_add(1) & 0b11;
                 self.0 |= counter;
+            }
+
+            fn mark_as_reachable(&mut self, cycle: ReachabilityCycle) {
+                debug_assert!(!self.is_undefined());
+                self.0 = (self.0 & !Self::USE_CACHE_AND_REACHABILITY_MASK)
+                    | ($width::from(u8::from(cycle)) & Self::USE_CACHE_AND_REACHABILITY_MASK);
+            }
+
+            fn is_reachable(self, cycle: ReachabilityCycle) -> bool {
+                debug_assert!(!self.is_undefined());
+                (self.0 & Self::USE_CACHE_AND_REACHABILITY_MASK)
+                    == ($width::from(u8::from(cycle)) & Self::USE_CACHE_AND_REACHABILITY_MASK)
+            }
+
+            fn reset(self) -> Self {
+                Self(self.0 & Self::RESET_MASK)
+            }
+
+            fn reset_parents(self) -> Self {
+                Self(self.0 & Self::RESET_PARENTS_MASK)
+            }
+
+            fn max_defined(self, other: Self) -> Self {
+                match (self.0, other.0) {
+                    (Self::UNDEFINED, _) => other,
+                    (_, Self::UNDEFINED) => self,
+                    _ => self.max(other),
+                }
             }
         }
     };
@@ -592,6 +669,7 @@ impl fmt::Display for VarIdPacked64 {
 #[cfg(test)]
 mod tests {
     use crate::conversion::{UncheckedFrom, UncheckedInto};
+    use crate::variable_id::ReachabilityCycle;
     use crate::variable_id::{
         VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     };
@@ -615,6 +693,14 @@ mod tests {
             #[test]
             fn $func() {
                 let mut x = $VarId::new(0);
+                assert!(!x.has_many_parents());
+                x.increment_parents();
+                assert!(!x.has_many_parents());
+                x.increment_parents();
+                assert!(x.has_many_parents());
+                x.increment_parents();
+                assert!(x.has_many_parents());
+                let mut x = x.reset_parents();
                 assert!(!x.has_many_parents());
                 x.increment_parents();
                 assert!(!x.has_many_parents());
@@ -966,4 +1052,29 @@ mod tests {
         let id = VarIdPacked64::new((u32::MAX as u64) + 1);
         let _id: VarIdPacked32 = id.unchecked_into();
     }
+
+    macro_rules! test_packed_id_reachability {
+        ($func:ident, $VarId:ident) => {
+            #[test]
+            fn $func() {
+                let mut id = $VarId::new(0);
+                let cycle = ReachabilityCycle::default();
+
+                id.mark_as_reachable(cycle);
+                assert!(id.is_reachable(cycle));
+                let flipped = cycle.flipped();
+                assert!(!id.is_reachable(flipped));
+                id.mark_as_reachable(flipped);
+                assert!(!id.is_reachable(cycle));
+                assert!(id.is_reachable(flipped));
+
+                let flipped_twice = flipped.flipped().flipped();
+                assert!(id.is_reachable(flipped_twice));
+            }
+        };
+    }
+
+    test_packed_id_reachability!(var_packed_16_reachability, VarIdPacked16);
+    test_packed_id_reachability!(var_packed_32_reachability, VarIdPacked32);
+    test_packed_id_reachability!(var_packed_64_reachability, VarIdPacked64);
 }

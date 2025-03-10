@@ -1,10 +1,13 @@
 //! Defines the representation of node tables (used to represent BDDs). Includes: [`NodeTableAny`],
 //! [`NodeTableImpl`], [`NodeTable16`], [`NodeTable32`], and [`NodeTable64`].
 //!
+use std::cell::Cell;
 use std::cmp::{max, min};
 use std::fmt;
+use std::rc::Weak;
 
 use crate::conversion::UncheckedInto;
+use crate::node_id::NodeId;
 use crate::{
     bdd::BddAny,
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
@@ -201,6 +204,34 @@ fn top_bit_is_one(hash: u64) -> bool {
     hash & (1 << (u64::BITS - 1)) != 0
 }
 
+/// A type-safe wrapper on `u8` that represents the current reachability cycle
+/// of the garbage-collection algorithm.
+///
+/// We can use one bit to mark a node as reachable (1) or unreachable (0).
+/// However, this requires clearing the reachability bit of each node
+/// before recalculating reachability. Instead, we use a cycle counter
+/// that flips between two values, allowing us to treat all previously
+/// reachable nodes as unreachable by simply flipping the cycle.
+///
+/// A node is considered reachable if its reachability bit matches the current cycle value.
+///
+/// To simplify bitwise operations, we use `0x00` and `0xFF` as the two cycle values.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ReachabilityCycle(u8);
+
+impl ReachabilityCycle {
+    /// Returns the flipped cycle value.
+    pub(crate) fn flipped(self) -> Self {
+        Self(!self.0)
+    }
+}
+
+impl From<ReachabilityCycle> for u8 {
+    fn from(cycle: ReachabilityCycle) -> u8 {
+        cycle.0
+    }
+}
+
 /// A generic implementation of [`NodeTableAny`] backed by [`BddNodeAny`].
 ///
 /// Instead of "normal" hashing, it uses a "tree of parents" scheme, where each node is stored
@@ -223,6 +254,7 @@ pub struct NodeTableImpl<
     entries: Vec<NodeEntry<TNodeId, TVarId, TNode>>,
     first_free: TNodeId,
     deleted: usize,
+    cycle: ReachabilityCycle,
 }
 
 impl<TNodeId, TVarId, TNode> NodeTableImpl<TNodeId, TVarId, TNode>
@@ -237,6 +269,7 @@ where
             entries: vec![NodeEntry::zero(), NodeEntry::one()],
             first_free: TNodeId::undefined(),
             deleted: 0,
+            cycle: ReachabilityCycle::default(),
         }
     }
 
@@ -250,6 +283,7 @@ where
             entries,
             first_free: TNodeId::undefined(),
             deleted: 0,
+            cycle: ReachabilityCycle::default(),
         }
     }
 
@@ -281,6 +315,11 @@ where
         self.get_entry_unchecked_mut(high)
             .node
             .increment_parent_counter();
+
+        // Reset the parent counter of the new node.
+        let mut variable = variable.reset_parents();
+        // Consider the new node as reachable in the current cycle.
+        variable.mark_as_reachable(self.cycle);
 
         let new_entry = TNode::new(variable, low, high).into();
 
@@ -356,7 +395,6 @@ where
     /// # Safety
     ///
     /// Calling this method with an `id` that is not in the table is undefined behavior.
-    #[allow(dead_code)]
     pub(crate) unsafe fn get_node_unchecked(&self, id: TNodeId) -> &TNode {
         &self.get_entry_unchecked(id).node
     }
@@ -366,7 +404,6 @@ where
     /// # Safety
     ///
     /// Calling this method with an `id` that is not in the table is undefined behavior.
-    #[allow(dead_code)]
     pub(crate) unsafe fn get_node_unchecked_mut(&mut self, id: TNodeId) -> &mut TNode {
         &mut self.get_entry_unchecked_mut(id).node
     }
@@ -877,6 +914,7 @@ macro_rules! impl_from_node_table {
                     entries,
                     first_free: table.first_free.into(),
                     deleted: table.deleted,
+                    cycle: table.cycle,
                 }
             }
         }
@@ -968,10 +1006,112 @@ impl Default for NodeTable {
     }
 }
 
+#[allow(dead_code)]
+pub(crate) struct MarkPhaseData<TVarId: VarIdPackedAny> {
+    reachable_count: usize,
+    max_var_id: TVarId,
+}
+
+impl<TNodeId, TVarId, TNode> NodeTableImpl<TNodeId, TVarId, TNode>
+where
+    TNodeId: NodeIdAny,
+    TVarId: VarIdPackedAny,
+    TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
+{
+    /// Returns `true` if the node with the given `id` is considered reachable in the current cycle.
+    unsafe fn is_node_reachable_unchecked(&self, id: TNodeId) -> bool {
+        let node = unsafe { self.get_node_unchecked(id) };
+        node.is_reachable(self.cycle)
+    }
+
+    /// Mark the reachable nodes in the table starting from the roots in `roots`.
+    ///
+    /// Returns the number of reachable nodes, and the maximum variable id.
+    ///
+    /// The `roots` vector is modified to only contain the roots that are still alive.
+    /// The nodes' parent counters are recalculated to only count the reachable parents.
+    #[allow(dead_code)]
+    fn mark_reachable(&mut self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> MarkPhaseData<TVarId> {
+        // Flip the mark cycle to avoid having to reset the parent counters of all nodes.
+        // Now, the nodes that were previously considered reachable will be viewed
+        // as unreachable.
+        let next_cycle = self.cycle.flipped();
+        self.cycle = next_cycle;
+
+        // Terminal nodes are always reachable.
+        let mut reachable_count = 2usize;
+        let mut max_var_id = TVarId::undefined();
+
+        roots.retain(|root| {
+            if let Some(root) = root.upgrade() {
+                let root_id: TNodeId = root.get().unchecked_into();
+                let root_node = unsafe { self.get_node_unchecked_mut(root_id) };
+                if root_node.is_reachable(next_cycle) {
+                    return true;
+                }
+                root_node.mark_as_reachable(next_cycle);
+                root_node.reset_parent_counter();
+                reachable_count += 1;
+
+                let mut stack = vec![root_id];
+
+                while let Some(id) = stack.pop() {
+                    let node = unsafe { self.get_node_unchecked(id) };
+
+                    let variable = node.variable();
+                    max_var_id = max_var_id.max_defined(variable);
+
+                    let low = node.low();
+                    let high = node.high();
+                    let low_is_reachable = unsafe { self.is_node_reachable_unchecked(low) };
+                    let high_is_reachable = unsafe { self.is_node_reachable_unchecked(high) };
+
+                    if low_is_reachable && high_is_reachable {
+                        continue;
+                    }
+
+                    stack.push(id);
+
+                    let high_node = unsafe { self.get_node_unchecked_mut(high) };
+                    if !high_is_reachable {
+                        high_node.reset_parent_counter();
+                        high_node.mark_as_reachable(next_cycle);
+                        reachable_count += 1;
+                        stack.push(high);
+                    }
+                    high_node.increment_parent_counter();
+
+                    let low_node = unsafe { self.get_node_unchecked_mut(low) };
+                    if !low_is_reachable {
+                        low_node.reset_parent_counter();
+                        low_node.mark_as_reachable(next_cycle);
+                        reachable_count += 1;
+                        stack.push(low);
+                    }
+                    low_node.increment_parent_counter();
+                }
+
+                true
+            } else {
+                false
+            }
+        });
+
+        MarkPhaseData {
+            reachable_count,
+            max_var_id,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use crate::bdd_node::BddNodeAny;
     use crate::conversion::UncheckedInto;
-    use crate::node_id::{NodeId16, NodeId32, NodeIdAny};
+    use crate::node_id::{NodeId, NodeId16, NodeId32, NodeIdAny};
     use crate::node_table::{hash_node_data, NodeTable16, NodeTable32, NodeTable64, NodeTableAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32};
 
@@ -1539,5 +1679,123 @@ mod tests {
         assert_eq!(node4_entry.next_parent_zero, NodeId32::undefined());
         assert_eq!(node4_entry.next_parent_one, NodeId32::undefined());
         assert_eq!(node4_entry.parent, NodeId32::undefined());
+    }
+
+    #[test]
+    fn mark_reachable() {
+        let mut table = NodeTable32::new();
+        let mut ids_reachable = vec![NodeId32::zero(), NodeId32::one()];
+
+        let reachable_nonterminal = 10;
+
+        for i in 0..reachable_nonterminal {
+            let id = table
+                .ensure_node(
+                    VarIdPacked32::new(reachable_nonterminal - i),
+                    *ids_reachable.last().unwrap(),
+                    NodeId32::zero(),
+                )
+                .unwrap();
+            ids_reachable.push(id);
+        }
+
+        let reachable_max_var_id = VarIdPacked32::new(reachable_nonterminal);
+
+        let root_32 = *ids_reachable.last().unwrap();
+        let root: NodeId = root_32.unchecked_into();
+
+        let root_subtree_32 = ids_reachable[(reachable_nonterminal / 2) as usize];
+        let root_subtree: NodeId = root_subtree_32.unchecked_into();
+
+        let unreachable_nonterminal_1 = 5;
+        let mut ids_unreachable_1 = vec![];
+
+        for i in 0..unreachable_nonterminal_1 {
+            let id = table
+                .ensure_node(
+                    VarIdPacked32::new(10 * (unreachable_nonterminal_1 - i)),
+                    *ids_unreachable_1.last().unwrap_or(&NodeId32::zero()),
+                    root_32,
+                )
+                .unwrap();
+            ids_unreachable_1.push(id);
+        }
+
+        let unreachable_root1: NodeId = (*ids_unreachable_1.last().unwrap()).unchecked_into();
+
+        let unreachable_nonterminal_2 = 25;
+        let mut ids_unreachable_2 = vec![];
+
+        for i in 0..unreachable_nonterminal_2 {
+            let id = table
+                .ensure_node(
+                    VarIdPacked32::new(100 * (unreachable_nonterminal_2 - i)),
+                    *ids_unreachable_2.last().unwrap_or(&NodeId32::zero()),
+                    root_subtree_32,
+                )
+                .unwrap();
+            ids_unreachable_2.push(id);
+        }
+
+        let unreachable_root2: NodeId = (*ids_unreachable_2.last().unwrap()).unchecked_into();
+
+        assert!(table.get_entry(root_32).unwrap().node.has_many_parents());
+        assert!(table
+            .get_entry(root_subtree_32)
+            .unwrap()
+            .node
+            .has_many_parents());
+
+        assert_eq!(
+            table.node_count(),
+            (2 + reachable_nonterminal + unreachable_nonterminal_1 + unreachable_nonterminal_2)
+                as usize
+        );
+
+        let root = Rc::new(Cell::new(root));
+        let root_subtree = Rc::new(Cell::new(root_subtree));
+
+        let mut roots = vec![Rc::downgrade(&root), Rc::downgrade(&root_subtree)];
+
+        {
+            let unreachable_root1 = Rc::new(Cell::new(unreachable_root1));
+            let unreachable_root2 = Rc::new(Cell::new(unreachable_root2));
+
+            roots.push(Rc::downgrade(&unreachable_root1));
+            roots.push(Rc::downgrade(&unreachable_root2));
+        }
+
+        let mark_data = table.mark_reachable(&mut roots);
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0].upgrade().unwrap().get(), root.get());
+        assert_eq!(roots[1].upgrade().unwrap().get(), root_subtree.get());
+
+        assert_eq!(
+            mark_data.reachable_count,
+            2 + reachable_nonterminal as usize
+        );
+        assert_eq!(mark_data.max_var_id, reachable_max_var_id);
+
+        for &id in ids_reachable.iter() {
+            assert!(unsafe { table.is_node_reachable_unchecked(id) });
+            if !id.is_terminal() && id != root_32 && id != root_subtree_32 {
+                let entry = table.get_entry(id).unwrap();
+                assert!(!entry.node.has_many_parents());
+            }
+        }
+        assert!(!table.get_entry(root_32).unwrap().node.has_many_parents());
+        assert!(!table
+            .get_entry(root_subtree_32)
+            .unwrap()
+            .node
+            .has_many_parents());
+
+        for id in ids_unreachable_1.iter() {
+            assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
+        }
+
+        for id in ids_unreachable_2.iter() {
+            assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
+        }
     }
 }

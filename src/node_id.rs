@@ -24,6 +24,7 @@ pub trait NodeIdAny:
     + UncheckedInto<u128>
     + UncheckedInto<usize>
     + UncheckedInto<NodeId>
+    + UncheckedFrom<NodeId>
 {
     /// Return an instance of the "undefined" node ID.
     fn undefined() -> Self;
