@@ -472,8 +472,8 @@ mod tests {
 
         for a in &data {
             for b in &data {
-                let iff = a.xor(&b);
-                let other_iff = (a.and(&b.not())).or(&a.not().and(&b));
+                let iff = a.xor(b);
+                let other_iff = (a.and(&b.not())).or(&a.not().and(b));
                 assert!(iff.structural_eq(&other_iff));
             }
         }
