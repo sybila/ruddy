@@ -23,6 +23,7 @@ pub trait NodeIdAny:
     + UncheckedInto<u64>
     + UncheckedInto<u128>
     + UncheckedInto<usize>
+    + UncheckedInto<NodeId>
 {
     /// Return an instance of the "undefined" node ID.
     fn undefined() -> Self;
@@ -462,8 +463,8 @@ impl fmt::Display for NodeId64 {
 }
 
 /// A type for identifying nodes in BDDs.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct NodeId(u64);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeId(u64);
 
 impl NodeId {
     /// Create a new `NodeId` representing the terminal node `0`.
@@ -517,34 +518,40 @@ impl UncheckedFrom<NodeId> for NodeId32 {
 
 impl UncheckedFrom<NodeId> for NodeId64 {
     fn unchecked_from(value: NodeId) -> NodeId64 {
-        NodeId64::new(value.0)
+        NodeId64(value.0)
     }
 }
 
-impl From<NodeId16> for NodeId {
-    fn from(val: NodeId16) -> Self {
-        NodeId(u64::from(val.0))
+impl UncheckedFrom<NodeId16> for NodeId {
+    fn unchecked_from(value: NodeId16) -> NodeId {
+        debug_assert!(!value.is_undefined());
+        NodeId(u64::from(value.0))
     }
 }
 
-impl From<NodeId32> for NodeId {
-    fn from(val: NodeId32) -> Self {
-        NodeId(u64::from(val.0))
+impl UncheckedFrom<NodeId32> for NodeId {
+    fn unchecked_from(value: NodeId32) -> NodeId {
+        debug_assert!(!value.is_undefined());
+        NodeId(u64::from(value.0))
     }
 }
 
-impl From<NodeId64> for NodeId {
-    fn from(val: NodeId64) -> Self {
-        NodeId(val.0)
+impl UncheckedFrom<NodeId64> for NodeId {
+    fn unchecked_from(value: NodeId64) -> NodeId {
+        debug_assert!(!value.is_undefined());
+        NodeId(value.0)
     }
 }
 
 #[cfg(test)]
 mod tests {
+
     use crate::boolean_operators::TriBool;
-    use crate::conversion::UncheckedFrom;
+    use crate::conversion::{UncheckedFrom, UncheckedInto};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
+
+    use super::NodeId;
 
     fn node_invariants<Node: NodeIdAny>() {
         assert!(Node::undefined().is_undefined());
@@ -803,5 +810,141 @@ mod tests {
         assert_eq!(zero.flipped_if_terminal(), one);
         assert_eq!(one.flipped_if_terminal(), zero);
         assert_eq!(two.flipped_if_terminal(), two);
+    }
+
+    #[test]
+    fn node_id_terminals() {
+        let zero_16 = NodeId16::zero();
+        let one_16 = NodeId16::one();
+        let zero_32 = NodeId32::zero();
+        let one_32 = NodeId32::one();
+        let zero_64 = NodeId64::zero();
+        let one_64 = NodeId64::one();
+
+        let zero = NodeId::zero();
+        let one = NodeId::one();
+
+        assert_eq!(NodeId::unchecked_from(zero_16), zero);
+        assert_eq!(NodeId16::unchecked_from(zero), zero_16);
+        assert_eq!(NodeId::unchecked_from(one_16), one);
+        assert_eq!(NodeId16::unchecked_from(one), one_16);
+
+        assert_eq!(NodeId::unchecked_from(zero_32), zero);
+        assert_eq!(NodeId32::unchecked_from(zero), zero_32);
+        assert_eq!(NodeId::unchecked_from(one_32), one);
+        assert_eq!(NodeId32::unchecked_from(one), one_32);
+
+        assert_eq!(NodeId::unchecked_from(zero_64), zero);
+        assert_eq!(NodeId64::unchecked_from(zero), zero_64);
+        assert_eq!(NodeId::unchecked_from(one_64), one);
+        assert_eq!(NodeId64::unchecked_from(one), one_64);
+    }
+
+    fn test_node_id_from_undefined<TNodeId: NodeIdAny>() {
+        let undefined = TNodeId::undefined();
+        let _: NodeId = undefined.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_from_undefined_16() {
+        test_node_id_from_undefined::<NodeId16>();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_from_undefined_32() {
+        test_node_id_from_undefined::<NodeId32>();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_from_undefined_64() {
+        test_node_id_from_undefined::<NodeId64>();
+    }
+
+    macro_rules! test_node_id_from_defined_into_undefined {
+        ($FromUndefinedId:ident => $ToUndefinedId:ident, $func:ident) => {
+            #[test]
+            #[should_panic]
+            fn $func() {
+                let x = $FromUndefinedId::new($ToUndefinedId::UNDEFINED.into());
+                let id: NodeId = x.unchecked_into();
+                let _: $ToUndefinedId = id.unchecked_into();
+            }
+        };
+    }
+
+    test_node_id_from_defined_into_undefined!(NodeId32 => NodeId16, node_id_from_defined_32_into_undefined_16);
+    test_node_id_from_defined_into_undefined!(NodeId64 => NodeId16, node_id_from_defined_64_into_undefined_16);
+    test_node_id_from_defined_into_undefined!(NodeId64 => NodeId32, node_id_from_defined_64_into_undefined_32);
+
+    #[test]
+    fn node_id_bounds() {
+        let id16 = NodeId16::new(NodeId16::MAX_ID);
+        let id: NodeId = id16.unchecked_into();
+
+        assert!(id.fits_in_node_id16());
+        assert!(id.fits_in_node_id32());
+
+        let id32 = NodeId32::new(NodeId32::MAX_ID);
+        let id: NodeId = id32.unchecked_into();
+
+        assert!(!id.fits_in_node_id16());
+        assert!(id.fits_in_node_id32());
+
+        let id64 = NodeId64::new(NodeId64::MAX_ID);
+        let id: NodeId = id64.unchecked_into();
+
+        assert!(!id.fits_in_node_id16());
+        assert!(!id.fits_in_node_id32());
+    }
+
+    #[test]
+    fn node_id_conversion_from_64_to_16() {
+        let id64 = NodeId64::new(NodeId16::MAX_ID as u64);
+        let id: NodeId = id64.unchecked_into();
+        let id16: NodeId16 = id.unchecked_into();
+        assert_eq!(id16, NodeId16::new(NodeId16::MAX_ID));
+    }
+
+    #[test]
+    fn node_id_conversion_from_64_to_32() {
+        let id64 = NodeId64::new(NodeId32::MAX_ID as u64);
+        let id: NodeId = id64.unchecked_into();
+        let id32: NodeId32 = id.unchecked_into();
+        assert_eq!(id32, NodeId32::new(NodeId32::MAX_ID));
+    }
+
+    #[test]
+    fn node_id_conversion_from_32_to_16() {
+        let id32 = NodeId32::new(NodeId16::MAX_ID as u32);
+        let id: NodeId = id32.unchecked_into();
+        let id16: NodeId16 = id.unchecked_into();
+        assert_eq!(id16, NodeId16::new(NodeId16::MAX_ID));
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_unsuccessful_conversion_from_64_to_16() {
+        let id64 = NodeId64::new(NodeId64::MAX_ID);
+        let id: NodeId = id64.unchecked_into();
+        let _: NodeId16 = id.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_unsuccessful_conversion_from_64_to_32() {
+        let id64 = NodeId64::new(NodeId64::MAX_ID);
+        let id: NodeId = id64.unchecked_into();
+        let _: NodeId32 = id.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_unsuccessful_conversion_from_32_to_16() {
+        let id32 = NodeId32::new(NodeId32::MAX_ID);
+        let id: NodeId = id32.unchecked_into();
+        let _: NodeId16 = id.unchecked_into();
     }
 }

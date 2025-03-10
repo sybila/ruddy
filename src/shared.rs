@@ -80,19 +80,19 @@ impl BddManager {
                 let root_id = table
                     .ensure_literal(variable.unchecked_into(), value)
                     .expect("ensuring literal after growth should always succeed");
-                Rc::new(Cell::new(root_id.into()))
+                Rc::new(Cell::new(root_id.unchecked_into()))
             }
             NodeTable::Size32(table) => {
                 let root_id = table
                     .ensure_literal(variable.unchecked_into(), value)
                     .expect("ensuring literal after growth should always succeed");
-                Rc::new(Cell::new(root_id.into()))
+                Rc::new(Cell::new(root_id.unchecked_into()))
             }
             NodeTable::Size64(table) => {
                 let root_id = table
                     .ensure_literal(variable.unchecked_into(), value)
                     .expect("TODO: 64-bit ensure_literal failed");
-                Rc::new(Cell::new(root_id.into()))
+                Rc::new(Cell::new(root_id.unchecked_into()))
             }
         };
 
