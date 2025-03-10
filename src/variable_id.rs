@@ -1077,4 +1077,26 @@ mod tests {
     test_packed_id_reachability!(var_packed_16_reachability, VarIdPacked16);
     test_packed_id_reachability!(var_packed_32_reachability, VarIdPacked32);
     test_packed_id_reachability!(var_packed_64_reachability, VarIdPacked64);
+
+    macro_rules! test_packed_id_max_defined {
+        ($func:ident, $VarId:ident) => {
+            #[test]
+            fn $func() {
+                let zero = $VarId::new(0);
+                let one = $VarId::new(1);
+                let undef = $VarId::undefined();
+
+                assert_eq!(zero.max_defined(one), one);
+                assert_eq!(one.max_defined(zero), one);
+                assert_eq!(zero.max_defined(undef), zero);
+                assert_eq!(undef.max_defined(zero), zero);
+                assert_eq!(one.max_defined(undef), one);
+                assert_eq!(undef.max_defined(one), one);
+            }
+        };
+    }
+
+    test_packed_id_max_defined!(var_packed_16_max_defined, VarIdPacked16);
+    test_packed_id_max_defined!(var_packed_32_max_defined, VarIdPacked32);
+    test_packed_id_max_defined!(var_packed_64_max_defined, VarIdPacked64);
 }
