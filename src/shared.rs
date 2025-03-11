@@ -7,6 +7,8 @@ use crate::{
     conversion::UncheckedInto, node_id::NodeId, node_table::NodeTable, variable_id::VariableId,
 };
 
+use crate::node_table::GarbageCollector;
+
 use replace_with::replace_with_or_default;
 
 #[derive(Debug, Default)]
@@ -98,6 +100,14 @@ impl BddManager {
 
         self.roots.push(Rc::downgrade(&root));
         Bdd { root }
+    }
+
+    pub fn collect_garbage(&mut self) {
+        replace_with_or_default(&mut self.unique_table, |table| match table {
+            NodeTable::Size16(table) => table.collect_garbage(&mut self.roots),
+            NodeTable::Size32(table) => table.collect_garbage(&mut self.roots),
+            NodeTable::Size64(table) => table.collect_garbage(&mut self.roots),
+        });
     }
 }
 

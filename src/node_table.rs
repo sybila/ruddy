@@ -1008,7 +1008,6 @@ impl Default for NodeTable {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) struct MarkPhaseData<TVarId: VarIdPackedAny> {
     reachable_count: usize,
     max_var_id: TVarId,
@@ -1032,7 +1031,6 @@ where
     ///
     /// The `roots` vector is modified to only contain the roots that are still alive.
     /// The nodes' parent counters are recalculated to only count the reachable parents.
-    #[allow(dead_code)]
     fn mark_reachable(&mut self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> MarkPhaseData<TVarId> {
         // Flip the mark cycle to avoid having to reset the parent counters of all nodes.
         // Now, the nodes that were previously considered reachable will be viewed
@@ -1115,7 +1113,6 @@ where
     /// This function panics if the variable ids of the nodes in the old table
     /// cannot be converted to variable ids of the new table or if the new table
     /// overflows. These conditions are expected to be checked by the caller.
-    #[allow(dead_code)]
     fn rebuild<TResultTable: NodeTableAny>(
         mut self,
         roots: &mut Vec<Weak<Cell<NodeId>>>,
@@ -1210,7 +1207,6 @@ where
     }
 
     /// Delete the nodes that are marked as unreachable from the table.
-    #[allow(dead_code)]
     fn delete_unreachable(&mut self) {
         for id in 2..self.size() {
             let id: TNodeId = id.unchecked_into();
@@ -1226,6 +1222,146 @@ where
             }
         }
     }
+
+    /// Collect garbage in the node table by either deleting unreachable nodes or
+    /// rebuilding the table.
+    fn collect_garbage(mut self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> NodeTable
+    where
+        Self: GarbageCollector<Table = Self>,
+    {
+        let MarkPhaseData {
+            reachable_count,
+            max_var_id,
+        } = self.mark_reachable(roots);
+
+        // Decide which garbage collection strategy to use. We take into account
+        // the number of already deleted nodes in the table and the number of nodes
+        // that are not reachable, i.e., to be deleted now.
+        let total_nodes = self.size();
+        let holes = total_nodes - self.node_count();
+        let deletions = self.node_count() - reachable_count;
+        let potential_fragmentation = holes + deletions;
+
+        if potential_fragmentation.saturating_mul(Self::FRAGMENTATION_FACTOR) >= total_nodes {
+            // If there would be a lot of holes in the table, perform a rebuild operation.
+            self.rebuild_shrink(roots, reachable_count, max_var_id)
+        } else {
+            // Otherwise just delete the unreachable nodes.
+            self.delete_unreachable()
+        }
+    }
+}
+
+type VarId<N> = <N as NodeTableAny>::VarId;
+
+#[allow(dead_code)]
+pub(crate) trait GarbageCollector {
+    type Table: NodeTableAny;
+
+    const SHRINK_THRESHOLD_16_BIT: usize = MAX_16_BIT_ID_USIZE >> 1;
+    const SHRINK_THRESHOLD_32_BIT: usize = MAX_32_BIT_ID_USIZE >> 1;
+
+    const FRAGMENTATION_FACTOR: usize = 3; // 3 representing about 33% fragmentation
+
+    /// Rebuild the node table into a new one containing only the nodes reachable
+    /// from `roots`. The resulting table's bit width is chosen to be as small as
+    /// possible based on the number of reachable nodes and the maximum variable id.
+    fn rebuild_shrink(
+        self,
+        roots: &mut Vec<Weak<Cell<NodeId>>>,
+        reachable: usize,
+        max_var_id: VarId<Self::Table>,
+    ) -> NodeTable;
+
+    /// Delete the unreachable nodes from the table.
+    ///
+    /// Note this would ideally be a function that takes a `&mut self` and modifies
+    /// the table in place. However, `collect_garbage`, which uses this function,
+    /// needs to return a table, so we have to take `self` by value.
+    fn delete_unreachable(self) -> NodeTable;
+
+    /// Collect garbage in the node table by either deleting unreachable nodes or
+    /// rebuilding the table.
+    fn collect_garbage(self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> NodeTable;
+}
+
+impl GarbageCollector for NodeTable16 {
+    type Table = NodeTable16;
+
+    fn rebuild_shrink(
+        self,
+        roots: &mut Vec<Weak<Cell<NodeId>>>,
+        reachable: usize,
+        _max_var_id: VarId<Self::Table>,
+    ) -> NodeTable {
+        debug_assert!(reachable <= MAX_16_BIT_ID_USIZE);
+        NodeTable::Size16(self.rebuild(roots, reachable))
+    }
+
+    fn delete_unreachable(mut self) -> NodeTable {
+        Self::delete_unreachable(&mut self);
+        NodeTable::Size16(self)
+    }
+
+    fn collect_garbage(self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> NodeTable {
+        self.collect_garbage(roots)
+    }
+}
+
+impl GarbageCollector for NodeTable32 {
+    type Table = NodeTable32;
+
+    fn rebuild_shrink(
+        self,
+        roots: &mut Vec<Weak<Cell<NodeId>>>,
+        reachable: usize,
+        max_var_id: VarId<Self::Table>,
+    ) -> NodeTable {
+        debug_assert!(reachable <= MAX_32_BIT_ID_USIZE);
+        if reachable <= Self::SHRINK_THRESHOLD_16_BIT && max_var_id.fits_in_packed16() {
+            NodeTable::Size16(self.rebuild(roots, reachable))
+        } else {
+            NodeTable::Size32(self.rebuild(roots, reachable))
+        }
+    }
+
+    fn delete_unreachable(mut self) -> NodeTable {
+        Self::delete_unreachable(&mut self);
+        NodeTable::Size32(self)
+    }
+
+    fn collect_garbage(self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> NodeTable {
+        self.collect_garbage(roots)
+    }
+}
+
+impl GarbageCollector for NodeTable64 {
+    type Table = NodeTable64;
+
+    fn rebuild_shrink(
+        self,
+        roots: &mut Vec<Weak<Cell<NodeId>>>,
+        reachable: usize,
+        max_var_id: VarId<Self::Table>,
+    ) -> NodeTable {
+        debug_assert!(reachable <= MAX_64_BIT_ID_USIZE);
+        if reachable <= Self::SHRINK_THRESHOLD_16_BIT && max_var_id.fits_in_packed16() {
+            NodeTable::Size16(self.rebuild(roots, reachable))
+        } else if reachable <= Self::SHRINK_THRESHOLD_32_BIT && max_var_id.fits_in_packed32() {
+            NodeTable::Size32(self.rebuild(roots, reachable))
+        } else {
+            NodeTable::Size64(self.rebuild(roots, reachable))
+        }
+    }
+
+    fn delete_unreachable(mut self) -> NodeTable {
+        Self::delete_unreachable(&mut self);
+        NodeTable::Size64(self)
+    }
+
+    fn collect_garbage(self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> NodeTable {
+        self.collect_garbage(roots)
+    }
 }
 
 #[cfg(test)]
@@ -1236,8 +1372,12 @@ mod tests {
     use crate::bdd_node::BddNodeAny;
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeIdAny};
-    use crate::node_table::{hash_node_data, NodeTable16, NodeTable32, NodeTable64, NodeTableAny};
-    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPackedAny, VariableId};
+    use crate::node_table::{
+        hash_node_data, NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny,
+    };
+    use crate::variable_id::{
+        VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
+    };
 
     #[test]
     pub fn node_table_32_basic() {
@@ -1934,6 +2074,29 @@ mod tests {
     }
 
     #[allow(clippy::type_complexity)]
+    fn make_roots<TNodeId: NodeIdAny>(
+        strong_ids: &[TNodeId],
+        weak_ids: &[TNodeId],
+    ) -> (Vec<Rc<Cell<NodeId>>>, Vec<Weak<Cell<NodeId>>>) {
+        let mut all_roots = vec![];
+        let mut strongs = vec![];
+
+        for &id in strong_ids {
+            let strong = Rc::new(Cell::new(id.unchecked_into()));
+            all_roots.push(strong.clone());
+            strongs.push(strong);
+        }
+
+        for &id in weak_ids {
+            all_roots.push(Rc::new(Cell::new(id.unchecked_into())));
+        }
+
+        let weaks = all_roots.iter().map(Rc::downgrade).collect();
+
+        (strongs, weaks)
+    }
+
+    #[allow(clippy::type_complexity)]
     fn init_rebuild<
         FromNodeTable: NodeTableAny<Id = FromNodeId, VarId = FromVarId>,
         ToNodeTable: NodeTableAny<Id = ToNodeId, VarId = ToVarId>,
@@ -1949,6 +2112,7 @@ mod tests {
         ToNodeId,
         Rc<Cell<NodeId>>,
         Vec<Weak<Cell<NodeId>>>,
+        FromVarId,
     ) {
         let var_unreachable_1 = VariableId::new(100);
 
@@ -1965,8 +2129,7 @@ mod tests {
             ids.push(id);
         }
 
-        let unreachable_root1_w = ids[ids.len() - 1];
-        let unreachable_root1: NodeId = unreachable_root1_w.unchecked_into();
+        let unreachable_root1 = ids[ids.len() - 1];
 
         let mut ids = vec![FromNodeId::zero(), FromNodeId::one()];
 
@@ -1983,8 +2146,7 @@ mod tests {
             ids.push(id);
         }
 
-        let root_w = ids[ids.len() - 1];
-        let root: NodeId = root_w.unchecked_into();
+        let root = ids[ids.len() - 1];
 
         let var_unreachable_2 = VariableId::new(1);
         let unreachable_2 = 11;
@@ -1999,19 +2161,10 @@ mod tests {
             ids.push(id);
         }
 
-        let unreachable_root2_w = ids[ids.len() - 1];
-        let unreachable_root2: NodeId = unreachable_root2_w.unchecked_into();
+        let unreachable_root2 = ids[ids.len() - 1];
 
-        let root = Rc::new(Cell::new(root));
-        let mut roots = vec![Rc::downgrade(&root)];
-
-        {
-            let unreachable_root1 = Rc::new(Cell::new(unreachable_root1));
-            let unreachable_root2 = Rc::new(Cell::new(unreachable_root2));
-
-            roots.push(Rc::downgrade(&unreachable_root1));
-            roots.push(Rc::downgrade(&unreachable_root2));
-        }
+        let (strongs, roots) = make_roots(&[root], &[unreachable_root1, unreachable_root2]);
+        assert_eq!(strongs.len(), 1);
 
         let mut expected = ToNodeTable::default();
         let mut ids_to = vec![ToNodeId::zero(), ToNodeId::one()];
@@ -2029,17 +2182,24 @@ mod tests {
 
         let expected_root = ids_to[ids_to.len() - 1];
 
-        (expected, expected_root, root, roots)
+        (
+            expected,
+            expected_root,
+            strongs[0].clone(),
+            roots,
+            var_reachable.unchecked_into(),
+        )
     }
 
     #[test]
     fn rebuild_32_to_16() {
         let mut table = NodeTable32::new();
+        // Make sure that the cycle does not interfere with rebuilding.
         table.cycle = table.cycle.flipped();
 
         let reachable = u16::MAX as usize;
 
-        let (expected, expected_root, root, mut roots) =
+        let (expected, expected_root, root, mut roots, _) =
             init_rebuild::<_, NodeTable16, _, _, _, _>(&mut table, reachable);
 
         let prev_root = root.get();
@@ -2061,11 +2221,12 @@ mod tests {
     #[test]
     fn rebuild_64_to_16() {
         let mut table = NodeTable64::new();
+        // Make sure that the cycle does not interfere with rebuilding.
         table.cycle = table.cycle.flipped();
 
         let reachable = u16::MAX as usize;
 
-        let (expected, expected_root, root, mut roots) =
+        let (expected, expected_root, root, mut roots, _) =
             init_rebuild::<_, NodeTable16, _, _, _, _>(&mut table, reachable);
 
         let prev_root = root.get();
@@ -2087,12 +2248,13 @@ mod tests {
     #[test]
     fn rebuild_64_to_32() {
         let mut table = NodeTable64::new();
+        // Make sure that the cycle does not interfere with rebuilding.
         table.cycle = table.cycle.flipped();
 
         // Making 2**32 nodes is impractical, so just 2**17 for now.
         let reachable = (u16::MAX as usize) * 2;
 
-        let (expected, expected_root, root, mut roots) =
+        let (expected, expected_root, root, mut roots, _) =
             init_rebuild::<_, NodeTable32, _, _, _, _>(&mut table, reachable);
 
         let prev_root = root.get();
@@ -2194,5 +2356,381 @@ mod tests {
         for entry in table.entries.iter().skip(2) {
             assert!(entry.is_deleted());
         }
+    }
+
+    fn init_rebuild_does_not_shrink<TNodeTable: NodeTableAny>(
+        table: &mut TNodeTable,
+        big: TNodeTable::VarId,
+        small: TNodeTable::VarId,
+    ) -> (TNodeTable::Id, TNodeTable::Id) {
+        let root_big = table
+            .ensure_node(big, TNodeTable::Id::zero(), TNodeTable::Id::one())
+            .unwrap();
+
+        let root_small = table
+            .ensure_node(small, TNodeTable::Id::zero(), TNodeTable::Id::one())
+            .unwrap();
+
+        for i in 0..1000 {
+            table
+                .ensure_node(
+                    VariableId::new(i).unchecked_into(),
+                    TNodeTable::Id::zero(),
+                    TNodeTable::Id::one(),
+                )
+                .unwrap();
+        }
+
+        (root_big, root_small)
+    }
+
+    #[test]
+    fn rebuild_table_64_with_64_bit_var_does_not_shrink() {
+        let mut table = NodeTable64::new();
+
+        let big = VarIdPacked64::new(VarIdPacked32::MAX_ID as u64 + 1);
+        let small = VarIdPacked64::new(0);
+        let reachable: usize = 4;
+
+        let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
+
+        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+
+        use super::GarbageCollector;
+        let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
+            NodeTable::Size64(table) => table,
+            _ => panic!("expected 64-bit table"),
+        };
+
+        assert_eq!(rebuilt.node_count(), reachable);
+        assert_eq!(rebuilt.get_entry(root_big).unwrap().node.variable, big);
+        assert_eq!(rebuilt.get_entry(root_small).unwrap().node.variable, small);
+    }
+
+    #[test]
+    fn rebuild_table_32_with_32_bit_var_does_not_shrink() {
+        let mut table = NodeTable32::new();
+
+        let big = VarIdPacked32::new(VarIdPacked16::MAX_ID as u32 + 1);
+        let small = VarIdPacked32::new(0);
+        let reachable: usize = 4;
+
+        let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
+
+        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+
+        use super::GarbageCollector;
+        let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
+            NodeTable::Size32(table) => table,
+            _ => panic!("expected 32-bit table"),
+        };
+
+        assert_eq!(rebuilt.node_count(), reachable);
+        assert_eq!(rebuilt.get_entry(root_big).unwrap().node.variable, big);
+        assert_eq!(rebuilt.get_entry(root_small).unwrap().node.variable, small);
+    }
+
+    #[test]
+    fn rebuild_table_64_with_32_bit_var_does_not_shrink_to_16() {
+        let mut table = NodeTable64::new();
+
+        let big_32 = VarIdPacked32::new(VarIdPacked16::MAX_ID as u32 + 1);
+        let big = big_32.into();
+        let small_32 = VarIdPacked32::new(0);
+        let small = small_32.into();
+        let reachable: usize = 4;
+
+        let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
+
+        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+
+        use super::GarbageCollector;
+        let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
+            NodeTable::Size32(table) => table,
+            _ => panic!("expected 64-bit table"),
+        };
+
+        assert_eq!(rebuilt.node_count(), reachable);
+        assert_eq!(
+            rebuilt
+                .get_entry(root_big.unchecked_into())
+                .unwrap()
+                .node
+                .variable,
+            big_32
+        );
+        assert_eq!(
+            rebuilt
+                .get_entry(root_small.unchecked_into())
+                .unwrap()
+                .node
+                .variable,
+            small_32
+        );
+    }
+
+    #[test]
+    fn rebuild_shrink_64_to_16() {
+        use super::GarbageCollector;
+        let mut table = NodeTable64::new();
+        // Make sure that the cycle does not interfere with rebuilding.
+        table.cycle = table.cycle.flipped();
+
+        let reachable = NodeTable64::SHRINK_THRESHOLD_16_BIT;
+
+        let (expected, expected_root, root, mut roots, max_var) =
+            init_rebuild::<_, NodeTable16, _, _, _, _>(&mut table, reachable);
+
+        let prev_root = root.get();
+        let rebuilt = match table.rebuild_shrink(&mut roots, reachable, max_var) {
+            NodeTable::Size16(table) => table,
+            _ => panic!("expected 16-bit table"),
+        };
+
+        assert_eq!(rebuilt.node_count(), reachable);
+
+        // The root got correctly translated
+        assert_ne!(root.get(), prev_root);
+        assert_eq!(root.get(), expected_root.unchecked_into());
+
+        assert_eq!(expected, rebuilt);
+    }
+
+    #[test]
+    fn rebuild_shrink_64_to_32() {
+        use super::GarbageCollector;
+        let mut table = NodeTable64::new();
+        // Make sure that the cycle does not interfere with rebuilding.
+        table.cycle = table.cycle.flipped();
+
+        let reachable = NodeTable64::SHRINK_THRESHOLD_16_BIT + 1;
+
+        let (expected, expected_root, root, mut roots, max_var) =
+            init_rebuild::<_, NodeTable32, _, _, _, _>(&mut table, reachable);
+
+        let prev_root = root.get();
+        let rebuilt = match table.rebuild_shrink(&mut roots, reachable, max_var) {
+            NodeTable::Size32(table) => table,
+            _ => panic!("expected 32-bit table"),
+        };
+
+        assert_eq!(rebuilt.node_count(), reachable);
+
+        // The root got correctly translated
+        assert_ne!(root.get(), prev_root);
+        assert_eq!(root.get(), expected_root.unchecked_into());
+
+        assert_eq!(expected, rebuilt);
+    }
+
+    #[test]
+    fn rebuild_shrink_32_to_16() {
+        use super::GarbageCollector;
+        let mut table = NodeTable32::new();
+        // Make sure that the cycle does not interfere with rebuilding.
+        table.cycle = table.cycle.flipped();
+
+        let reachable = NodeTable32::SHRINK_THRESHOLD_16_BIT;
+
+        let (expected, expected_root, root, mut roots, max_var) =
+            init_rebuild::<_, NodeTable16, _, _, _, _>(&mut table, reachable);
+
+        let prev_root = root.get();
+        let rebuilt = match table.rebuild_shrink(&mut roots, reachable, max_var) {
+            NodeTable::Size16(table) => table,
+            _ => panic!("expected 16-bit table"),
+        };
+
+        assert_eq!(rebuilt.node_count(), reachable);
+
+        // The root got correctly translated
+        assert_ne!(root.get(), prev_root);
+        assert_eq!(root.get(), expected_root.unchecked_into());
+
+        assert_eq!(expected, rebuilt);
+    }
+
+    #[test]
+    fn collect_garbage_delete() {
+        let mut table = NodeTable32::new();
+
+        // Make a small tree that will be unreachable
+        let unreachable = 10;
+        let mut ids_unreachable = vec![];
+        for _ in 0..unreachable {
+            let id = table
+                .ensure_node(
+                    VarIdPacked32::new(100),
+                    NodeId32::one(),
+                    *ids_unreachable.last().unwrap_or(&NodeId32::zero()),
+                )
+                .unwrap();
+            ids_unreachable.push(id);
+        }
+
+        let unreachable_root = ids_unreachable[ids_unreachable.len() - 1];
+
+        // And a few more unreachable nodes
+        for i in 0..10 {
+            let id = table
+                .ensure_node(VarIdPacked32::new(i), NodeId32::zero(), NodeId32::one())
+                .unwrap();
+            ids_unreachable.push(id);
+        }
+
+        // Make a big reachable tree
+        let reachable = 1000;
+        let mut ids_reachable = vec![NodeId32::zero(), NodeId32::one()];
+        for i in 2..reachable {
+            let id = table
+                .ensure_node(
+                    VarIdPacked32::new(1000),
+                    ids_reachable[i - 2],
+                    ids_reachable[i - 1],
+                )
+                .unwrap();
+            ids_reachable.push(id);
+        }
+
+        let root = ids_reachable[ids_reachable.len() - 1];
+
+        let (_strongs, mut roots) = make_roots(&[root], &[unreachable_root]);
+
+        fn validate_table_after_gc(
+            new_table: &mut NodeTable32,
+            roots: &[Weak<Cell<NodeId>>],
+            reachable: usize,
+            ids_unreachable: &[NodeId32],
+            ids_reachable: &[NodeId32],
+        ) {
+            assert_eq!(roots.len(), 1);
+            assert_eq!(new_table.node_count(), reachable);
+
+            // Check unreachable nodes
+            for &id in ids_unreachable.iter() {
+                assert!(new_table.get_entry(id).is_none());
+                assert!(new_table.entries[id.as_usize()].is_deleted());
+            }
+
+            // Check reachable nodes
+            for &id in ids_reachable.iter() {
+                assert!(new_table.get_entry(id).is_some());
+                assert!(!new_table.entries[id.as_usize()].is_deleted());
+            }
+
+            // No translations happened and all the old nodes are the same
+            for i in 2..reachable {
+                let id = new_table
+                    .ensure_node(
+                        VarIdPacked32::new(1000),
+                        ids_reachable[i - 2],
+                        ids_reachable[i - 1],
+                    )
+                    .unwrap();
+                assert_eq!(id, ids_reachable[i]);
+            }
+        }
+
+        let mut new_table = match table.collect_garbage(&mut roots) {
+            NodeTable::Size32(table) => table,
+            _ => panic!("expected 32-bit table"),
+        };
+
+        validate_table_after_gc(
+            &mut new_table,
+            &roots,
+            reachable,
+            &ids_unreachable,
+            &ids_reachable,
+        );
+
+        // Check that collecting garbage again does not change anything.
+        let mut new_table = match new_table.collect_garbage(&mut roots) {
+            NodeTable::Size32(table) => table,
+            _ => panic!("expected 32-bit table"),
+        };
+
+        validate_table_after_gc(
+            &mut new_table,
+            &roots,
+            reachable,
+            &ids_unreachable,
+            &ids_reachable,
+        );
+    }
+
+    #[test]
+    fn collect_garbage_rebuild() {
+        let mut table = NodeTable32::new();
+
+        // Make a big tree that will be unreachable
+        let unreachable = 1000;
+        let mut ids_unreachable = vec![];
+        for _ in 0..unreachable {
+            let id = table
+                .ensure_node(
+                    VarIdPacked32::new(1000),
+                    NodeId32::one(),
+                    *ids_unreachable.last().unwrap_or(&NodeId32::zero()),
+                )
+                .unwrap();
+            ids_unreachable.push(id);
+        }
+
+        let unreachable_root = ids_unreachable[ids_unreachable.len() - 1];
+
+        // Make a small reachable tree and also construct the expected result.
+        let reachable = 10;
+        let mut ids_reachable = vec![NodeId32::zero(), NodeId32::one()];
+        let mut ids_expected = vec![NodeId16::zero(), NodeId16::one()];
+        let mut expected = NodeTable16::default();
+        for i in 2..reachable {
+            let id = table
+                .ensure_node(
+                    VarIdPacked32::new(10),
+                    ids_reachable[i - 2],
+                    ids_reachable[i - 1],
+                )
+                .unwrap();
+            ids_reachable.push(id);
+
+            let id_expected = expected
+                .ensure_node(
+                    VarIdPacked16::new(10),
+                    ids_expected[i - 2],
+                    ids_expected[i - 1],
+                )
+                .unwrap();
+            ids_expected.push(id_expected);
+        }
+
+        let root = ids_reachable[ids_reachable.len() - 1];
+
+        let (_strongs, mut roots) = make_roots(&[root], &[unreachable_root]);
+
+        let new_table = match table.collect_garbage(&mut roots) {
+            NodeTable::Size16(table) => table,
+            _ => panic!("expected 16-bit table"),
+        };
+
+        assert_eq!(roots.len(), 1);
+        assert_eq!(new_table.node_count(), reachable);
+        assert_eq!(new_table, expected);
+
+        // Check that collecting garbage again does not change anything.
+
+        let mut new_table = match new_table.collect_garbage(&mut roots) {
+            NodeTable::Size16(table) => table,
+            _ => panic!("expected 16-bit table"),
+        };
+
+        assert_eq!(roots.len(), 1);
+        assert_eq!(new_table.node_count(), reachable);
+        // The tables should still be equal except for the cycle.
+        // This might break if we also start checking that the packed information
+        // in the variables is the same.
+        assert_ne!(new_table.cycle, expected.cycle);
+        new_table.cycle = new_table.cycle.flipped();
+        assert_eq!(new_table, expected);
     }
 }
