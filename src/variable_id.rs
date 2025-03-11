@@ -30,7 +30,9 @@ use crate::{
 ///
 /// Note that the last two features are primarily used to speed up the `apply` algorithm and
 /// have no meaning outside of it.
-pub trait VarIdPackedAny: Copy + Clone + PartialEq + Eq + PartialOrd + Ord + Hash + Debug {
+pub trait VarIdPackedAny:
+    Copy + Clone + PartialEq + Eq + PartialOrd + Ord + Hash + Debug + UncheckedFrom<VariableId>
+{
     /// Return an instance of the "undefined" variable ID.
     fn undefined() -> Self;
     /// Checks if this ID is [`VarIdPackedAny::undefined`].

@@ -7,7 +7,7 @@ use std::fmt;
 use std::rc::Weak;
 
 use crate::conversion::UncheckedInto;
-use crate::node_id::NodeId;
+use crate::node_id::{AsNodeId, NodeId};
 use crate::{
     bdd::BddAny,
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
@@ -22,6 +22,12 @@ pub trait NodeTableAny: Default {
     type Id: NodeIdAny;
     type VarId: VarIdPackedAny;
     type Node: BddNodeAny<Id = Self::Id, VarId = Self::VarId>;
+
+    /// Make a new, empty `NodeTableAny` with at least the specified amount of `capacity`.
+    fn with_capacity(capacity: usize) -> Self;
+
+    /// Returns the number of nodes in the node table, including the terminal nodes.
+    fn node_count(&self) -> usize;
 
     /// Searches the `NodeTableAny` for a node matching node `(var, (low, high))`, and returns its
     /// identifier (i.e. the node's variable is `var`, and the node's low and high children
@@ -271,26 +277,6 @@ where
             deleted: 0,
             cycle: ReachabilityCycle::default(),
         }
-    }
-
-    /// Make a new [`NodeTableImpl`] containing nodes `0` and `1`, but make sure the underlying
-    /// vector has at least the specified amount of `capacity`.
-    pub fn with_capacity(capacity: usize) -> Self {
-        let mut entries = Vec::with_capacity(capacity);
-        entries.push(NodeEntry::zero());
-        entries.push(NodeEntry::one());
-        Self {
-            entries,
-            first_free: TNodeId::undefined(),
-            deleted: 0,
-            cycle: ReachabilityCycle::default(),
-        }
-    }
-
-    /// Returns the number of entries in the node table,
-    /// including the entries for the terminal nodes.
-    pub fn node_count(&self) -> usize {
-        self.entries.len() - self.deleted
     }
 
     /// Returns the total number of entries in the node table,  
@@ -595,6 +581,22 @@ impl<
     type Id = TNodeId;
     type VarId = TVarId;
     type Node = TNode;
+
+    fn with_capacity(capacity: usize) -> Self {
+        let mut entries = Vec::with_capacity(capacity);
+        entries.push(NodeEntry::zero());
+        entries.push(NodeEntry::one());
+        Self {
+            entries,
+            first_free: TNodeId::undefined(),
+            deleted: 0,
+            cycle: ReachabilityCycle::default(),
+        }
+    }
+
+    fn node_count(&self) -> usize {
+        self.entries.len() - self.deleted
+    }
 
     fn ensure_node(
         &mut self,
@@ -1102,18 +1104,122 @@ where
             max_var_id,
         }
     }
+
+    /// Rebuild the node table into a new one containing only the nodes reachable
+    /// from `roots`.
+    ///
+    /// The roots in `roots` are translated to point to the corresponding nodes in the new table.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the variable ids of the nodes in the old table
+    /// cannot be converted to variable ids of the new table or if the new table
+    /// overflows. These conditions are expected to be checked by the caller.
+    #[allow(dead_code)]
+    fn rebuild<TResultTable: NodeTableAny>(
+        mut self,
+        roots: &mut Vec<Weak<Cell<NodeId>>>,
+        reachable: usize,
+    ) -> TResultTable
+    where
+        TNodeId: UncheckedInto<TResultTable::Id>,
+        TResultTable::Id: AsNodeId<TNodeId>,
+        TVarId: UncheckedInto<TResultTable::VarId>,
+    {
+        let mut result = TResultTable::with_capacity(reachable);
+
+        // Here we need to create a translation table from the old node ids to the new node ids.
+        // We could use a vector for this, but since the old table is not used anymore, we can
+        // reuse it to store the translations. This is safe, because the old table has
+        // bit-width equal or higher to the new table, hence we can safely fit the new nodes
+        // into it. We will use the entry's `parent` pointer to store the translation of the node.
+        // This will not interfere with the traversal of the nodes, because the `parent`
+        // pointer is not used during the traversal.
+        //
+        // Furthermore, we want to avoid initializing all of the `parent` pointers to `undefined`.
+        // We can do so by using the `reachable` bit of the nodes to store whether that
+        // entry's parent is a translation or not. By [`mark_phase`], all of the reachable
+        // nodes will have their `reachable` bit correctly set. Therefore, we use the
+        // `reachable` bit as a marker for whether the `parent` pointer contains
+        // a computed translation or not.
+
+        // After the flip, all of the reachable nodes will be marked as unreachable for the cycle.
+        let next_cycle = self.cycle.flipped();
+        self.cycle = next_cycle;
+
+        // `0` and `1` have correct translations.
+        unsafe {
+            let zero = self.get_entry_unchecked_mut(TNodeId::zero());
+            zero.parent = TNodeId::zero();
+
+            let one = self.get_entry_unchecked_mut(TNodeId::one());
+            one.parent = TNodeId::one();
+        }
+
+        for root in roots {
+            if let Some(root) = root.upgrade() {
+                let root_id: TNodeId = root.get().unchecked_into();
+                let mut stack = vec![root_id];
+
+                while let Some(id) = stack.pop() {
+                    let node = unsafe { self.get_node_unchecked(id) };
+
+                    let variable = node.variable();
+                    let low = node.low();
+                    let high = node.high();
+
+                    let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
+                    let low_is_translated = low_entry.node.is_reachable(next_cycle);
+                    let new_low = low_entry.parent;
+
+                    let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
+                    let high_is_translated = high_entry.node.is_reachable(next_cycle);
+                    let new_high = high_entry.parent;
+
+                    if low_is_translated && high_is_translated {
+                        let new_id = result
+                            .ensure_node(
+                                variable.unchecked_into(),
+                                new_low.unchecked_into(),
+                                new_high.unchecked_into(),
+                            )
+                            .expect(
+                                "ensuring node while rebuilding node table should not overflow",
+                            );
+                        let entry = unsafe { self.get_entry_unchecked_mut(id) };
+                        entry.parent = new_id.into();
+                        entry.node.mark_as_reachable(next_cycle);
+                        root.set(new_id.unchecked_into());
+                        continue;
+                    }
+
+                    stack.push(id);
+
+                    if !high_is_translated {
+                        stack.push(high);
+                    }
+
+                    if !low_is_translated {
+                        stack.push(low);
+                    }
+                }
+            }
+        }
+        debug_assert_eq!(result.node_count(), reachable);
+        result
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::rc::Rc;
+    use std::rc::{Rc, Weak};
 
     use crate::bdd_node::BddNodeAny;
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeIdAny};
     use crate::node_table::{hash_node_data, NodeTable16, NodeTable32, NodeTable64, NodeTableAny};
-    use crate::variable_id::{VarIdPacked16, VarIdPacked32};
+    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPackedAny, VariableId};
 
     #[test]
     pub fn node_table_32_basic() {
@@ -1797,5 +1903,180 @@ mod tests {
         for id in ids_unreachable_2.iter() {
             assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
         }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn init_rebuild<
+        FromNodeTable: NodeTableAny<Id = FromNodeId, VarId = FromVarId>,
+        ToNodeTable: NodeTableAny<Id = ToNodeId, VarId = ToVarId>,
+        FromNodeId: NodeIdAny,
+        ToNodeId: NodeIdAny,
+        FromVarId: VarIdPackedAny,
+        ToVarId: VarIdPackedAny,
+    >(
+        table: &mut FromNodeTable,
+        reachable: usize,
+    ) -> (
+        ToNodeTable,
+        ToNodeId,
+        Rc<Cell<NodeId>>,
+        Vec<Weak<Cell<NodeId>>>,
+    ) {
+        let var_unreachable_1 = VariableId::new(100);
+
+        let unreachable_1 = 10;
+        let mut ids = vec![FromNodeId::one()];
+        for _ in 2..unreachable_1 {
+            let id = table
+                .ensure_node(
+                    var_unreachable_1.unchecked_into(),
+                    ids[ids.len() - 1],
+                    FromNodeId::zero(),
+                )
+                .unwrap();
+            ids.push(id);
+        }
+
+        let unreachable_root1_w = ids[ids.len() - 1];
+        let unreachable_root1: NodeId = unreachable_root1_w.unchecked_into();
+
+        let mut ids = vec![FromNodeId::zero(), FromNodeId::one()];
+
+        let var_reachable = VariableId::new(10);
+
+        // Here we can't really test making 2**32 nodes. Just 2**16 for now.
+        for _ in 2..reachable {
+            let id = table
+                .ensure_node(
+                    var_reachable.unchecked_into(),
+                    ids[ids.len() - 2],
+                    ids[ids.len() - 1],
+                )
+                .unwrap();
+            ids.push(id);
+        }
+
+        let root_w = ids[ids.len() - 1];
+        let root: NodeId = root_w.unchecked_into();
+
+        let var_unreachable_2 = VariableId::new(1);
+        let unreachable_2 = 11;
+        for _ in 2..unreachable_2 {
+            let id = table
+                .ensure_node(
+                    var_unreachable_2.unchecked_into(),
+                    ids[ids.len() - 2],
+                    ids[ids.len() - 1],
+                )
+                .unwrap();
+            ids.push(id);
+        }
+
+        let unreachable_root2_w = ids[ids.len() - 1];
+        let unreachable_root2: NodeId = unreachable_root2_w.unchecked_into();
+
+        let root = Rc::new(Cell::new(root));
+        let mut roots = vec![Rc::downgrade(&root)];
+
+        {
+            let unreachable_root1 = Rc::new(Cell::new(unreachable_root1));
+            let unreachable_root2 = Rc::new(Cell::new(unreachable_root2));
+
+            roots.push(Rc::downgrade(&unreachable_root1));
+            roots.push(Rc::downgrade(&unreachable_root2));
+        }
+
+        let mut expected = ToNodeTable::default();
+        let mut ids_to = vec![ToNodeId::zero(), ToNodeId::one()];
+
+        for _ in 2..reachable {
+            let id = expected
+                .ensure_node(
+                    var_reachable.unchecked_into(),
+                    ids_to[ids_to.len() - 2],
+                    ids_to[ids_to.len() - 1],
+                )
+                .unwrap();
+            ids_to.push(id);
+        }
+
+        let expected_root = ids_to[ids_to.len() - 1];
+
+        (expected, expected_root, root, roots)
+    }
+
+    #[test]
+    fn rebuild_32_to_16() {
+        let mut table = NodeTable32::new();
+        table.cycle = table.cycle.flipped();
+
+        let reachable = u16::MAX as usize;
+
+        let (expected, expected_root, root, mut roots) =
+            init_rebuild::<_, NodeTable16, _, _, _, _>(&mut table, reachable);
+
+        let prev_root = root.get();
+        let mut rebuilt = table.rebuild::<NodeTable16>(&mut roots, reachable);
+
+        assert_eq!(rebuilt.node_count(), reachable);
+
+        // The root got correctly translated
+        assert_ne!(root.get(), prev_root);
+        assert_eq!(root.get(), expected_root.unchecked_into());
+
+        assert_eq!(expected, rebuilt);
+
+        assert!(rebuilt
+            .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
+            .is_err());
+    }
+
+    #[test]
+    fn rebuild_64_to_16() {
+        let mut table = NodeTable64::new();
+        table.cycle = table.cycle.flipped();
+
+        let reachable = u16::MAX as usize;
+
+        let (expected, expected_root, root, mut roots) =
+            init_rebuild::<_, NodeTable16, _, _, _, _>(&mut table, reachable);
+
+        let prev_root = root.get();
+        let mut rebuilt = table.rebuild::<NodeTable16>(&mut roots, reachable);
+
+        assert_eq!(rebuilt.node_count(), reachable);
+
+        // The root got correctly translated
+        assert_ne!(root.get(), prev_root);
+        assert_eq!(root.get(), expected_root.unchecked_into());
+
+        assert_eq!(expected, rebuilt);
+
+        assert!(rebuilt
+            .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
+            .is_err());
+    }
+
+    #[test]
+    fn rebuild_64_to_32() {
+        let mut table = NodeTable64::new();
+        table.cycle = table.cycle.flipped();
+
+        // Making 2**32 nodes is impractical, so just 2**17 for now.
+        let reachable = (u16::MAX as usize) * 2;
+
+        let (expected, expected_root, root, mut roots) =
+            init_rebuild::<_, NodeTable32, _, _, _, _>(&mut table, reachable);
+
+        let prev_root = root.get();
+        let rebuilt = table.rebuild::<NodeTable32>(&mut roots, reachable);
+
+        assert_eq!(rebuilt.node_count(), reachable);
+
+        // The root got correctly translated
+        assert_ne!(root.get(), prev_root);
+        assert_eq!(root.get(), expected_root.unchecked_into());
+
+        assert_eq!(expected, rebuilt);
     }
 }
