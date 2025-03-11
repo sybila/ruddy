@@ -1885,16 +1885,26 @@ mod tests {
         for &id in ids_reachable.iter() {
             assert!(unsafe { table.is_node_reachable_unchecked(id) });
             if !id.is_terminal() && id != root_32 && id != root_subtree_32 {
-                let entry = table.get_entry(id).unwrap();
-                assert!(!entry.node.has_many_parents());
+                // The reachable nodes should have exactly one parent.
+                let node = &mut table.get_entry_mut(id).unwrap().node;
+                assert!(!node.has_many_parents());
+                node.increment_parent_counter();
+                assert!(node.has_many_parents());
             }
         }
-        assert!(!table.get_entry(root_32).unwrap().node.has_many_parents());
-        assert!(!table
-            .get_entry(root_subtree_32)
-            .unwrap()
-            .node
-            .has_many_parents());
+        // The root should have zero parents
+        let root_node = &mut table.get_entry_mut(root_32).unwrap().node;
+        assert!(!root_node.has_many_parents());
+        root_node.increment_parent_counter();
+        assert!(!root_node.has_many_parents());
+        root_node.increment_parent_counter();
+        assert!(root_node.has_many_parents());
+
+        // The root subtree should have one parent
+        let root_subtree = &mut table.get_entry_mut(root_subtree_32).unwrap().node;
+        assert!(!root_subtree.has_many_parents());
+        root_subtree.increment_parent_counter();
+        assert!(root_subtree.has_many_parents());
 
         for id in ids_unreachable_1.iter() {
             assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
