@@ -18,6 +18,7 @@ pub trait NodeIdAny:
     + Hash
     + Debug
     + TryFrom<usize>
+    + UncheckedFrom<usize>
     + UncheckedInto<u16>
     + UncheckedInto<u32>
     + UncheckedInto<u64>
@@ -438,6 +439,22 @@ impl_try_from_usize!(NodeId16);
 impl_try_from_usize!(NodeId32);
 impl_try_from_usize!(NodeId64);
 
+macro_rules! impl_unchecked_from_usize {
+    ($NodeId:ident, $width:ident) => {
+        #[allow(clippy::cast_possible_truncation)]
+        impl UncheckedFrom<usize> for $NodeId {
+            fn unchecked_from(value: usize) -> Self {
+                debug_assert!($NodeId::try_from(value).is_ok());
+                $NodeId::new(value as $width)
+            }
+        }
+    };
+}
+
+impl_unchecked_from_usize!(NodeId16, u16);
+impl_unchecked_from_usize!(NodeId32, u32);
+impl_unchecked_from_usize!(NodeId64, u64);
+
 /// A trait that ensures that the type implements both [`NodeIdAny`] and `Into<TNodeId>`.
 ///
 /// This mainly allows us to write `AsNodeId<T>` instead of needing to write
@@ -775,6 +792,27 @@ mod tests {
     fn node_id_64_try_from_usize_invalid() {
         let m = usize_is_at_least_64_bits(NodeId64::MAX_ID) + 1;
         let _ = NodeId64::try_from(m).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_16_unchecked_from_usize_invalid() {
+        let m = usize::from(NodeId16::MAX_ID) + 1;
+        let _ = NodeId16::unchecked_from(m);
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_32_unchecked_from_usize_invalid() {
+        let m = usize_is_at_least_32_bits(NodeId32::MAX_ID) + 1;
+        let _ = NodeId32::unchecked_from(m);
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_64_unchecked_from_usize_invalid() {
+        let m = usize_is_at_least_64_bits(NodeId64::MAX_ID) + 1;
+        let _ = NodeId64::unchecked_from(m);
     }
 
     #[test]

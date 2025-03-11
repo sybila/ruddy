@@ -1208,6 +1208,24 @@ where
         debug_assert_eq!(result.node_count(), reachable);
         result
     }
+
+    /// Delete the nodes that are marked as unreachable from the table.
+    #[allow(dead_code)]
+    fn delete_unreachable(&mut self) {
+        for id in 2..self.size() {
+            let id: TNodeId = id.unchecked_into();
+            // Here we can't use `is_node_reachable_unchecked` because it uses
+            // `get_entry_unchecked`, which panics if the node is deleted.
+            // We want `is_node_reachable_unchecked` to panic, because checking
+            // reachability of a deleted node is suspicious and probably a bug.
+            // Hence we use `self.entries.get_unchecked` directly.
+            // `delete` handles deleted nodes correctly.
+            let entry = unsafe { self.entries.get_unchecked(id.as_usize()) };
+            if !entry.node.is_reachable(self.cycle) {
+                self.delete(id);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2087,5 +2105,94 @@ mod tests {
         assert_eq!(root.get(), expected_root.unchecked_into());
 
         assert_eq!(expected, rebuilt);
+    }
+
+    #[test]
+    fn delete_unreachable() {
+        let mut table = NodeTable32::new();
+
+        let nodes = 500;
+        let unreachable_ids = (0..nodes)
+            .map(|i| {
+                table
+                    .ensure_node(VarIdPacked32::new(i), NodeId32::zero(), NodeId32::one())
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let reachable_ids = (0..nodes)
+            .map(|i| {
+                table
+                    .ensure_node(
+                        VarIdPacked32::new(nodes + i),
+                        NodeId32::zero(),
+                        NodeId32::one(),
+                    )
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        // At this point all of the nodes are considered reachable.
+        // Flip cycle and mark reachable nodes.
+        let cycle = table.cycle.flipped();
+        table.cycle = cycle;
+
+        for &id in reachable_ids.iter() {
+            table
+                .get_entry_mut(id)
+                .unwrap()
+                .node
+                .mark_as_reachable(cycle);
+        }
+
+        for &id in unreachable_ids.iter() {
+            assert!(!table.get_entry(id).unwrap().node.is_reachable(cycle));
+        }
+
+        table.delete_unreachable();
+
+        assert_eq!(table.node_count(), nodes as usize + 2);
+        assert_eq!(table.deleted, nodes as usize);
+
+        for &id in reachable_ids.iter() {
+            assert!(table.get_entry(id).is_some());
+            assert!(!table.entries[id.as_usize()].is_deleted());
+            assert!(table.get_entry(id).unwrap().node.is_reachable(cycle));
+        }
+
+        for &id in unreachable_ids.iter() {
+            assert!(table.get_entry(id).is_none());
+            assert!(table.entries[id.as_usize()].is_deleted());
+        }
+
+        let reachable_ids_after_delete = (0..nodes)
+            .map(|i| {
+                table
+                    .ensure_node(
+                        VarIdPacked32::new(nodes + i),
+                        NodeId32::zero(),
+                        NodeId32::one(),
+                    )
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(reachable_ids, reachable_ids_after_delete);
+
+        // Deleting the same nodes again should not change anything.
+        table.delete_unreachable();
+
+        assert_eq!(table.node_count(), nodes as usize + 2);
+        assert_eq!(table.deleted, nodes as usize);
+
+        // Delete the rest of the nodes.
+        table.cycle = table.cycle.flipped();
+        table.delete_unreachable();
+
+        assert_eq!(table.node_count(), 2);
+        assert_eq!(table.deleted, 2 * nodes as usize);
+
+        for entry in table.entries.iter().skip(2) {
+            assert!(entry.is_deleted());
+        }
     }
 }
