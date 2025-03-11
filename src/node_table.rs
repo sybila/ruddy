@@ -1138,10 +1138,10 @@ where
         //
         // Furthermore, we want to avoid initializing all of the `parent` pointers to `undefined`.
         // We can do so by using the `reachable` bit of the nodes to store whether that
-        // entry's parent is a translation or not. By [`mark_phase`], all of the reachable
-        // nodes will have their `reachable` bit correctly set. Therefore, we use the
-        // `reachable` bit as a marker for whether the `parent` pointer contains
-        // a computed translation or not.
+        // entry's parent is a translation or not. We expect all of the reachable nodes to
+        // have their `reachable` bit correctly set. Therefore, we flip the table's cycle
+        // and use the nodes' reachability as a marker for whether the `parent` pointer
+        // contains a computed translation or not.
 
         // After the flip, all of the reachable nodes will be marked as unreachable for the cycle.
         let next_cycle = self.cycle.flipped();
@@ -1954,7 +1954,6 @@ mod tests {
 
         let var_reachable = VariableId::new(10);
 
-        // Here we can't really test making 2**32 nodes. Just 2**16 for now.
         for _ in 2..reachable {
             let id = table
                 .ensure_node(
