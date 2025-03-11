@@ -29,6 +29,16 @@ pub trait NodeTableAny: Default {
     /// Returns the number of nodes in the node table, including the terminal nodes.
     fn node_count(&self) -> usize;
 
+    /// Get a (checked) reference to a node, or `None` if such node does not exist.
+    fn get_node(&self, id: Self::Id) -> Option<&Self::Node>;
+
+    /// An unchecked variant of [`NodeTableAny::get`].
+    ///
+    /// # Safety
+    ///
+    /// Calling this method with an `id` that is not in the table is undefined behavior.
+    unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node;
+
     /// Searches the `NodeTableAny` for a node matching node `(var, (low, high))`, and returns its
     /// identifier (i.e. the node's variable is `var`, and the node's low and high children
     /// are `low` and `high`, respectively). If such a node is not found, a new node is created
@@ -294,13 +304,9 @@ where
     /// table. This requirement is not checked in release mode and if broken results
     /// in undefined behavior.
     unsafe fn push_node(&mut self, variable: TVarId, low: TNodeId, high: TNodeId) {
-        self.get_entry_unchecked_mut(low)
-            .node
-            .increment_parent_counter();
+        self.get_node_unchecked_mut(low).increment_parent_counter();
 
-        self.get_entry_unchecked_mut(high)
-            .node
-            .increment_parent_counter();
+        self.get_node_unchecked_mut(high).increment_parent_counter();
 
         // Reset the parent counter of the new node.
         let mut variable = variable.reset_parents();
@@ -374,15 +380,6 @@ where
         let entry = self.entries.get_unchecked_mut(id.as_usize());
         debug_assert!(entry.is_deleted());
         DeletedEntryMut(entry)
-    }
-
-    /// Get an unchecked reference to the node with the given `id`.
-    ///
-    /// # Safety
-    ///
-    /// Calling this method with an `id` that is not in the table is undefined behavior.
-    pub(crate) unsafe fn get_node_unchecked(&self, id: TNodeId) -> &TNode {
-        &self.get_entry_unchecked(id).node
     }
 
     /// Get an unchecked mutable reference to the node with the given `id`.
@@ -596,6 +593,14 @@ impl<
 
     fn node_count(&self) -> usize {
         self.entries.len() - self.deleted
+    }
+
+    fn get_node(&self, id: TNodeId) -> Option<&TNode> {
+        self.get_entry(id).map(|entry| &entry.node)
+    }
+
+    unsafe fn get_node_unchecked(&self, id: TNodeId) -> &TNode {
+        &self.get_entry_unchecked(id).node
     }
 
     fn ensure_node(
@@ -1844,8 +1849,8 @@ mod tests {
         // The tables will have different trees, but all the nodes should be the same.
         for id in ids {
             assert_eq!(
-                table.get_entry(id).unwrap().node,
-                table_delete.get_entry(id).unwrap().node
+                table.get_node(id).unwrap(),
+                table_delete.get_node(id).unwrap()
             );
         }
     }
@@ -2003,12 +2008,8 @@ mod tests {
 
         let unreachable_root2: NodeId = (*ids_unreachable_2.last().unwrap()).unchecked_into();
 
-        assert!(table.get_entry(root_32).unwrap().node.has_many_parents());
-        assert!(table
-            .get_entry(root_subtree_32)
-            .unwrap()
-            .node
-            .has_many_parents());
+        assert!(table.get_node(root_32).unwrap().has_many_parents());
+        assert!(table.get_node(root_subtree_32).unwrap().has_many_parents());
 
         assert_eq!(
             table.node_count(),
@@ -2307,7 +2308,7 @@ mod tests {
         }
 
         for &id in unreachable_ids.iter() {
-            assert!(!table.get_entry(id).unwrap().node.is_reachable(cycle));
+            assert!(!table.get_node(id).unwrap().is_reachable(cycle));
         }
 
         table.delete_unreachable();
@@ -2318,7 +2319,7 @@ mod tests {
         for &id in reachable_ids.iter() {
             assert!(table.get_entry(id).is_some());
             assert!(!table.entries[id.as_usize()].is_deleted());
-            assert!(table.get_entry(id).unwrap().node.is_reachable(cycle));
+            assert!(table.get_node(id).unwrap().is_reachable(cycle));
         }
 
         for &id in unreachable_ids.iter() {
@@ -2403,8 +2404,8 @@ mod tests {
         };
 
         assert_eq!(rebuilt.node_count(), reachable);
-        assert_eq!(rebuilt.get_entry(root_big).unwrap().node.variable, big);
-        assert_eq!(rebuilt.get_entry(root_small).unwrap().node.variable, small);
+        assert_eq!(rebuilt.get_node(root_big).unwrap().variable, big);
+        assert_eq!(rebuilt.get_node(root_small).unwrap().variable, small);
     }
 
     #[test]
@@ -2426,8 +2427,8 @@ mod tests {
         };
 
         assert_eq!(rebuilt.node_count(), reachable);
-        assert_eq!(rebuilt.get_entry(root_big).unwrap().node.variable, big);
-        assert_eq!(rebuilt.get_entry(root_small).unwrap().node.variable, small);
+        assert_eq!(rebuilt.get_node(root_big).unwrap().variable, big);
+        assert_eq!(rebuilt.get_node(root_small).unwrap().variable, small);
     }
 
     #[test]
@@ -2453,17 +2454,15 @@ mod tests {
         assert_eq!(rebuilt.node_count(), reachable);
         assert_eq!(
             rebuilt
-                .get_entry(root_big.unchecked_into())
+                .get_node(root_big.unchecked_into())
                 .unwrap()
-                .node
                 .variable,
             big_32
         );
         assert_eq!(
             rebuilt
-                .get_entry(root_small.unchecked_into())
+                .get_node(root_small.unchecked_into())
                 .unwrap()
-                .node
                 .variable,
             small_32
         );

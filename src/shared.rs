@@ -116,6 +116,7 @@ mod tests {
     use super::*;
     use crate::{
         node_id::{NodeId32, NodeId64, NodeIdAny},
+        node_table::NodeTableAny,
         variable_id::{VarIdPacked32, VarIdPacked64, VariableId},
     };
 
@@ -133,7 +134,7 @@ mod tests {
         match &manager.unique_table {
             NodeTable::Size32(table) => {
                 for i in 2..nodes {
-                    let node = unsafe { table.get_node_unchecked(NodeId32::new(i)) };
+                    let node = table.get_node(NodeId32::new(i)).unwrap();
                     assert_eq!(node.low, NodeId32::zero());
                     assert_eq!(node.high, NodeId32::one());
                     assert_eq!(node.variable, VarIdPacked32::new(i - 2));
@@ -155,7 +156,7 @@ mod tests {
 
         match &manager.unique_table {
             NodeTable::Size32(table) => {
-                let node = unsafe { table.get_node_unchecked(NodeId32::new(2)) };
+                let node = table.get_node(NodeId32::new(2)).unwrap();
                 assert_eq!(node.low, NodeId32::zero());
                 assert_eq!(node.high, NodeId32::one());
                 assert_eq!(node.variable, VarIdPacked32::new(var_num));
@@ -176,7 +177,7 @@ mod tests {
 
         match &manager.unique_table {
             NodeTable::Size64(table) => {
-                let node = unsafe { table.get_node_unchecked(NodeId64::new(2)) };
+                let node = table.get_node(NodeId64::new(2)).unwrap();
                 assert_eq!(node.low, NodeId64::zero());
                 assert_eq!(node.high, NodeId64::one());
                 assert_eq!(node.variable, VarIdPacked64::new(var_num));
@@ -201,7 +202,7 @@ mod tests {
 
         match &manager.unique_table {
             NodeTable::Size64(table) => {
-                let node = unsafe { table.get_node_unchecked(NodeId64::new(2)) };
+                let node = table.get_node(NodeId64::new(2)).unwrap();
                 assert_eq!(node.low, NodeId64::zero());
                 assert_eq!(node.high, NodeId64::one());
                 assert_eq!(node.variable, VarIdPacked64::new(var_num));
