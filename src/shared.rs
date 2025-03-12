@@ -426,8 +426,23 @@ mod tests {
         variable_id::{VarIdPacked32, VarIdPacked64, VariableId},
     };
 
+    fn next_ripple_carry_adder(
+        manager: &mut BddManager,
+        prev: &Bdd,
+        low_var: VariableId,
+        high_var: VariableId,
+    ) -> Bdd {
+        let l = manager.new_bdd_literal(low_var, true);
+        let r = manager.new_bdd_literal(high_var, true);
+        let prod = manager.and(&l, &r);
+        manager.or(prev, &prod)
+    }
+
     #[test]
     fn manager_grows_from_16_to_32() {
+        // This test is mostly a sanity check to test whether apply correctly handles
+        // the boundary case of growing from 16 to 32 bits, when adding a lot of new nodes.
+
         let mut manager = BddManager::new();
         let n = 16;
         let low_vars: Vec<_> = (1..n).map(VariableId::new).collect();
@@ -435,22 +450,42 @@ mod tests {
 
         let mut _bdd = manager.new_bdd_false();
 
-        let next_bdd = |manager: &mut BddManager, bdd: &Bdd, i: usize| -> Bdd {
-            let l = manager.new_bdd_literal(low_vars[i], true);
-            let r = manager.new_bdd_literal(high_vars[i], true);
-            let prod = manager.and(&l, &r);
-            manager.or(bdd, &prod)
-        };
+        for i in 0..high_vars.len() - 1 {
+            _bdd = next_ripple_carry_adder(&mut manager, &_bdd, low_vars[i], high_vars[i]);
+
+            assert!(matches!(manager.unique_table, NodeTable::Size16(_)));
+        }
+
+        // Now, the node table is "close" to the boundary with roughly 50k nodes.
+
+        let last = high_vars.len() - 1;
+
+        // We expect this to essentially double the table size
+        _bdd = next_ripple_carry_adder(&mut manager, &_bdd, low_vars[last], high_vars[last]);
+
+        assert!(matches!(manager.unique_table, NodeTable::Size32(_)));
+    }
+
+    #[test]
+    fn manager_growth_from_16_to_32_interpersed_with_gc() {
+        let mut manager = BddManager::new();
+        let n = 16;
+        let low_vars: Vec<_> = (1..n).map(VariableId::new).collect();
+        let high_vars: Vec<_> = (n + 1..2 * n).map(VariableId::new).collect();
+
+        let mut _bdd = manager.new_bdd_false();
 
         for i in 0..high_vars.len() - 1 {
-            _bdd = next_bdd(&mut manager, &_bdd, i);
+            _bdd = next_ripple_carry_adder(&mut manager, &_bdd, low_vars[i], high_vars[i]);
 
             manager.collect_garbage();
             assert_eq!(manager.unique_table.node_count(), 1 << (i + 2));
             assert!(matches!(manager.unique_table, NodeTable::Size16(_)));
         }
 
-        _bdd = next_bdd(&mut manager, &_bdd, high_vars.len() - 1);
+        let last = high_vars.len() - 1;
+
+        _bdd = next_ripple_carry_adder(&mut manager, &_bdd, low_vars[last], high_vars[last]);
 
         manager.collect_garbage();
 
