@@ -500,7 +500,6 @@ impl NodeId {
     /// We don't expect the undefined id to be converted from or into [`NodeId16`],
     /// [`NodeId32`] or [`NodeId64`]. This function is therefore the only way to create
     /// an undefined `NodeId`.
-    #[allow(dead_code)]
     pub(crate) fn undefined() -> Self {
         Self(u64::MAX)
     }
