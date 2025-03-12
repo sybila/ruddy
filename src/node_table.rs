@@ -1191,7 +1191,6 @@ where
                         let entry = unsafe { self.get_entry_unchecked_mut(id) };
                         entry.parent = new_id.into();
                         entry.node.mark_as_reachable(next_cycle);
-                        root.set(new_id.unchecked_into());
                         continue;
                     }
 
@@ -1205,8 +1204,15 @@ where
                         stack.push(low);
                     }
                 }
+
+                debug_assert!(self
+                    .get_node(root_id)
+                    .is_some_and(|node| node.is_reachable(next_cycle)));
+                let new_root = unsafe { self.get_entry_unchecked_mut(root_id).parent };
+                root.set(new_root.unchecked_into());
             }
         }
+
         debug_assert_eq!(result.node_count(), reachable);
         result
     }
