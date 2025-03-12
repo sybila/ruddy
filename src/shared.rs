@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn manager_growth_from_16_to_32_interpersed_with_gc() {
+    fn manager_growth_from_16_to_32_interspersed_with_gc() {
         let mut manager = BddManager::new();
         let n = 16;
         let low_vars: Vec<_> = (1..n).map(VariableId::new).collect();
