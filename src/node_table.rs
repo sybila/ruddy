@@ -1259,7 +1259,6 @@ where
 
 type VarId<N> = <N as NodeTableAny>::VarId;
 
-#[allow(dead_code)]
 pub(crate) trait GarbageCollector {
     type Table: NodeTableAny;
 
