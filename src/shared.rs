@@ -423,7 +423,7 @@ mod tests {
     use super::*;
     use crate::{
         node_id::{NodeId32, NodeId64, NodeIdAny},
-        variable_id::{VarIdPacked32, VarIdPacked64, VariableId},
+        variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId},
     };
 
     fn next_ripple_carry_adder(
@@ -560,16 +560,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn basic_apply_invariants() {
+    fn test_basic_apply_invariants(var1: VariableId, var2: VariableId) {
         // These are obviously not all invariants/equalities, but at least something to
         // check that we have the major corner cases covered.
         let mut m = BddManager::new();
 
-        let a = m.new_bdd_literal(VariableId::from(1u32), true);
-        let b = m.new_bdd_literal(VariableId::from(2u32), true);
-        let a_n = m.new_bdd_literal(VariableId::from(1u32), false);
-        let b_n = m.new_bdd_literal(VariableId::from(2u32), false);
+        let a = m.new_bdd_literal(var1, true);
+        let b = m.new_bdd_literal(var2, true);
+        let a_n = m.new_bdd_literal(var1, false);
+        let b_n = m.new_bdd_literal(var2, false);
         let tt = m.new_bdd_true();
         let ff = m.new_bdd_false();
 
@@ -601,5 +600,29 @@ mod tests {
         let res1 = m.and(&a, &b);
         let res2 = m.and(&a_n, &b_n);
         assert_eq!(&m.iff(&a, &b), &m.or(&res1, &res2));
+    }
+
+    #[test]
+    fn basic_apply_invariants_16() {
+        test_basic_apply_invariants(
+            VariableId::from(VarIdPacked16::MAX_ID - 2),
+            VariableId::from(VarIdPacked16::MAX_ID - 1),
+        );
+    }
+
+    #[test]
+    fn basic_apply_invariants_32() {
+        test_basic_apply_invariants(
+            VariableId::new(VarIdPacked32::MAX_ID - 2),
+            VariableId::new(VarIdPacked32::MAX_ID - 1),
+        );
+    }
+
+    #[test]
+    fn basic_apply_invariants_64() {
+        test_basic_apply_invariants(
+            VariableId::new_long(VarIdPacked64::MAX_ID - 2).unwrap(),
+            VariableId::new_long(VarIdPacked64::MAX_ID - 1).unwrap(),
+        );
     }
 }
