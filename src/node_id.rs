@@ -495,6 +495,20 @@ impl NodeId {
         Self(1)
     }
 
+    /// Create a new undefined `NodeId` (similar to `Option::None`).
+    ///
+    /// We don't expect the undefined id to be converted from or into [`NodeId16`],
+    /// [`NodeId32`] or [`NodeId64`]. This function is therefore the only way to create
+    /// an undefined `NodeId`.
+    pub(crate) fn undefined() -> Self {
+        Self(u64::MAX)
+    }
+
+    /// Check if the ID is [`NodeId::undefined`].
+    pub(crate) fn is_undefined(self) -> bool {
+        self.0 == u64::MAX
+    }
+
     /// Returns `true` if the ID is representable by a [`NodeId16`].
     pub(crate) fn fits_in_node_id16(self) -> bool {
         self.0 <= NodeId16::MAX_ID.into()
@@ -515,6 +529,7 @@ impl fmt::Display for NodeId {
 impl UncheckedFrom<NodeId> for NodeId16 {
     #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(value: NodeId) -> NodeId16 {
+        debug_assert!(!value.is_undefined());
         debug_assert!(
             value.fits_in_node_id16(),
             "node ID {value} does not fit into 16-bit node ID"
@@ -526,6 +541,7 @@ impl UncheckedFrom<NodeId> for NodeId16 {
 impl UncheckedFrom<NodeId> for NodeId32 {
     #[allow(clippy::cast_possible_truncation)]
     fn unchecked_from(value: NodeId) -> NodeId32 {
+        debug_assert!(!value.is_undefined());
         debug_assert!(
             value.fits_in_node_id32(),
             "node ID {value} does not fit into 32-bit node ID"
@@ -536,6 +552,7 @@ impl UncheckedFrom<NodeId> for NodeId32 {
 
 impl UncheckedFrom<NodeId> for NodeId64 {
     fn unchecked_from(value: NodeId) -> NodeId64 {
+        debug_assert!(!value.is_undefined());
         NodeId64(value.0)
     }
 }
