@@ -1219,15 +1219,15 @@ where
 
     /// Delete the nodes that are marked as unreachable from the table.
     fn delete_unreachable(&mut self) {
-        for id in 2..self.size() {
-            let id: TNodeId = id.unchecked_into();
+        for idx in 2..self.size() {
+            let id: TNodeId = idx.unchecked_into();
             // Here we can't use `is_node_reachable_unchecked` because it uses
             // `get_entry_unchecked`, which panics if the node is deleted.
             // We want `is_node_reachable_unchecked` to panic, because checking
             // reachability of a deleted node is suspicious and probably a bug.
             // Hence we use `self.entries.get_unchecked` directly.
             // `delete` handles deleted nodes correctly.
-            let entry = unsafe { self.entries.get_unchecked(id.as_usize()) };
+            let entry = unsafe { self.entries.get_unchecked(idx) };
             if !entry.node.is_reachable(self.cycle) {
                 self.delete(id);
             }
