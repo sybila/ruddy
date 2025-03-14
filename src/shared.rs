@@ -35,9 +35,9 @@ pub struct BddManager {
 impl Default for BddManager {
     fn default() -> Self {
         Self {
-            unique_table: NodeTable::Size16(Default::default()),
+            unique_table: Default::default(),
             roots: Default::default(),
-            gc: GarbageCollection::Automatic,
+            gc: Default::default(),
             nodes_after_last_gc: 2,
         }
     }
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn maybe_collect_garbage() {
-        // A sanity test checking that `maybe_collect_garbage`` triggers gc when needed.
+        // A sanity test checking that `maybe_collect_garbage` triggers gc when needed.
         // The exact conditions are not tested right now, as that is subject to change.
         let mut manager = BddManager::no_gc();
         let nodes = 8192;
