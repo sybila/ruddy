@@ -17,10 +17,30 @@ use crate::node_table::GarbageCollector;
 
 use replace_with::replace_with_or_default;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default)]
+pub enum GarbageCollection {
+    Manual,
+    #[default]
+    Automatic,
+}
+
+#[derive(Debug)]
 pub struct BddManager {
     unique_table: NodeTable,
     roots: Vec<Weak<Cell<NodeId>>>,
+    gc: GarbageCollection,
+    nodes_after_last_gc: usize,
+}
+
+impl Default for BddManager {
+    fn default() -> Self {
+        Self {
+            unique_table: NodeTable::Size16(Default::default()),
+            roots: Default::default(),
+            gc: GarbageCollection::Automatic,
+            nodes_after_last_gc: 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -50,9 +70,13 @@ impl Eq for Bdd {}
 
 impl BddManager {
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_gc(self, garbage_collection: GarbageCollection) -> Self {
         Self {
-            unique_table: NodeTable::Size16(Default::default()),
-            roots: Default::default(),
+            gc: garbage_collection,
+            ..self
         }
     }
 
@@ -121,7 +145,23 @@ impl BddManager {
 
         let bdd = Bdd::new(root);
         self.roots.push(bdd.root_weak());
+
+        self.maybe_collect_garbage();
         bdd
+    }
+
+    fn maybe_collect_garbage(&mut self) {
+        if !matches!(self.gc, GarbageCollection::Automatic) {
+            return;
+        }
+
+        const GROWTH_RATIO: usize = 4;
+
+        let nodes_added_since_last_gc = self.unique_table.node_count() - self.nodes_after_last_gc;
+
+        if nodes_added_since_last_gc > self.nodes_after_last_gc.saturating_mul(GROWTH_RATIO) {
+            self.collect_garbage();
+        }
     }
 
     pub fn collect_garbage(&mut self) {
@@ -130,6 +170,7 @@ impl BddManager {
             NodeTable::Size32(table) => table.collect_garbage(&mut self.roots),
             NodeTable::Size64(table) => table.collect_garbage(&mut self.roots),
         });
+        self.nodes_after_last_gc = self.unique_table.node_count();
     }
 
     fn apply<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
@@ -177,6 +218,8 @@ impl BddManager {
 
         let bdd = Bdd::new(bdd_root);
         self.roots.push(bdd.root_weak());
+
+        self.maybe_collect_garbage();
         bdd
     }
 
@@ -423,8 +466,15 @@ mod tests {
     use super::*;
     use crate::{
         node_id::{NodeId32, NodeId64, NodeIdAny},
+        node_table::NodeTable,
         variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId},
     };
+
+    impl BddManager {
+        fn no_gc() -> Self {
+            Self::new().with_gc(GarbageCollection::Manual)
+        }
+    }
 
     fn next_ripple_carry_adder(
         manager: &mut BddManager,
@@ -443,7 +493,7 @@ mod tests {
         // This test is mostly a sanity check to test whether apply correctly handles
         // the boundary case of growing from 16 to 32 bits, when adding a lot of new nodes.
 
-        let mut manager = BddManager::new();
+        let mut manager = BddManager::no_gc();
         let n = 16;
         let low_vars: Vec<_> = (1..n).map(VariableId::new).collect();
         let high_vars: Vec<_> = (n + 1..2 * n).map(VariableId::new).collect();
@@ -468,7 +518,7 @@ mod tests {
 
     #[test]
     fn manager_growth_from_16_to_32_interspersed_with_gc() {
-        let mut manager = BddManager::new();
+        let mut manager = BddManager::no_gc();
         let n = 16;
         let low_vars: Vec<_> = (1..n).map(VariableId::new).collect();
         let high_vars: Vec<_> = (n + 1..2 * n).map(VariableId::new).collect();
@@ -494,8 +544,26 @@ mod tests {
     }
 
     #[test]
+    fn maybe_collect_garbage() {
+        // A sanity test checking that `maybe_collect_garbage`` triggers gc when needed.
+        // The exact conditions are not tested right now, as that is subject to change.
+        let mut manager = BddManager::no_gc();
+        let nodes = 8192;
+        // Should be enough to trigger gc in basically every case.
+        for i in 2..nodes {
+            let var = VariableId::new(u16::MAX as u32 + i);
+            let _ = manager.new_bdd_literal(var, true);
+        }
+
+        manager.gc = GarbageCollection::Automatic;
+        manager.maybe_collect_garbage();
+
+        assert_eq!(manager.unique_table.node_count(), 2);
+    }
+
+    #[test]
     fn adding_32_bit_variable_to_16_bit_manager_grows_to_32_bit() {
-        let mut manager = BddManager::new();
+        let mut manager = BddManager::no_gc();
         let var_num = u32::from(u16::MAX);
         let variable = VariableId::new(var_num);
         manager.new_bdd_literal(variable, true);
@@ -516,7 +584,7 @@ mod tests {
 
     #[test]
     fn adding_64_bit_variable_to_16_bit_manager_grows_to_64_bit() {
-        let mut manager = BddManager::new();
+        let mut manager = BddManager::no_gc();
         let var_num = u64::from(u32::MAX);
         let variable = VariableId::new_long(var_num).unwrap();
         manager.new_bdd_literal(variable, true);
@@ -537,7 +605,7 @@ mod tests {
 
     #[test]
     fn adding_64_bit_variable_to_32_bit_manager_grows_to_64_bit() {
-        let mut manager = BddManager::new();
+        let mut manager = BddManager::no_gc();
         manager.grow();
         assert!(matches!(manager.unique_table, NodeTable::Size32(_)));
         assert_eq!(manager.unique_table.node_count(), 2);
@@ -563,7 +631,7 @@ mod tests {
     fn test_basic_apply_invariants(var1: VariableId, var2: VariableId) {
         // These are obviously not all invariants/equalities, but at least something to
         // check that we have the major corner cases covered.
-        let mut m = BddManager::new();
+        let mut m = BddManager::no_gc();
 
         let a = m.new_bdd_literal(var1, true);
         let b = m.new_bdd_literal(var2, true);
