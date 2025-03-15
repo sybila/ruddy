@@ -247,7 +247,161 @@ impl BddManager {
     pub fn iff(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
         self.apply(left, right, TriBool::iff)
     }
+
+    /// Calculate a [`Bdd`] representing the boolean formula `!bdd` (negation).
+    pub fn not(&mut self, bdd: &Bdd) -> Bdd {
+        let mut bdd_root = NodeId::undefined();
+
+        replace_with_or_default(&mut self.unique_table, |table| match table {
+            NodeTable::Size16(table) => {
+                let (root, table) = not_16_bit(table, bdd.root.get().unchecked_into());
+                bdd_root = root;
+                table
+            }
+            NodeTable::Size32(table) => {
+                let (root, table) = not_32_bit(table, bdd.root.get().unchecked_into());
+                bdd_root = root;
+                table
+            }
+            NodeTable::Size64(table) => {
+                let (root, table) = not_64_bit(table, bdd.root.get().unchecked_into());
+                bdd_root = root;
+                table
+            }
+        });
+
+        debug_assert!(!bdd_root.is_undefined());
+
+        let bdd = Bdd::new(bdd_root);
+        self.roots.push(bdd.root_weak());
+
+        self.maybe_collect_garbage();
+        bdd
+    }
 }
+
+fn not_16_bit(node_table: NodeTable16, root: NodeId16) -> (NodeId, NodeTable) {
+    let state = match not_default_state(node_table, root) {
+        Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size16(table)),
+        Err(state) => state,
+    };
+
+    let state = match not_any(state.into()) {
+        Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
+        Err(state) => state,
+    };
+
+    let (root, table) = not_any(state.into()).expect("TODO: 64-bit not failed");
+    (NodeId::unchecked_from(root), NodeTable::Size64(table))
+}
+
+fn not_32_bit(node_table: NodeTable32, root: NodeId32) -> (NodeId, NodeTable) {
+    let state = match not_default_state(node_table, root) {
+        Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
+        Err(state) => state,
+    };
+
+    let (root, table) = not_any(state.into()).expect("TODO: 64-bit not failed");
+    (NodeId::unchecked_from(root), NodeTable::Size64(table))
+}
+
+fn not_64_bit(node_table: NodeTable64, root: NodeId64) -> (NodeId, NodeTable) {
+    let (root, table) = (not_default_state(node_table, root)).expect("TODO: 64-bit not failed");
+    (NodeId::unchecked_from(root), NodeTable::Size64(table))
+}
+
+fn not_default_state<TNodeTable: NodeTableAny>(
+    node_table: TNodeTable,
+    root: TNodeTable::Id,
+) -> Result<(TNodeTable::Id, TNodeTable), NotState<TNodeTable>> {
+    let stack = vec![(root, TNodeTable::VarId::undefined())];
+    let results = Vec::new();
+
+    let state = NotState {
+        stack,
+        results,
+        node_table,
+    };
+
+    not_any(state)
+}
+
+fn not_any<TNodeTable: NodeTableAny>(
+    state: NotState<TNodeTable>,
+) -> Result<(TNodeTable::Id, TNodeTable), NotState<TNodeTable>> {
+    // TODO: think about adding task cache here
+    let NotState {
+        mut stack,
+        mut results,
+        mut node_table,
+    } = state;
+
+    while let Some((id, variable)) = stack.pop() {
+        if variable.is_undefined() {
+            if id.is_terminal() {
+                results.push(id.flipped_if_terminal());
+                continue;
+            }
+            let node = unsafe { node_table.get_node_unchecked(id) };
+
+            stack.push((id, node.variable()));
+            stack.push((node.high(), TNodeTable::VarId::undefined()));
+            stack.push((node.low(), TNodeTable::VarId::undefined()));
+        } else {
+            let high_result = results.pop().expect("high result present in result stack");
+            let low_result = results.pop().expect("low results present in result stack");
+
+            let new_id = match node_table.ensure_node(variable, low_result, high_result) {
+                Ok(id) => id,
+                Err(_) => {
+                    return {
+                        results.push(low_result);
+                        results.push(high_result);
+                        stack.push((id, variable));
+                        Err(NotState {
+                            stack,
+                            results,
+                            node_table,
+                        })
+                    }
+                }
+            };
+            results.push(new_id);
+        }
+    }
+
+    let root = results.pop().expect("root result present in result stack");
+    debug_assert!(results.is_empty());
+    Ok((root, node_table))
+}
+
+#[derive(Debug)]
+struct NotState<TNodeTable: NodeTableAny> {
+    stack: Vec<(TNodeTable::Id, TNodeTable::VarId)>,
+    results: Vec<TNodeTable::Id>,
+    node_table: TNodeTable,
+}
+
+macro_rules! impl_not_state_conversion {
+    ($from_table:ident, $to_table:ident) => {
+        impl From<NotState<$from_table>> for NotState<$to_table> {
+            fn from(state: NotState<$from_table>) -> Self {
+                Self {
+                    stack: state
+                        .stack
+                        .into_iter()
+                        .map(|(n, v)| (n.into(), v.into()))
+                        .collect(),
+                    results: state.results.into_iter().map(|n| n.into()).collect(),
+                    node_table: state.node_table.into(),
+                }
+            }
+        }
+    };
+}
+
+impl_not_state_conversion!(NodeTable16, NodeTable32);
+impl_not_state_conversion!(NodeTable32, NodeTable64);
 
 #[derive(Debug)]
 struct ApplyState<TNodeTable: NodeTableAny, TTaskCache> {
@@ -692,5 +846,85 @@ mod tests {
             VariableId::new_long(VarIdPacked64::MAX_ID - 2).unwrap(),
             VariableId::new_long(VarIdPacked64::MAX_ID - 1).unwrap(),
         );
+    }
+
+    #[test]
+    fn not() {
+        let mut manager = BddManager::no_gc();
+
+        let v1 = VariableId::new(0);
+        let v2 = VariableId::new(1);
+        let v3 = VariableId::new(2);
+        let v4 = VariableId::new(3);
+
+        let a = manager.new_bdd_literal(v1, true);
+        let a_n = manager.new_bdd_literal(v1, false);
+        let b = manager.new_bdd_literal(v2, true);
+        let b_n = manager.new_bdd_literal(v2, false);
+        let c = manager.new_bdd_literal(v3, true);
+        let c_n = manager.new_bdd_literal(v3, false);
+        let d = manager.new_bdd_literal(v4, true);
+        let d_n = manager.new_bdd_literal(v4, false);
+
+        let ab = manager.and(&a, &b);
+        let cd = manager.and(&c, &d);
+        let bdd = manager.or(&ab, &cd);
+
+        let a_nb_n = manager.or(&a_n, &b_n);
+        let cd_n = manager.or(&c_n, &d_n);
+        let expected = manager.and(&a_nb_n, &cd_n);
+
+        let once = manager.not(&bdd);
+        let twice = manager.not(&once);
+
+        assert_eq!(once, expected);
+        assert_eq!(bdd, twice);
+    }
+
+    #[test]
+    fn not_overflow() {
+        let mut table = NodeTable16::default();
+        let v = VarIdPacked16::new(1000);
+
+        let nodes = u16::MAX - 30000;
+
+        // Only having one variable should not interfere with the not operation
+        for i in 2..nodes {
+            table
+                .ensure_node(v, NodeId16::zero(), NodeId16::new(i - 1))
+                .unwrap();
+        }
+
+        let root = table
+            .ensure_node(v, NodeId16::zero(), NodeId16::new(nodes - 1))
+            .unwrap();
+
+        let (not_root, table) = not_16_bit(table, root);
+
+        let table = match table {
+            NodeTable::Size32(table) => table,
+            _ => panic!("Expected 32-bit table"),
+        };
+
+        assert_eq!(table.node_count(), nodes as usize * 2);
+        assert_eq!(
+            NodeId32::unchecked_from(not_root),
+            NodeId32::new(nodes as u32 * 2 - 1)
+        );
+
+        for i in 3..nodes {
+            let node = table
+                .get_node(NodeId32::new(i as u32 + nodes as u32))
+                .unwrap();
+
+            assert_eq!(node.variable(), v.into());
+            assert_eq!(node.high, NodeId32::new(i as u32 + nodes as u32 - 1));
+            assert_eq!(node.low, NodeId32::one());
+        }
+
+        let node = table.get_node(NodeId32::new(nodes as u32 + 1)).unwrap();
+        assert_eq!(node.variable(), v.into());
+        assert_eq!(node.high, NodeId32::zero());
+        assert_eq!(node.low, NodeId32::one());
     }
 }
