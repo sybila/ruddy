@@ -296,7 +296,7 @@ fn not_16_bit(node_table: NodeTable16, root: NodeId16) -> (NodeId, NodeTable) {
 }
 
 fn not_32_bit(node_table: NodeTable32, root: NodeId32) -> (NodeId, NodeTable) {
-    let state = match not_default_state(node_table, root) {
+    let state = match not_default_state::<_, TaskCache32<NodeId32>>(node_table, root) {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
         Err(state) => state,
     };
@@ -306,33 +306,39 @@ fn not_32_bit(node_table: NodeTable32, root: NodeId32) -> (NodeId, NodeTable) {
 }
 
 fn not_64_bit(node_table: NodeTable64, root: NodeId64) -> (NodeId, NodeTable) {
-    let (root, table) = (not_default_state(node_table, root)).expect("TODO: 64-bit not failed");
+    let (root, table) = (not_default_state::<_, TaskCache32<NodeId64>>(node_table, root))
+        .expect("TODO: 64-bit not failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
-fn not_default_state<TNodeTable: NodeTableAny>(
+fn not_default_state<
+    TNodeTable: NodeTableAny,
+    TTaskCache: TaskCacheAny<ResultId = TNodeTable::Id>,
+>(
     node_table: TNodeTable,
     root: TNodeTable::Id,
-) -> Result<(TNodeTable::Id, TNodeTable), NotState<TNodeTable>> {
+) -> Result<(TNodeTable::Id, TNodeTable), NotState<TNodeTable, TTaskCache>> {
     let stack = vec![(root, TNodeTable::VarId::undefined())];
     let results = Vec::new();
+    let task_cache = TTaskCache::default();
 
     let state = NotState {
         stack,
         results,
+        task_cache,
         node_table,
     };
 
     not_any(state)
 }
 
-fn not_any<TNodeTable: NodeTableAny>(
-    state: NotState<TNodeTable>,
-) -> Result<(TNodeTable::Id, TNodeTable), NotState<TNodeTable>> {
-    // TODO: think about adding task cache here
+fn not_any<TNodeTable: NodeTableAny, TTaskCache: TaskCacheAny<ResultId = TNodeTable::Id>>(
+    state: NotState<TNodeTable, TTaskCache>,
+) -> Result<(TNodeTable::Id, TNodeTable), NotState<TNodeTable, TTaskCache>> {
     let NotState {
         mut stack,
         mut results,
+        mut task_cache,
         mut node_table,
     } = state;
 
@@ -344,7 +350,19 @@ fn not_any<TNodeTable: NodeTableAny>(
             }
             let node = unsafe { node_table.get_node_unchecked(id) };
 
-            stack.push((id, node.variable()));
+            let use_cache = node.has_many_parents();
+
+            if use_cache {
+                let result = task_cache.get((id, id));
+                if !result.is_undefined() {
+                    results.push(result);
+                    continue;
+                }
+            }
+
+            let mut variable = node.variable();
+            variable.set_use_cache(use_cache);
+            stack.push((id, variable));
             stack.push((node.high(), TNodeTable::VarId::undefined()));
             stack.push((node.low(), TNodeTable::VarId::undefined()));
         } else {
@@ -361,11 +379,16 @@ fn not_any<TNodeTable: NodeTableAny>(
                         Err(NotState {
                             stack,
                             results,
+                            task_cache,
                             node_table,
                         })
                     }
                 }
             };
+            if variable.use_cache() {
+                task_cache.set((id, id), new_id);
+            }
+
             results.push(new_id);
         }
     }
@@ -376,16 +399,19 @@ fn not_any<TNodeTable: NodeTableAny>(
 }
 
 #[derive(Debug)]
-struct NotState<TNodeTable: NodeTableAny> {
+struct NotState<TNodeTable: NodeTableAny, TTaskCache> {
     stack: Vec<(TNodeTable::Id, TNodeTable::VarId)>,
     results: Vec<TNodeTable::Id>,
+    task_cache: TTaskCache,
     node_table: TNodeTable,
 }
 
 macro_rules! impl_not_state_conversion {
-    ($from_table:ident, $to_table:ident) => {
-        impl From<NotState<$from_table>> for NotState<$to_table> {
-            fn from(state: NotState<$from_table>) -> Self {
+    ($from_table:ident, $to_table:ident, $cache:ident) => {
+        impl From<NotState<$from_table, $cache<NodeTableId<$from_table>>>>
+            for NotState<$to_table, $cache<NodeTableId<$to_table>>>
+        {
+            fn from(state: NotState<$from_table, $cache<NodeTableId<$from_table>>>) -> Self {
                 Self {
                     stack: state
                         .stack
@@ -393,6 +419,7 @@ macro_rules! impl_not_state_conversion {
                         .map(|(n, v)| (n.into(), v.into()))
                         .collect(),
                     results: state.results.into_iter().map(|n| n.into()).collect(),
+                    task_cache: state.task_cache.into(),
                     node_table: state.node_table.into(),
                 }
             }
@@ -400,8 +427,9 @@ macro_rules! impl_not_state_conversion {
     };
 }
 
-impl_not_state_conversion!(NodeTable16, NodeTable32);
-impl_not_state_conversion!(NodeTable32, NodeTable64);
+impl_not_state_conversion!(NodeTable16, NodeTable32, TaskCache16);
+impl_not_state_conversion!(NodeTable32, NodeTable64, TaskCache16);
+impl_not_state_conversion!(NodeTable32, NodeTable64, TaskCache32);
 
 #[derive(Debug)]
 struct ApplyState<TNodeTable: NodeTableAny, TTaskCache> {
