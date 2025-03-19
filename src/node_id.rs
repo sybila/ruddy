@@ -18,11 +18,14 @@ pub trait NodeIdAny:
     + Hash
     + Debug
     + TryFrom<usize>
+    + UncheckedFrom<usize>
     + UncheckedInto<u16>
     + UncheckedInto<u32>
     + UncheckedInto<u64>
     + UncheckedInto<u128>
     + UncheckedInto<usize>
+    + UncheckedInto<NodeId>
+    + UncheckedFrom<NodeId>
 {
     /// Return an instance of the "undefined" node ID.
     fn undefined() -> Self;
@@ -436,6 +439,22 @@ impl_try_from_usize!(NodeId16);
 impl_try_from_usize!(NodeId32);
 impl_try_from_usize!(NodeId64);
 
+macro_rules! impl_unchecked_from_usize {
+    ($NodeId:ident, $width:ident) => {
+        #[allow(clippy::cast_possible_truncation)]
+        impl UncheckedFrom<usize> for $NodeId {
+            fn unchecked_from(value: usize) -> Self {
+                debug_assert!($NodeId::try_from(value).is_ok());
+                $NodeId::new(value as $width)
+            }
+        }
+    };
+}
+
+impl_unchecked_from_usize!(NodeId16, u16);
+impl_unchecked_from_usize!(NodeId32, u32);
+impl_unchecked_from_usize!(NodeId64, u64);
+
 /// A trait that ensures that the type implements both [`NodeIdAny`] and `Into<TNodeId>`.
 ///
 /// This mainly allows us to write `AsNodeId<T>` instead of needing to write
@@ -461,12 +480,113 @@ impl fmt::Display for NodeId64 {
     }
 }
 
+/// A type for identifying nodes in BDDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeId(u64);
+
+impl NodeId {
+    /// Create a new `NodeId` representing the terminal node `0`.
+    pub(crate) fn zero() -> Self {
+        Self(0)
+    }
+
+    /// Create a new `NodeId` representing the terminal node `1`.
+    pub(crate) fn one() -> Self {
+        Self(1)
+    }
+
+    /// Create a new undefined `NodeId` (similar to `Option::None`).
+    ///
+    /// We don't expect the undefined id to be converted from or into [`NodeId16`],
+    /// [`NodeId32`] or [`NodeId64`]. This function is therefore the only way to create
+    /// an undefined `NodeId`.
+    pub(crate) fn undefined() -> Self {
+        Self(u64::MAX)
+    }
+
+    /// Check if the ID is [`NodeId::undefined`].
+    pub(crate) fn is_undefined(self) -> bool {
+        self.0 == u64::MAX
+    }
+
+    /// Returns `true` if the ID is representable by a [`NodeId16`].
+    pub(crate) fn fits_in_node_id16(self) -> bool {
+        self.0 <= NodeId16::MAX_ID.into()
+    }
+
+    /// Returns `true` if the ID is representable by a [`NodeId32`].
+    pub(crate) fn fits_in_node_id32(self) -> bool {
+        self.0 <= NodeId32::MAX_ID.into()
+    }
+}
+
+impl fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl UncheckedFrom<NodeId> for NodeId16 {
+    #[allow(clippy::cast_possible_truncation)]
+    fn unchecked_from(value: NodeId) -> NodeId16 {
+        debug_assert!(!value.is_undefined());
+        debug_assert!(
+            value.fits_in_node_id16(),
+            "node ID {value} does not fit into 16-bit node ID"
+        );
+        NodeId16(value.0 as u16)
+    }
+}
+
+impl UncheckedFrom<NodeId> for NodeId32 {
+    #[allow(clippy::cast_possible_truncation)]
+    fn unchecked_from(value: NodeId) -> NodeId32 {
+        debug_assert!(!value.is_undefined());
+        debug_assert!(
+            value.fits_in_node_id32(),
+            "node ID {value} does not fit into 32-bit node ID"
+        );
+        NodeId32(value.0 as u32)
+    }
+}
+
+impl UncheckedFrom<NodeId> for NodeId64 {
+    fn unchecked_from(value: NodeId) -> NodeId64 {
+        debug_assert!(!value.is_undefined());
+        NodeId64(value.0)
+    }
+}
+
+impl UncheckedFrom<NodeId16> for NodeId {
+    fn unchecked_from(value: NodeId16) -> NodeId {
+        debug_assert!(!value.is_undefined());
+        NodeId(u64::from(value.0))
+    }
+}
+
+impl UncheckedFrom<NodeId32> for NodeId {
+    fn unchecked_from(value: NodeId32) -> NodeId {
+        debug_assert!(!value.is_undefined());
+        NodeId(u64::from(value.0))
+    }
+}
+
+impl UncheckedFrom<NodeId64> for NodeId {
+    fn unchecked_from(value: NodeId64) -> NodeId {
+        debug_assert!(!value.is_undefined());
+        NodeId(value.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use crate::boolean_operators::TriBool;
-    use crate::conversion::UncheckedFrom;
+    use crate::conversion::{UncheckedFrom, UncheckedInto};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
+
+    use super::NodeId;
 
     fn node_invariants<Node: NodeIdAny>() {
         assert!(Node::undefined().is_undefined());
@@ -692,6 +812,27 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn node_id_16_unchecked_from_usize_invalid() {
+        let m = usize::from(NodeId16::MAX_ID) + 1;
+        let _ = NodeId16::unchecked_from(m);
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_32_unchecked_from_usize_invalid() {
+        let m = usize_is_at_least_32_bits(NodeId32::MAX_ID) + 1;
+        let _ = NodeId32::unchecked_from(m);
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_64_unchecked_from_usize_invalid() {
+        let m = usize_is_at_least_64_bits(NodeId64::MAX_ID) + 1;
+        let _ = NodeId64::unchecked_from(m);
+    }
+
+    #[test]
     fn node_id_display() {
         let x16 = NodeId16::new(1234);
         let x32 = NodeId32::new(1234);
@@ -725,5 +866,141 @@ mod tests {
         assert_eq!(zero.flipped_if_terminal(), one);
         assert_eq!(one.flipped_if_terminal(), zero);
         assert_eq!(two.flipped_if_terminal(), two);
+    }
+
+    #[test]
+    fn node_id_terminals() {
+        let zero_16 = NodeId16::zero();
+        let one_16 = NodeId16::one();
+        let zero_32 = NodeId32::zero();
+        let one_32 = NodeId32::one();
+        let zero_64 = NodeId64::zero();
+        let one_64 = NodeId64::one();
+
+        let zero = NodeId::zero();
+        let one = NodeId::one();
+
+        assert_eq!(NodeId::unchecked_from(zero_16), zero);
+        assert_eq!(NodeId16::unchecked_from(zero), zero_16);
+        assert_eq!(NodeId::unchecked_from(one_16), one);
+        assert_eq!(NodeId16::unchecked_from(one), one_16);
+
+        assert_eq!(NodeId::unchecked_from(zero_32), zero);
+        assert_eq!(NodeId32::unchecked_from(zero), zero_32);
+        assert_eq!(NodeId::unchecked_from(one_32), one);
+        assert_eq!(NodeId32::unchecked_from(one), one_32);
+
+        assert_eq!(NodeId::unchecked_from(zero_64), zero);
+        assert_eq!(NodeId64::unchecked_from(zero), zero_64);
+        assert_eq!(NodeId::unchecked_from(one_64), one);
+        assert_eq!(NodeId64::unchecked_from(one), one_64);
+    }
+
+    fn test_node_id_from_undefined<TNodeId: NodeIdAny>() {
+        let undefined = TNodeId::undefined();
+        let _: NodeId = undefined.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_from_undefined_16() {
+        test_node_id_from_undefined::<NodeId16>();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_from_undefined_32() {
+        test_node_id_from_undefined::<NodeId32>();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_from_undefined_64() {
+        test_node_id_from_undefined::<NodeId64>();
+    }
+
+    macro_rules! test_node_id_from_defined_into_undefined {
+        ($FromUndefinedId:ident => $ToUndefinedId:ident, $func:ident) => {
+            #[test]
+            #[should_panic]
+            fn $func() {
+                let x = $FromUndefinedId::new($ToUndefinedId::UNDEFINED.into());
+                let id: NodeId = x.unchecked_into();
+                let _: $ToUndefinedId = id.unchecked_into();
+            }
+        };
+    }
+
+    test_node_id_from_defined_into_undefined!(NodeId32 => NodeId16, node_id_from_defined_32_into_undefined_16);
+    test_node_id_from_defined_into_undefined!(NodeId64 => NodeId16, node_id_from_defined_64_into_undefined_16);
+    test_node_id_from_defined_into_undefined!(NodeId64 => NodeId32, node_id_from_defined_64_into_undefined_32);
+
+    #[test]
+    fn node_id_bounds() {
+        let id16 = NodeId16::new(NodeId16::MAX_ID);
+        let id: NodeId = id16.unchecked_into();
+
+        assert!(id.fits_in_node_id16());
+        assert!(id.fits_in_node_id32());
+
+        let id32 = NodeId32::new(NodeId32::MAX_ID);
+        let id: NodeId = id32.unchecked_into();
+
+        assert!(!id.fits_in_node_id16());
+        assert!(id.fits_in_node_id32());
+
+        let id64 = NodeId64::new(NodeId64::MAX_ID);
+        let id: NodeId = id64.unchecked_into();
+
+        assert!(!id.fits_in_node_id16());
+        assert!(!id.fits_in_node_id32());
+    }
+
+    #[test]
+    fn node_id_conversion_from_64_to_16() {
+        let id64 = NodeId64::new(NodeId16::MAX_ID as u64);
+        let id: NodeId = id64.unchecked_into();
+        let id16: NodeId16 = id.unchecked_into();
+        assert_eq!(id16, NodeId16::new(NodeId16::MAX_ID));
+    }
+
+    #[test]
+    fn node_id_conversion_from_64_to_32() {
+        let id64 = NodeId64::new(NodeId32::MAX_ID as u64);
+        let id: NodeId = id64.unchecked_into();
+        let id32: NodeId32 = id.unchecked_into();
+        assert_eq!(id32, NodeId32::new(NodeId32::MAX_ID));
+    }
+
+    #[test]
+    fn node_id_conversion_from_32_to_16() {
+        let id32 = NodeId32::new(NodeId16::MAX_ID as u32);
+        let id: NodeId = id32.unchecked_into();
+        let id16: NodeId16 = id.unchecked_into();
+        assert_eq!(id16, NodeId16::new(NodeId16::MAX_ID));
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_unsuccessful_conversion_from_64_to_16() {
+        let id64 = NodeId64::new(NodeId64::MAX_ID);
+        let id: NodeId = id64.unchecked_into();
+        let _: NodeId16 = id.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_unsuccessful_conversion_from_64_to_32() {
+        let id64 = NodeId64::new(NodeId64::MAX_ID);
+        let id: NodeId = id64.unchecked_into();
+        let _: NodeId32 = id.unchecked_into();
+    }
+
+    #[test]
+    #[should_panic]
+    fn node_id_unsuccessful_conversion_from_32_to_16() {
+        let id32 = NodeId32::new(NodeId32::MAX_ID);
+        let id: NodeId = id32.unchecked_into();
+        let _: NodeId16 = id.unchecked_into();
     }
 }

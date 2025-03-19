@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::{convert::TryFrom, fmt};
 
+use crate::node_table::ReachabilityCycle;
 use crate::{
     conversion::{UncheckedFrom, UncheckedInto},
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny, TryFromNodeIdError},
@@ -24,7 +25,8 @@ pub trait BddNodeAny: Clone + Eq + Debug {
 
     /// Create a new *decision node* instance of [`BddNodeAny`].
     ///
-    /// The "parent counter" and "use cache" flags in `variable` are reset.
+    /// The flags in the variable ID are *not* reset.
+    ///
     /// ## Undefined behavior
     ///
     /// When creating a new [`BddNodeAny`], no argument is allowed to be "undefined". If this happens,
@@ -54,12 +56,35 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     /// return [`VarIdPackedAny::undefined`].
     fn variable(&self) -> Self::VarId;
 
+    /// Return a mutable reference to the low-child, assuming this is a decision node.
+    /// For terminal nodes, return a mutable reference to `self`.
+    fn low_mut(&mut self) -> &mut Self::Id;
+    /// Return a mutable reference to the high-child, assuming this is a decision node.
+    /// For terminal nodes, return a mutable reference to `self`.
+    fn high_mut(&mut self) -> &mut Self::Id;
+
     /// Increment the parent counter of the node.
     fn increment_parent_counter(&mut self);
 
     /// Check if the node has more than one parent.
     fn has_many_parents(&self) -> bool {
         self.variable().has_many_parents()
+    }
+
+    /// Reset the parent counter of the node.
+    fn reset_parent_counter(&mut self);
+
+    /// Mark the node as reachable in the given cycle.
+    ///
+    /// This method should not be used on terminal nodes, as these are always
+    /// considered reachable. For performance reasons, this condition is only
+    /// checked in debug mode.
+    fn mark_as_reachable(&mut self, cycle: ReachabilityCycle);
+
+    /// Returns `true` if the node is reachable in the given cycle. Terminal
+    /// nodes are always considered reachable.
+    fn is_reachable(&self, cycle: ReachabilityCycle) -> bool {
+        self.is_terminal() || self.variable().is_reachable(cycle)
     }
 }
 
@@ -74,7 +99,7 @@ macro_rules! impl_bdd_node {
                 debug_assert!(!low.is_undefined());
                 debug_assert!(!high.is_undefined());
                 Self {
-                    variable: variable.reset(),
+                    variable,
                     low,
                     high,
                 }
@@ -112,8 +137,16 @@ macro_rules! impl_bdd_node {
                 self.low
             }
 
+            fn low_mut(&mut self) -> &mut Self::Id {
+                &mut self.low
+            }
+
             fn high(&self) -> Self::Id {
                 self.high
+            }
+
+            fn high_mut(&mut self) -> &mut Self::Id {
+                &mut self.high
             }
 
             fn variable(&self) -> Self::VarId {
@@ -122,6 +155,15 @@ macro_rules! impl_bdd_node {
 
             fn increment_parent_counter(&mut self) {
                 self.variable.increment_parents();
+            }
+
+            fn reset_parent_counter(&mut self) {
+                self.variable = self.variable.reset_parents();
+            }
+
+            fn mark_as_reachable(&mut self, cycle: ReachabilityCycle) {
+                debug_assert!(!self.is_terminal());
+                self.variable.mark_as_reachable(cycle);
             }
         }
     };
@@ -251,6 +293,7 @@ impl_try_from!(BddNode64 => BddNode32);
 mod tests {
     use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, TryFromBddNodeError};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
+    use crate::node_table::ReachabilityCycle;
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
 
     macro_rules! test_bdd_node_invariants {
@@ -295,7 +338,7 @@ mod tests {
     test_bdd_node_invariants!(bdd_node_32_invariants, BddNode32, VarIdPacked32, NodeId32);
     test_bdd_node_invariants!(bdd_node_64_invariants, BddNode64, VarIdPacked64, NodeId64);
 
-    macro_rules! test_bdd_node_delegation {
+    macro_rules! test_bdd_node_parent_counter {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
             #[test]
             pub fn $func() {
@@ -307,13 +350,68 @@ mod tests {
                 assert!(n.has_many_parents());
                 n.increment_parent_counter();
                 assert!(n.has_many_parents());
+                n.reset_parent_counter();
+                assert!(!n.has_many_parents());
+                n.increment_parent_counter();
+                assert!(!n.has_many_parents());
+                n.increment_parent_counter();
+                assert!(n.has_many_parents());
+                n.increment_parent_counter();
+                assert!(n.has_many_parents());
             }
         };
     }
 
-    test_bdd_node_delegation!(bdd_node_16_delegation, BddNode16, VarIdPacked16, NodeId16);
-    test_bdd_node_delegation!(bdd_node_32_delegation, BddNode32, VarIdPacked32, NodeId32);
-    test_bdd_node_delegation!(bdd_node_64_delegation, BddNode64, VarIdPacked64, NodeId64);
+    test_bdd_node_parent_counter!(
+        bdd_node_16_parent_counter,
+        BddNode16,
+        VarIdPacked16,
+        NodeId16
+    );
+    test_bdd_node_parent_counter!(
+        bdd_node_32_parent_counter,
+        BddNode32,
+        VarIdPacked32,
+        NodeId32
+    );
+    test_bdd_node_parent_counter!(
+        bdd_node_64_parent_counter,
+        BddNode64,
+        VarIdPacked64,
+        NodeId64
+    );
+
+    macro_rules! test_bdd_node_reachability {
+        ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
+            #[test]
+            pub fn $func() {
+                let mut n = $BddNode::new($VarId::new(1), $NodeId::zero(), $NodeId::one());
+                let cycle = ReachabilityCycle::default();
+                n.mark_as_reachable(cycle);
+                assert!(n.is_reachable(cycle));
+                let flipped = cycle.flipped();
+                assert!(!n.is_reachable(flipped));
+                n.mark_as_reachable(flipped);
+                assert!(!n.is_reachable(cycle));
+                assert!(n.is_reachable(flipped));
+
+                let flipped_twice = flipped.flipped().flipped();
+                assert!(n.is_reachable(flipped_twice));
+
+                assert!($BddNode::one().is_reachable(cycle));
+                assert!($BddNode::one().is_reachable(flipped));
+
+                assert!($BddNode::zero().is_reachable(cycle));
+                assert!($BddNode::zero().is_reachable(flipped));
+            }
+        };
+    }
+
+    test_bdd_node_reachability!(bdd_node_16_reachability, BddNode16, VarIdPacked16, NodeId16);
+
+    test_bdd_node_reachability!(bdd_node_32_reachability, BddNode32, VarIdPacked32, NodeId32);
+
+    test_bdd_node_reachability!(bdd_node_64_reachability, BddNode64, VarIdPacked64, NodeId64);
 
     macro_rules! test_bdd_node_invalid_1 {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
