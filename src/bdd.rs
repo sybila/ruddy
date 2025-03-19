@@ -1,15 +1,15 @@
 //! Defines the representation of (standalone) binary decision diagrams. Includes: [`BddAny`]
 //! and [`Bdd32`].
 
-use std::fmt::Debug;
-
 use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny};
 use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
+use crate::node_table::{NodeTable32, NodeTableAny};
 use crate::variable_id::{
     AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
 };
+use std::fmt::Debug;
 
 /// A trait implemented by types that can serve as *standalone* BDDs.
 ///
@@ -200,6 +200,38 @@ pub struct Bdd32 {
 
 impl_bdd!(Bdd32, NodeId32, VarIdPacked32, BddNode32);
 
+impl Bdd32 {
+    pub fn from_lib_bdd(bdd: biodivine_lib_bdd::Bdd) -> Bdd32 {
+        if bdd.is_false() {
+            return Bdd32::new_false();
+        }
+
+        if bdd.is_true() {
+            return Bdd32::new_true();
+        }
+
+        // We have to use node table in order to properly compute parent counters.
+        let mut table = NodeTable32::new();
+        for node in bdd.to_nodes().iter().skip(2) {
+            let var = u16::try_from(node.var.to_index()).unwrap();
+            let low = u32::try_from(node.low_link.to_index()).unwrap();
+            let high = u32::try_from(node.high_link.to_index()).unwrap();
+
+            // The variable ID is valid because it comes from u16 range.
+            let mut var = VarIdPacked32::new(u32::from(var));
+            var.increment_parents();
+            var.increment_parents();
+            let low = NodeId32::new(low);
+            let high = NodeId32::new(high);
+
+            table.ensure_node(var, low, high).unwrap();
+        }
+
+        let root = NodeId32::new(u32::try_from(table.size() - 1).unwrap());
+        unsafe { table.into_bdd(root) }
+    }
+}
+
 /// An implementation of [`BddAny`] using [`BddNode64`]. In addition to the requirements of the
 /// [`BddAny`] trait, this struct also expects the BDD to be ordered and reduced.
 #[derive(Clone, Debug)]
@@ -356,6 +388,12 @@ impl Bdd {
             (Bdd::Size64(a), Bdd::Size64(b)) => a.structural_eq(b),
             _ => false,
         }
+    }
+}
+
+impl From<biodivine_lib_bdd::Bdd> for Bdd {
+    fn from(value: biodivine_lib_bdd::Bdd) -> Self {
+        Bdd::Size32(Bdd32::from_lib_bdd(value)).shrink()
     }
 }
 
