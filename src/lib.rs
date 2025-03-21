@@ -5,6 +5,7 @@ pub mod bdd;
 pub mod bdd_node;
 pub mod boolean_operators;
 mod conversion;
+mod nested_apply;
 pub mod node_id;
 pub mod node_table;
 pub mod shared;

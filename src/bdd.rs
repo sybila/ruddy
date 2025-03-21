@@ -174,6 +174,7 @@ macro_rules! impl_bdd {
             }
 
             unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node {
+                debug_assert!(id.as_usize() < self.nodes.len());
                 unsafe { self.nodes.get_unchecked(id.as_usize()) }
             }
         }
@@ -298,6 +299,24 @@ impl Bdd {
             Bdd::Size16(bdd) => Bdd::Size16(bdd.not()),
             Bdd::Size32(bdd) => Bdd::Size32(bdd.not()),
             Bdd::Size64(bdd) => Bdd::Size64(bdd.not()),
+        }
+    }
+
+    /// Returns `true` if the BDD represents the constant boolean function `true`.
+    pub fn is_true(&self) -> bool {
+        match self {
+            Bdd::Size16(bdd) => bdd.is_true(),
+            Bdd::Size32(bdd) => bdd.is_true(),
+            Bdd::Size64(bdd) => bdd.is_true(),
+        }
+    }
+
+    /// Returns `true` if the BDD represents the constant boolean function `false`.
+    pub fn is_false(&self) -> bool {
+        match self {
+            Bdd::Size16(bdd) => bdd.is_false(),
+            Bdd::Size32(bdd) => bdd.is_false(),
+            Bdd::Size64(bdd) => bdd.is_false(),
         }
     }
 
