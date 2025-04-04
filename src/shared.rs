@@ -7,7 +7,7 @@ use crate::{
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPackedAny, VariableId},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::{
     cell::Cell,
     rc::{Rc, Weak},
@@ -102,6 +102,60 @@ impl BddManager {
             NodeTable::Size32(table) => NodeTable::Size64(table.into()),
             table64 => table64,
         });
+    }
+
+    pub fn node_count(&self, bdd: &Bdd) -> usize {
+        let root = bdd.root.get();
+        let mut stack = vec![root];
+        let mut visited = HashSet::new();
+        while let Some(node) = stack.pop() {
+            if visited.contains(&node) {
+                continue;
+            }
+            visited.insert(node);
+            let (low, high) = self.get_links(node);
+            stack.push(low);
+            stack.push(high);
+        }
+        visited.len()
+    }
+
+    pub fn get_variable(&self, node: NodeId) -> VariableId {
+        // TODO: Make these conversions nicer.
+        let index: usize = node.unchecked_into();
+        match &self.unique_table {
+            NodeTable::Size16(table) => {
+                let e = table.get_entry(index.unchecked_into()).unwrap();
+                e.node.variable.unpack().into()
+            }
+            NodeTable::Size32(table) => {
+                let e = table.get_entry(index.unchecked_into()).unwrap();
+                e.node.variable.unpack().into()
+            }
+            NodeTable::Size64(table) => {
+                let e = table.get_entry(index.unchecked_into()).unwrap();
+                VariableId::new_long(e.node.variable.unpack()).unwrap()
+            }
+        }
+    }
+
+    pub fn get_links(&self, node: NodeId) -> (NodeId, NodeId) {
+        // TODO: Make these conversions nicer.
+        let index: usize = node.unchecked_into();
+        match &self.unique_table {
+            NodeTable::Size16(table) => {
+                let e = table.get_entry(index.unchecked_into()).unwrap();
+                (e.node.low.unchecked_into(), e.node.high.unchecked_into())
+            }
+            NodeTable::Size32(table) => {
+                let e = table.get_entry(index.unchecked_into()).unwrap();
+                (e.node.low.unchecked_into(), e.node.high.unchecked_into())
+            }
+            NodeTable::Size64(table) => {
+                let e = table.get_entry(index.unchecked_into()).unwrap();
+                (e.node.low.unchecked_into(), e.node.high.unchecked_into())
+            }
+        }
     }
 
     pub fn import_standalone(&mut self, bdd: &crate::bdd::Bdd) -> Bdd {

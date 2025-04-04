@@ -102,7 +102,7 @@ pub(crate) struct NodeEntry<
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
 > {
-    node: TNode,
+    pub(crate) node: TNode,
     parent: TNodeId,
     next_parent_zero: TNodeId,
     next_parent_one: TNodeId,
