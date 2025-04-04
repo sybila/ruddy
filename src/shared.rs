@@ -1,8 +1,3 @@
-use std::{
-    cell::Cell,
-    rc::{Rc, Weak},
-};
-
 use crate::{
     bdd_node::BddNodeAny,
     boolean_operators::{lift_operator, TriBool},
@@ -11,6 +6,11 @@ use crate::{
     node_table::{NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPackedAny, VariableId},
+};
+use std::collections::HashMap;
+use std::{
+    cell::Cell,
+    rc::{Rc, Weak},
 };
 
 use crate::node_table::GarbageCollector;
@@ -104,15 +104,45 @@ impl BddManager {
         });
     }
 
-    pub fn new_bdd_literal(&mut self, variable: VariableId, value: bool) -> Bdd {
+    pub fn import_standalone(&mut self, bdd: &crate::bdd::Bdd) -> Bdd {
+        let mut equivalent: HashMap<NodeId, Bdd> = HashMap::new();
+        equivalent.insert(NodeId::zero(), self.new_bdd_false());
+        equivalent.insert(NodeId::one(), self.new_bdd_true());
+        let root = bdd.root();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            let variable = bdd.get_variable(node);
+            let (low, high) = bdd.get_links(node);
+            let low_replica = equivalent.get(&low);
+            let high_replica = equivalent.get(&high);
+            match (low_replica, high_replica) {
+                (Some(low_replica), Some(high_replica)) => {
+                    let node_replica = self.if_then_else(variable, low_replica, high_replica);
+                    equivalent.insert(node, node_replica);
+                }
+                _ => {
+                    stack.push(node);
+                    if low_replica.is_none() {
+                        stack.push(low);
+                    }
+                    if high_replica.is_none() {
+                        stack.push(high);
+                    }
+                }
+            }
+        }
+        equivalent.get(&root).unwrap().clone()
+    }
+
+    pub fn if_then_else(&mut self, condition: VariableId, then: &Bdd, else_: &Bdd) -> Bdd {
         match &self.unique_table {
-            NodeTable::Size16(_) if variable.fits_only_in_packed64() => {
+            NodeTable::Size16(_) if condition.fits_only_in_packed64() => {
                 self.grow_to_64();
             }
-            NodeTable::Size32(_) if variable.fits_only_in_packed64() => {
+            NodeTable::Size32(_) if condition.fits_only_in_packed64() => {
                 self.grow();
             }
-            NodeTable::Size16(_) if variable.fits_only_in_packed32() => {
+            NodeTable::Size16(_) if condition.fits_only_in_packed32() => {
                 self.grow();
             }
             _ => {}
@@ -125,19 +155,31 @@ impl BddManager {
         let root: NodeId = match &mut self.unique_table {
             NodeTable::Size16(table) => {
                 let root = table
-                    .ensure_literal(variable.unchecked_into(), value)
+                    .ensure_node(
+                        condition.unchecked_into(),
+                        else_.root.get().unchecked_into(),
+                        then.root.get().unchecked_into(),
+                    )
                     .expect("ensuring literal after growth should always succeed");
                 root.unchecked_into()
             }
             NodeTable::Size32(table) => {
                 let root = table
-                    .ensure_literal(variable.unchecked_into(), value)
+                    .ensure_node(
+                        condition.unchecked_into(),
+                        else_.root.get().unchecked_into(),
+                        then.root.get().unchecked_into(),
+                    )
                     .expect("ensuring literal after growth should always succeed");
                 root.unchecked_into()
             }
             NodeTable::Size64(table) => {
                 let root = table
-                    .ensure_literal(variable.unchecked_into(), value)
+                    .ensure_node(
+                        condition.unchecked_into(),
+                        else_.root.get().unchecked_into(),
+                        then.root.get().unchecked_into(),
+                    )
                     .expect("TODO: 64-bit ensure_literal failed");
                 root.unchecked_into()
             }
@@ -148,6 +190,14 @@ impl BddManager {
 
         self.maybe_collect_garbage();
         bdd
+    }
+
+    pub fn new_bdd_literal(&mut self, variable: VariableId, value: bool) -> Bdd {
+        if value {
+            self.if_then_else(variable, &self.new_bdd_true(), &self.new_bdd_false())
+        } else {
+            self.if_then_else(variable, &self.new_bdd_false(), &self.new_bdd_true())
+        }
     }
 
     fn maybe_collect_garbage(&mut self) {

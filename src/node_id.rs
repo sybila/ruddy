@@ -481,7 +481,7 @@ impl fmt::Display for NodeId64 {
 }
 
 /// A type for identifying nodes in BDDs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(u64);
 
 impl NodeId {
@@ -557,6 +557,13 @@ impl UncheckedFrom<NodeId> for NodeId64 {
     }
 }
 
+impl UncheckedFrom<NodeId> for usize {
+    fn unchecked_from(value: NodeId) -> Self {
+        debug_assert!(!value.is_undefined());
+        value.0.unchecked_into()
+    }
+}
+
 impl UncheckedFrom<NodeId16> for NodeId {
     fn unchecked_from(value: NodeId16) -> NodeId {
         debug_assert!(!value.is_undefined());
@@ -580,7 +587,6 @@ impl UncheckedFrom<NodeId64> for NodeId {
 
 #[cfg(test)]
 mod tests {
-
     use crate::boolean_operators::TriBool;
     use crate::conversion::{UncheckedFrom, UncheckedInto};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};

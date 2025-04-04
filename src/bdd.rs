@@ -3,7 +3,7 @@
 
 use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny};
 use crate::conversion::{UncheckedFrom, UncheckedInto};
-use crate::node_id::{AsNodeId, NodeId16, NodeId64};
+use crate::node_id::{AsNodeId, NodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
 use crate::node_table::{NodeTable32, NodeTableAny};
 use crate::variable_id::{
@@ -387,6 +387,46 @@ impl Bdd {
             (Bdd::Size32(a), Bdd::Size32(b)) => a.structural_eq(b),
             (Bdd::Size64(a), Bdd::Size64(b)) => a.structural_eq(b),
             _ => false,
+        }
+    }
+
+    pub fn root(&self) -> NodeId {
+        match self {
+            Bdd::Size16(bdd) => bdd.root().unchecked_into(),
+            Bdd::Size32(bdd) => bdd.root().unchecked_into(),
+            Bdd::Size64(bdd) => bdd.root().unchecked_into(),
+        }
+    }
+
+    pub fn get_variable(&self, node: NodeId) -> VariableId {
+        // TODO: Make these conversions nicer.
+        let index: usize = node.unchecked_into();
+        match self {
+            Bdd::Size16(bdd) => bdd.nodes[index].variable.unpack().into(),
+            Bdd::Size32(bdd) => bdd.nodes[index].variable.unpack().into(),
+            Bdd::Size64(bdd) => VariableId::new_long(bdd.nodes[index].variable.unpack()).unwrap(),
+        }
+    }
+
+    pub fn get_links(&self, node: NodeId) -> (NodeId, NodeId) {
+        // TODO: Make these conversions nicer.
+        let index: usize = node.unchecked_into();
+        match self {
+            Bdd::Size16(bdd) => {
+                let low = bdd.nodes[index].low;
+                let high = bdd.nodes[index].high;
+                (low.unchecked_into(), high.unchecked_into())
+            }
+            Bdd::Size32(bdd) => {
+                let low = bdd.nodes[index].low;
+                let high = bdd.nodes[index].high;
+                (low.unchecked_into(), high.unchecked_into())
+            }
+            Bdd::Size64(bdd) => {
+                let low = bdd.nodes[index].low;
+                let high = bdd.nodes[index].high;
+                (low.unchecked_into(), high.unchecked_into())
+            }
         }
     }
 }
