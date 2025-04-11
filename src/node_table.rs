@@ -1024,12 +1024,6 @@ where
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
 {
-    /// Returns `true` if the node with the given `id` is considered reachable in the current cycle.
-    unsafe fn is_node_reachable_unchecked(&self, id: TNodeId) -> bool {
-        let node = unsafe { self.get_node_unchecked(id) };
-        node.is_reachable(self.cycle)
-    }
-
     /// Mark the reachable nodes in the table starting from the roots in `roots`.
     ///
     /// Returns the number of reachable nodes, and the maximum variable id.
@@ -1037,7 +1031,7 @@ where
     /// The `roots` vector is modified to only contain the roots that are still alive.
     /// The nodes' parent counters are recalculated to only count the reachable parents.
     fn mark_reachable(&mut self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> MarkPhaseData<TVarId> {
-        // Flip the mark cycle to avoid having to reset the parent counters of all nodes.
+        // Flip the mark cycle to avoid having to reset the reachability mark of all nodes.
         // Now, the nodes that were previously considered reachable will be viewed
         // as unreachable.
         let next_cycle = self.cycle.flipped();
@@ -1066,19 +1060,11 @@ where
                     let variable = node.variable();
                     max_var_id = max_var_id.max_defined(variable);
 
-                    let low = node.low();
                     let high = node.high();
-                    let low_is_reachable = unsafe { self.is_node_reachable_unchecked(low) };
-                    let high_is_reachable = unsafe { self.is_node_reachable_unchecked(high) };
-
-                    if low_is_reachable && high_is_reachable {
-                        continue;
-                    }
-
-                    stack.push(id);
+                    let low = node.low();
 
                     let high_node = unsafe { self.get_node_unchecked_mut(high) };
-                    if !high_is_reachable {
+                    if !high_node.is_reachable(next_cycle) {
                         high_node.reset_parent_counter();
                         high_node.mark_as_reachable(next_cycle);
                         reachable_count += 1;
@@ -1087,7 +1073,7 @@ where
                     high_node.increment_parent_counter();
 
                     let low_node = unsafe { self.get_node_unchecked_mut(low) };
-                    if !low_is_reachable {
+                    if !low_node.is_reachable(next_cycle) {
                         low_node.reset_parent_counter();
                         low_node.mark_as_reachable(next_cycle);
                         reachable_count += 1;
@@ -1955,12 +1941,20 @@ mod tests {
         assert_eq!(node4_entry.parent, NodeId32::undefined());
     }
 
+    impl NodeTable32 {
+        /// Returns `true` if the node with the given `id` is considered reachable in the current cycle.
+        unsafe fn is_node_reachable_unchecked(&self, id: NodeId32) -> bool {
+            let node = unsafe { self.get_node_unchecked(id) };
+            node.is_reachable(self.cycle)
+        }
+    }
+
     #[test]
     fn mark_reachable() {
         let mut table = NodeTable32::new();
         let mut ids_reachable = vec![NodeId32::zero(), NodeId32::one()];
 
-        let reachable_nonterminal = 10;
+        let mut reachable_nonterminal = 10;
 
         for i in 0..reachable_nonterminal {
             let id = table
@@ -1980,6 +1974,12 @@ mod tests {
 
         let root_subtree_32 = ids_reachable[(reachable_nonterminal / 2) as usize];
         let root_subtree: NodeId = root_subtree_32.unchecked_into();
+
+        let superroot_32 = table
+            .ensure_node(VarIdPacked32::new(0), root_32, root_subtree_32)
+            .unwrap();
+        let superroot: NodeId = superroot_32.unchecked_into();
+        reachable_nonterminal += 1;
 
         let unreachable_nonterminal_1 = 5;
         let mut ids_unreachable_1 = vec![];
@@ -2024,8 +2024,13 @@ mod tests {
 
         let root = Rc::new(Cell::new(root));
         let root_subtree = Rc::new(Cell::new(root_subtree));
+        let superroot = Rc::new(Cell::new(superroot));
 
-        let mut roots = vec![Rc::downgrade(&root), Rc::downgrade(&root_subtree)];
+        let mut roots = vec![
+            Rc::downgrade(&root),
+            Rc::downgrade(&root_subtree),
+            Rc::downgrade(&superroot),
+        ];
 
         {
             let unreachable_root1 = Rc::new(Cell::new(unreachable_root1));
@@ -2036,9 +2041,10 @@ mod tests {
         }
 
         let mark_data = table.mark_reachable(&mut roots);
-        assert_eq!(roots.len(), 2);
+        assert_eq!(roots.len(), 3);
         assert_eq!(roots[0].upgrade().unwrap().get(), root.get());
         assert_eq!(roots[1].upgrade().unwrap().get(), root_subtree.get());
+        assert_eq!(roots[2].upgrade().unwrap().get(), superroot.get());
 
         assert_eq!(
             mark_data.reachable_count,
@@ -2056,18 +2062,14 @@ mod tests {
                 assert!(node.has_many_parents());
             }
         }
-        // The root should have zero parents
+        // The root should have one parent
         let root_node = &mut table.get_entry_mut(root_32).unwrap().node;
-        assert!(!root_node.has_many_parents());
-        root_node.increment_parent_counter();
         assert!(!root_node.has_many_parents());
         root_node.increment_parent_counter();
         assert!(root_node.has_many_parents());
 
-        // The root subtree should have one parent
+        // The root subtree should have two parents
         let root_subtree = &mut table.get_entry_mut(root_subtree_32).unwrap().node;
-        assert!(!root_subtree.has_many_parents());
-        root_subtree.increment_parent_counter();
         assert!(root_subtree.has_many_parents());
 
         for id in ids_unreachable_1.iter() {
