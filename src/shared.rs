@@ -60,6 +60,14 @@ impl Bdd {
     fn root_weak(&self) -> Weak<Cell<NodeId>> {
         Rc::downgrade(&self.root)
     }
+
+    pub fn is_true(&self) -> bool {
+        self.root.get().is_one()
+    }
+
+    pub fn is_false(&self) -> bool {
+        self.root.get().is_zero()
+    }
 }
 
 impl PartialEq for Bdd {
@@ -1544,5 +1552,39 @@ mod tests {
         let result3 = manager.binary_op_with_for_all(&e1, &e3, TriBool::iff, &[]);
         let result4 = manager.iff(&e1, &e3);
         assert_eq!(result3, result4);
+    }
+
+    #[test]
+    fn nested_apply_bit_width_variants() {
+        let mut manager = BddManager::no_gc();
+
+        let v1 = VariableId::from(u16::MAX >> 4);
+        let v2 = VariableId::from(u32::MAX >> 4);
+        let v3 = VariableId::new_long(u64::MAX >> 4).unwrap();
+
+        // We will gradually force the manager to increase its bit-width by adding extra
+        // variables of a specific width.
+
+        for v in [v1, v2, v3] {
+            let v_true = manager.new_bdd_literal(v, true);
+            let v_false = manager.new_bdd_literal(v, false);
+
+            // exists v1. (v1 & v1) is tautology
+            assert!(manager
+                .binary_op_with_exists(&v_true, &v_true, TriBool::and, &[v])
+                .is_true());
+            // exists v1. (v1 & !v1) is contradiction
+            assert!(manager
+                .binary_op_with_exists(&v_true, &v_false, TriBool::and, &[v])
+                .is_false());
+            // forall v1. (v1 | !v1) is tautology
+            assert!(manager
+                .binary_op_with_for_all(&v_true, &v_false, TriBool::or, &[v])
+                .is_true());
+            // forall v1. (v1 | v1) is contradiction
+            assert!(manager
+                .binary_op_with_for_all(&v_true, &v_true, TriBool::or, &[v])
+                .is_false());
+        }
     }
 }
