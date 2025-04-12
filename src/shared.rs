@@ -114,6 +114,16 @@ impl BddManager {
         });
     }
 
+    pub fn node_count(&self, bdd: &Bdd) -> usize {
+        let root = bdd.root.get();
+        // TODO: Maybe this should not use unchecked into?
+        match &self.unique_table {
+            NodeTable::Size16(table) => table.reachable_node_count(root.unchecked_into()),
+            NodeTable::Size32(table) => table.reachable_node_count(root.unchecked_into()),
+            NodeTable::Size64(table) => table.reachable_node_count(root.unchecked_into()),
+        }
+    }
+
     pub fn new_bdd_literal(&mut self, variable: VariableId, value: bool) -> Bdd {
         match &self.unique_table {
             NodeTable::Size16(_) if variable.fits_only_in_packed64() => {
@@ -1556,14 +1566,15 @@ mod tests {
 
     #[test]
     fn nested_apply_bit_width_variants() {
+        // Should test that the manager uses nested apply correctly with different bit widths.
+        // We will gradually force the manager to increase its bit-width by adding extra
+        // variables of a specific width.
+
         let mut manager = BddManager::no_gc();
 
         let v1 = VariableId::from(u16::MAX >> 4);
         let v2 = VariableId::from(u32::MAX >> 4);
         let v3 = VariableId::new_long(u64::MAX >> 4).unwrap();
-
-        // We will gradually force the manager to increase its bit-width by adding extra
-        // variables of a specific width.
 
         for v in [v1, v2, v3] {
             let v_true = manager.new_bdd_literal(v, true);
@@ -1586,5 +1597,52 @@ mod tests {
                 .binary_op_with_for_all(&v_true, &v_true, TriBool::or, &[v])
                 .is_false());
         }
+    }
+
+    #[test]
+    fn nested_apply_growth_test() {
+        // Should test that the manager can reuse state when the data structures need to grow
+        // during nested apply. To test this, we use a variant of the ripple carry adder from
+        // normal BDD tests. This is not particularly relevant for nested apply operations,
+        // but we just need to test that the growth phase actually completes successfully.
+
+        fn ripple_carry_adder(manager: &mut BddManager, num_vars: u32) -> Bdd {
+            let mut result = manager.new_bdd_false();
+            for x in 0..(num_vars / 2) {
+                let x1 = manager.new_bdd_literal(VariableId::new(x), true);
+                let x2 = manager.new_bdd_literal(VariableId::new(x + num_vars / 2), true);
+                // To make it a bit more fun, we always erase some previously used variable.
+                // This means we are not computing ripple carry adder after all, but at least
+                // it tests the nested apply operator.
+                let and = manager.binary_op_with_exists(&x1, &x2, TriBool::and, &[]);
+                result = manager.binary_op_with_exists(
+                    &result,
+                    &and,
+                    TriBool::or,
+                    &[VariableId::new(x / 4)],
+                );
+            }
+            result
+        }
+
+        let mut manager = BddManager::no_gc();
+
+        let result = ripple_carry_adder(&mut manager, 4);
+        assert_eq!(manager.node_count(&result), 6);
+
+        let result = ripple_carry_adder(&mut manager, 8);
+        assert_eq!(manager.node_count(&result), 24);
+
+        let result = ripple_carry_adder(&mut manager, 16);
+        assert_eq!(manager.node_count(&result), 256);
+
+        let result = ripple_carry_adder(&mut manager, 24);
+        assert_eq!(manager.node_count(&result), 2560);
+
+        let result = ripple_carry_adder(&mut manager, 32);
+        assert_eq!(manager.node_count(&result), 24576);
+
+        let result = ripple_carry_adder(&mut manager, 40);
+        assert_eq!(manager.node_count(&result), 229376);
     }
 }

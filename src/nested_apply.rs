@@ -818,4 +818,46 @@ mod tests {
         assert!(Bdd::structural_eq(&result1, &result2));
         assert!(Bdd::structural_eq(&result3, &result4));
     }
+
+    #[test]
+    fn nested_apply_growth_test() {
+        // This is the same test as implemented for shared BDDs, but with stanalone ones.
+
+        fn ripple_carry_adder(num_vars: u32) -> Bdd {
+            let mut result = Bdd::new_false();
+            for x in 0..(num_vars / 2) {
+                let x1 = Bdd::new_literal(VariableId::new(x), true);
+                let x2 = Bdd::new_literal(VariableId::new(x + num_vars / 2), true);
+                // To make it a bit more fun, we always erase some previously used variable.
+                // This means we are not computing ripple carry adder after all, but at least
+                // it tests the nested apply operator.
+                let and = Bdd::binary_op_with_exists(&x1, &x2, TriBool::and, &[]);
+                result = Bdd::binary_op_with_exists(
+                    &result,
+                    &and,
+                    TriBool::or,
+                    &[VariableId::new(x / 4)],
+                );
+            }
+            result
+        }
+
+        let result = ripple_carry_adder(4);
+        assert_eq!(result.node_count(), 6);
+
+        let result = ripple_carry_adder(8);
+        assert_eq!(result.node_count(), 24);
+
+        let result = ripple_carry_adder(16);
+        assert_eq!(result.node_count(), 256);
+
+        let result = ripple_carry_adder(24);
+        assert_eq!(result.node_count(), 2560);
+
+        let result = ripple_carry_adder(32);
+        assert_eq!(result.node_count(), 24576);
+
+        let result = ripple_carry_adder(40);
+        assert_eq!(result.node_count(), 229376);
+    }
 }
