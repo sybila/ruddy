@@ -1,11 +1,6 @@
 //! Defines the representation of node tables (used to represent BDDs). Includes: [`NodeTableAny`],
 //! [`NodeTableImpl`], [`NodeTable16`], [`NodeTable32`], and [`NodeTable64`].
 //!
-use std::cell::Cell;
-use std::cmp::{max, min};
-use std::fmt;
-use std::rc::Weak;
-
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
 use crate::{
@@ -15,6 +10,12 @@ use crate::{
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny},
 };
 use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
+use rustc_hash::{FxBuildHasher, FxHashSet};
+use std::cell::Cell;
+use std::cmp::{max, min};
+use std::collections::HashSet;
+use std::fmt;
+use std::rc::Weak;
 
 /// The `NodeTableAny` is a data structure that enforces uniqueness of BDD nodes created
 /// during the BDD construction process.
@@ -571,6 +572,40 @@ where
         } else {
             self.ensure_node(variable, TNodeId::one(), TNodeId::zero())
         }
+    }
+
+    /// Compute the number of nodes that are reachable from the given `root` node. This
+    /// is not very useful for standalone BDDs, but it is used often to compute BDD size
+    /// for shared BDDs.
+    pub(crate) fn reachable_node_count(&self, root: TNodeId) -> usize {
+        debug_assert!(!root.is_undefined());
+
+        // Ensure that the root exists. Transitively, everything reachable from root
+        // also exists and we can safely avoid bounds checks.
+        assert!(self.get_entry(root).is_some());
+
+        if root.is_zero() {
+            return 1;
+        }
+        if root.is_one() {
+            return 2;
+        }
+
+        let mut stack = vec![root];
+        let mut visited: FxHashSet<TNodeId> =
+            HashSet::with_capacity_and_hasher(1024, FxBuildHasher);
+
+        while let Some(node) = stack.pop() {
+            if node.is_terminal() || visited.contains(&node) {
+                continue;
+            }
+            visited.insert(node);
+            let entry = unsafe { self.get_entry_unchecked(node) };
+            stack.push(entry.node.high());
+            stack.push(entry.node.low());
+        }
+
+        visited.len() + 2 // plus two terminal nodes...
     }
 }
 
