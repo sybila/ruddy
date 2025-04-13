@@ -47,6 +47,9 @@ pub trait TaskCacheAny: Default {
 /// A trait for types that can be used as a hash (based on knuth multiplicative hashing)
 /// in the `TaskCache`. The hash must be able to be computed from a pair of [`NodeIdAny`] instances.
 pub trait KnuthHash: Clone + Copy + PartialEq + Eq + Debug {
+    const PRIME: Self;
+    const PRIME_INVERSE: Self;
+
     /// Return the zero value for the hash type.
     fn zero() -> Self;
 
@@ -62,6 +65,9 @@ pub trait KnuthHash: Clone + Copy + PartialEq + Eq + Debug {
 }
 
 impl KnuthHash for u32 {
+    const PRIME: Self = 2654435761;
+    const PRIME_INVERSE: Self = 244002641;
+
     fn zero() -> Self {
         0
     }
@@ -74,7 +80,7 @@ impl KnuthHash for u32 {
         let val1: u16 = val1.unchecked_into();
         let val2: u16 = val2.unchecked_into();
         let combined = u32::from(val1) << 16 | u32::from(val2);
-        combined.wrapping_mul(2654435769)
+        combined.wrapping_mul(Self::PRIME)
     }
 
     fn to_slot(self, log_size: u32) -> usize {
@@ -83,6 +89,9 @@ impl KnuthHash for u32 {
 }
 
 impl KnuthHash for u64 {
+    const PRIME: Self = 11400714819323198549;
+    const PRIME_INVERSE: Self = 6236490470931210493;
+
     fn zero() -> Self {
         0
     }
@@ -95,7 +104,7 @@ impl KnuthHash for u64 {
         let val1: u32 = val1.unchecked_into();
         let val2: u32 = val2.unchecked_into();
         let combined = u64::from(val1) << 32 | u64::from(val2);
-        combined.wrapping_mul(14695981039346656039)
+        combined.wrapping_mul(Self::PRIME)
     }
 
     fn to_slot(self, log_size: u32) -> usize {
@@ -104,6 +113,9 @@ impl KnuthHash for u64 {
 }
 
 impl KnuthHash for u128 {
+    const PRIME: Self = 210306068529402873165736369884012333113;
+    const PRIME_INVERSE: Self = 191516043691840152436889831717894333961;
+
     fn zero() -> Self {
         0
     }
@@ -116,7 +128,7 @@ impl KnuthHash for u128 {
         let val1: u128 = val1.unchecked_into();
         let val2: u128 = val2.unchecked_into();
         let combined: u128 = val1 << 64 | val2;
-        combined.wrapping_mul(210306068529402873165736369884012333108)
+        combined.wrapping_mul(Self::PRIME)
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -124,6 +136,58 @@ impl KnuthHash for u128 {
         // Here, we can assume the conversion is safe, because the size of the task cache
         // should not exceed 2^64, meaning the integer should have at most 64 bits after the shift.
         usize_is_at_least_64_bits((self >> (u128::BITS - log_size)) as u64)
+    }
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn low_u16(val: u32) -> u16 {
+    val as u16
+}
+
+fn high_u16(val: u32) -> u16 {
+    (val >> 16) as u16
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn low_u32(val: u64) -> u32 {
+    val as u32
+}
+
+fn high_u32(val: u64) -> u32 {
+    (val >> 32) as u32
+}
+
+/// Used to convert the hash to a wider type.
+///
+/// Ensures that for two IDs `x, y`, `Self::knuth_hash(x,y).extend() == Self::Wider::knuth_hash(x,y)`.
+pub trait ExtendKnuthHash: KnuthHash {
+    type Wider: KnuthHash;
+
+    /// Extend the hash to a wider type, such that for two IDs `x, y`,
+    /// `Self::knuth_hash(x,y).extend() == Self::Wider::knuth_hash(x,y)`.
+    fn extend(self) -> Self::Wider;
+}
+
+impl ExtendKnuthHash for u32 {
+    type Wider = u64;
+
+    fn extend(self) -> Self::Wider {
+        let task_combined = self.wrapping_mul(Self::PRIME_INVERSE);
+        let val1 = high_u16(task_combined);
+        let val2 = low_u16(task_combined);
+        let task_combined = u64::from(val1) << 32 | u64::from(val2);
+        task_combined.wrapping_mul(u64::PRIME)
+    }
+}
+impl ExtendKnuthHash for u64 {
+    type Wider = u128;
+
+    fn extend(self) -> Self::Wider {
+        let task_combined = self.wrapping_mul(Self::PRIME_INVERSE);
+        let val1 = high_u32(task_combined);
+        let val2 = low_u32(task_combined);
+        let task_combined = u128::from(val1) << 64 | u128::from(val2);
+        task_combined.wrapping_mul(u128::PRIME)
     }
 }
 
@@ -312,7 +376,7 @@ pub type TaskCache16<TResultId> = TaskCache<u32, TResultId>;
 pub type TaskCache32<TResultId> = TaskCache<u64, TResultId>;
 pub type TaskCache64<TResultId> = TaskCache<u128, TResultId>;
 
-macro_rules! impl_from_task_cache {
+macro_rules! impl_from_task_cache_no_extension {
     ($from_id:ident, $to_id:ident) => {
         impl<THashSize> From<TaskCache<THashSize, $from_id>> for TaskCache<THashSize, $to_id>
         where
@@ -339,14 +403,43 @@ macro_rules! impl_from_task_cache {
     };
 }
 
-impl_from_task_cache!(NodeId16, NodeId32);
-impl_from_task_cache!(NodeId32, NodeId64);
-impl_from_task_cache!(NodeId16, NodeId64);
+impl_from_task_cache_no_extension!(NodeId16, NodeId32);
+impl_from_task_cache_no_extension!(NodeId32, NodeId64);
+
+macro_rules! impl_from_task_cache_with_extension {
+    ($from_id:ident, $to_id:ident, $from_hash:ident, $to_hash:ident) => {
+        impl From<TaskCache<$from_hash, $from_id>> for TaskCache<$to_hash, $to_id> {
+            fn from(cache: TaskCache<$from_hash, $from_id>) -> Self {
+                let mut table = vec![(0, $to_id::undefined()); cache.size()];
+                let log_size = cache.log_size;
+                let mut collisions = 0;
+
+                for (hash, result) in cache.table.into_iter() {
+                    let new_hash = hash.extend();
+                    let new_slot_index = new_hash.to_slot(log_size);
+                    let new_slot = unsafe { table.get_unchecked_mut(new_slot_index) };
+
+                    collisions += (new_slot.0 != 0) as usize;
+                    *new_slot = (new_hash, result.into());
+                }
+                Self {
+                    table,
+                    log_size,
+                    collisions,
+                }
+            }
+        }
+    };
+}
+
+impl_from_task_cache_with_extension!(NodeId16, NodeId32, u32, u64);
+impl_from_task_cache_with_extension!(NodeId32, NodeId64, u64, u128);
 
 #[cfg(test)]
 mod tests {
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
-    use crate::task_cache::{TaskCache16, TaskCache32, TaskCacheAny};
+    use crate::task_cache::{ExtendKnuthHash, KnuthHash};
+    use crate::task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny};
 
     #[test]
     pub fn task_cache_basic() {
@@ -379,22 +472,64 @@ mod tests {
     pub fn task_cache_collisions() {
         let p0 = NodeId32::zero();
         let p1 = NodeId32::one();
-        let p2 = NodeId32::new(2);
+        let p3 = NodeId32::new(3);
 
         let mut cache = TaskCache32::with_log_size(1);
         assert_eq!(cache.size(), 2);
-        // Here, we have computed that (p0,p1) and (p0,p2) will cause a collision as long as
+        // Here, we have computed that (p0,p1) and (p0,p3) will cause a collision as long as
         // the cache only has two slots.
         cache.set((p0, p1), p1);
         assert!(cache.get((p0, p1)).is_one());
-        assert!(cache.get((p0, p2)).is_undefined());
-        cache.set((p0, p2), p1);
+        assert!(cache.get((p0, p3)).is_undefined());
+        cache.set((p0, p3), p1);
         println!("{:?}", cache.table);
         assert!(cache.get((p0, p1)).is_undefined());
-        assert!(cache.get((p0, p2)).is_one());
+        assert!(cache.get((p0, p3)).is_one());
         cache.set((p0, p1), p1);
-        cache.set((p0, p2), p1);
+        cache.set((p0, p3), p1);
         assert!(cache.size() > 2);
+    }
+
+    #[test]
+    fn hash_extension_32_to_64() {
+        let p17 = NodeId16::new(17);
+        let p32 = NodeId16::new(32);
+
+        let p17_32 = NodeId32::from(p17);
+        let p32_32 = NodeId32::from(p32);
+
+        let hash = u32::knuth_hash(p17, p32);
+        let extended = hash.extend();
+
+        let hash_32 = u64::knuth_hash(p17_32, p32);
+        assert_eq!(hash_32, extended);
+
+        let hash_32 = u64::knuth_hash(p17_32, p32_32);
+        assert_eq!(hash_32, extended);
+
+        let hash_32 = u64::knuth_hash(p17, p32_32);
+        assert_eq!(hash_32, extended);
+    }
+
+    #[test]
+    fn hash_extension_64_to_128() {
+        let p255 = NodeId32::new(255);
+        let p7987 = NodeId32::new(7987);
+
+        let p255_64 = NodeId64::from(p255);
+        let p7987_64 = NodeId64::from(p7987);
+
+        let hash = u64::knuth_hash(p255, p7987);
+        let extended = hash.extend();
+
+        let hash_64 = u128::knuth_hash(p255_64, p7987);
+        assert_eq!(hash_64, extended);
+
+        let hash_64 = u128::knuth_hash(p255_64, p7987_64);
+        assert_eq!(hash_64, extended);
+
+        let hash_64 = u128::knuth_hash(p255, p7987_64);
+        assert_eq!(hash_64, extended);
     }
 
     #[test]
@@ -422,5 +557,36 @@ mod tests {
         assert_eq!(cache.get((p0, p1)), NodeId64::from(p2));
         assert_eq!(cache.get((p1, p0)), NodeId64::from(p3));
         assert_eq!(cache.get((p1, p1)), p4);
+    }
+
+    #[test]
+    fn task_cache_upcast_with_extension() {
+        let mut cache = TaskCache16::<NodeId16>::with_log_size(3);
+
+        let p0 = NodeId16::zero();
+        let p1 = NodeId16::one();
+        let p2 = NodeId16::new(2);
+
+        cache.set((p0, p1), p2);
+
+        let mut cache = TaskCache32::<NodeId32>::from(cache);
+        assert_eq!(cache.get((p0, p1)), NodeId32::from(p2));
+
+        let p3 = NodeId32::new(3);
+        cache.set((p1, p0), p3);
+        println!("{:?}", cache.table);
+        assert_eq!(cache.get((p0, p1)), NodeId32::from(p2));
+        assert_eq!(cache.get((p1, p0)), p3);
+
+        let mut cache = TaskCache64::<NodeId64>::from(cache);
+        println!("{:?}", cache.table);
+        assert_eq!(cache.get((p0, p1)), NodeId64::from(p2));
+        assert_eq!(cache.get((p1, p0)), NodeId64::from(p3));
+        let p4 = NodeId64::new(4);
+        cache.set((p1, p3), p4);
+        println!("{:?}", cache.table);
+        assert_eq!(cache.get((p0, p1)), NodeId64::from(p2));
+        assert_eq!(cache.get((p1, p0)), NodeId64::from(p3));
+        assert_eq!(cache.get((p1, p3)), p4);
     }
 }

@@ -759,22 +759,37 @@ fn apply_64_bit<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
 }
 
 #[derive(Debug)]
-struct NestedApplyState<TTaskCache, TNodeTable: NodeTableAny> {
+struct NestedApplyState<TOuterCache, TInnerCache, TNodeTable: NodeTableAny> {
     stack: Vec<(TNodeTable::Id, TNodeTable::Id, TNodeTable::VarId)>,
     results: Vec<TNodeTable::Id>,
-    outer_task_cache: TTaskCache,
-    inner_task_cache: TTaskCache,
+    outer_task_cache: TOuterCache,
+    inner_task_cache: TInnerCache,
     node_table: TNodeTable,
     inner_state: InnerApplyState<TNodeTable>,
 }
 
 macro_rules! impl_nested_apply_state_conversion {
-    ($from_table:ident, $to_table:ident, $cache:ident) => {
-        impl From<NestedApplyState<$cache<NodeTableId<$from_table>>, $from_table>>
-            for NestedApplyState<$cache<NodeTableId<$to_table>>, $to_table>
+    ($from_table:ident, $to_table:ident, $outer_cache:ident, $from_inner_cache:ident, $to_inner_cache:ident) => {
+        impl
+            From<
+                NestedApplyState<
+                    $outer_cache<NodeTableId<$from_table>>,
+                    $from_inner_cache<NodeTableId<$from_table>>,
+                    $from_table,
+                >,
+            >
+            for NestedApplyState<
+                $outer_cache<NodeTableId<$to_table>>,
+                $to_inner_cache<NodeTableId<$to_table>>,
+                $to_table,
+            >
         {
             fn from(
-                state: NestedApplyState<$cache<NodeTableId<$from_table>>, $from_table>,
+                state: NestedApplyState<
+                    $outer_cache<NodeTableId<$from_table>>,
+                    $from_inner_cache<NodeTableId<$from_table>>,
+                    $from_table,
+                >,
             ) -> Self {
                 Self {
                     stack: state
@@ -793,16 +808,35 @@ macro_rules! impl_nested_apply_state_conversion {
     };
 }
 
-impl_nested_apply_state_conversion!(NodeTable16, NodeTable32, TaskCache16);
-impl_nested_apply_state_conversion!(NodeTable32, NodeTable64, TaskCache16);
-impl_nested_apply_state_conversion!(NodeTable32, NodeTable64, TaskCache32);
+impl_nested_apply_state_conversion!(
+    NodeTable16,
+    NodeTable32,
+    TaskCache16,
+    TaskCache16,
+    TaskCache32
+);
+impl_nested_apply_state_conversion!(
+    NodeTable32,
+    NodeTable64,
+    TaskCache16,
+    TaskCache32,
+    TaskCache64
+);
+impl_nested_apply_state_conversion!(
+    NodeTable32,
+    NodeTable64,
+    TaskCache32,
+    TaskCache32,
+    TaskCache64
+);
 
 fn nested_apply_any_default_state<
     TNodeTable: NodeTableAny,
     TOuterOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
     TInnerOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
     TTrigger: Fn(TNodeTable::VarId) -> bool,
-    TTaskCache: TaskCacheAny<ResultId = TNodeTable::Id>,
+    TOuterCache: TaskCacheAny<ResultId = TNodeTable::Id>,
+    TInnerCache: TaskCacheAny<ResultId = TNodeTable::Id>,
 >(
     left: TNodeTable::Id,
     right: TNodeTable::Id,
@@ -810,12 +844,12 @@ fn nested_apply_any_default_state<
     outer_op: TOuterOp,
     inner_op: TInnerOp,
     trigger: TTrigger,
-) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TTaskCache, TNodeTable>> {
+) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TOuterCache, TInnerCache, TNodeTable>> {
     let state = NestedApplyState {
         stack: vec![(left, right, TNodeTable::VarId::undefined())],
         results: Vec::new(),
-        outer_task_cache: TTaskCache::default(),
-        inner_task_cache: TTaskCache::default(),
+        outer_task_cache: TOuterCache::default(),
+        inner_task_cache: TInnerCache::default(),
         node_table,
         inner_state: InnerApplyState::default(),
     };
@@ -828,13 +862,14 @@ fn nested_apply_any<
     TOuterOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
     TInnerOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
     TTrigger: Fn(TNodeTable::VarId) -> bool,
-    TTaskCache: TaskCacheAny<ResultId = TNodeTable::Id>,
+    TOuterCache: TaskCacheAny<ResultId = TNodeTable::Id>,
+    TInnerCache: TaskCacheAny<ResultId = TNodeTable::Id>,
 >(
     outer_op: TOuterOp,
     inner_op: TInnerOp,
     trigger: TTrigger,
-    state: NestedApplyState<TTaskCache, TNodeTable>,
-) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TTaskCache, TNodeTable>> {
+    state: NestedApplyState<TOuterCache, TInnerCache, TNodeTable>,
+) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TOuterCache, TInnerCache, TNodeTable>> {
     let NestedApplyState {
         mut stack,
         mut results,
@@ -976,7 +1011,14 @@ fn nested_apply_16_bit<
 
     let trigger = |var: VarIdPacked16| variable_set.contains(&var);
 
-    let state = match nested_apply_any_default_state(
+    let state = match nested_apply_any_default_state::<
+        _,
+        _,
+        _,
+        _,
+        TaskCache16<NodeId16>,
+        TaskCache16<NodeId16>,
+    >(
         left,
         right,
         node_table,
@@ -990,7 +1032,7 @@ fn nested_apply_16_bit<
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var.unchecked_into());
 
-    let state = match nested_apply_any(
+    let state = match nested_apply_any::<_, _, _, _, TaskCache16<NodeId32>, TaskCache32<NodeId32>>(
         lift_operator(&outer_op),
         lift_operator(&inner_op),
         trigger,
@@ -1002,13 +1044,14 @@ fn nested_apply_16_bit<
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
 
-    let (root, table) = nested_apply_any(
-        lift_operator(&outer_op),
-        lift_operator(&inner_op),
-        trigger,
-        state.into(),
-    )
-    .expect("64-bit operation failed");
+    let (root, table) =
+        nested_apply_any::<_, _, _, _, TaskCache16<NodeId64>, TaskCache64<NodeId64>>(
+            lift_operator(&outer_op),
+            lift_operator(&inner_op),
+            trigger,
+            state.into(),
+        )
+        .expect("64-bit operation failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
@@ -1028,7 +1071,14 @@ fn nested_apply_32_bit<
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var);
 
-    let state = match nested_apply_any_default_state::<_, _, _, _, TaskCache32<NodeId32>>(
+    let state = match nested_apply_any_default_state::<
+        _,
+        _,
+        _,
+        _,
+        TaskCache32<NodeId32>,
+        TaskCache32<NodeId32>,
+    >(
         left,
         right,
         node_table,
@@ -1042,13 +1092,14 @@ fn nested_apply_32_bit<
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
 
-    let (root, table) = nested_apply_any(
-        lift_operator(&outer_op),
-        lift_operator(&inner_op),
-        trigger,
-        state.into(),
-    )
-    .expect("64-bit operation failed");
+    let (root, table) =
+        nested_apply_any::<_, _, _, _, TaskCache32<NodeId64>, TaskCache64<NodeId64>>(
+            lift_operator(&outer_op),
+            lift_operator(&inner_op),
+            trigger,
+            state.into(),
+        )
+        .expect("64-bit operation failed");
 
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
@@ -1069,15 +1120,16 @@ fn nested_apply_64_bit<
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var);
 
-    let (root, table) = nested_apply_any_default_state::<_, _, _, _, TaskCache64<NodeId64>>(
-        left,
-        right,
-        node_table,
-        lift_operator(outer_op),
-        lift_operator(inner_op),
-        trigger,
-    )
-    .expect("64-bit operation failed");
+    let (root, table) =
+        nested_apply_any_default_state::<_, _, _, _, TaskCache64<NodeId64>, TaskCache64<NodeId64>>(
+            left,
+            right,
+            node_table,
+            lift_operator(outer_op),
+            lift_operator(inner_op),
+            trigger,
+        )
+        .expect("64-bit operation failed");
 
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }

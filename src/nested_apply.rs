@@ -237,26 +237,28 @@ struct NestedApplyState<
     TResultBdd: BddAny,
     TNodeId1,
     TNodeId2,
-    TTaskCache,
+    TOuterCache,
+    TInnerCache,
     TNodeTable: NodeTableAny,
 > {
     stack: Vec<(TNodeId1, TNodeId2, TResultBdd::VarId)>,
     results: Vec<TResultBdd::Id>,
-    outer_task_cache: TTaskCache,
-    inner_task_cache: TTaskCache,
+    outer_task_cache: TOuterCache,
+    inner_task_cache: TInnerCache,
     node_table: TNodeTable,
     inner_state: InnerApplyState<TNodeTable>,
 }
 
 macro_rules! impl_nested_apply_state_conversion {
-    ($from_bdd:ident, $to_bdd:ident, $from_node_table:ident, $to_node_table:ident, $cache:ident) => {
+    ($from_bdd:ident, $to_bdd:ident, $from_node_table:ident, $to_node_table:ident, $outer_cache:ident, $from_inner_cache:ident, $to_inner_cache:ident) => {
         impl<TNodeId1, TNodeId2>
             From<
                 NestedApplyState<
                     $from_bdd,
                     TNodeId1,
                     TNodeId2,
-                    $cache<NodeId<$from_bdd>>,
+                    $outer_cache<NodeId<$from_bdd>>,
+                    $from_inner_cache<NodeId<$from_bdd>>,
                     $from_node_table,
                 >,
             >
@@ -264,7 +266,8 @@ macro_rules! impl_nested_apply_state_conversion {
                 $to_bdd,
                 TNodeId1,
                 TNodeId2,
-                $cache<NodeId<$to_bdd>>,
+                $outer_cache<NodeId<$to_bdd>>,
+                $to_inner_cache<NodeId<$to_bdd>>,
                 $to_node_table,
             >
         {
@@ -273,7 +276,8 @@ macro_rules! impl_nested_apply_state_conversion {
                     $from_bdd,
                     TNodeId1,
                     TNodeId2,
-                    $cache<NodeId<$from_bdd>>,
+                    $outer_cache<NodeId<$from_bdd>>,
+                    $from_inner_cache<NodeId<$from_bdd>>,
                     $from_node_table,
                 >,
             ) -> Self {
@@ -294,9 +298,33 @@ macro_rules! impl_nested_apply_state_conversion {
     };
 }
 
-impl_nested_apply_state_conversion!(Bdd16, Bdd32, NodeTable16, NodeTable32, TaskCache16);
-impl_nested_apply_state_conversion!(Bdd32, Bdd64, NodeTable32, NodeTable64, TaskCache16);
-impl_nested_apply_state_conversion!(Bdd32, Bdd64, NodeTable32, NodeTable64, TaskCache32);
+impl_nested_apply_state_conversion!(
+    Bdd16,
+    Bdd32,
+    NodeTable16,
+    NodeTable32,
+    TaskCache16,
+    TaskCache16,
+    TaskCache32
+);
+impl_nested_apply_state_conversion!(
+    Bdd32,
+    Bdd64,
+    NodeTable32,
+    NodeTable64,
+    TaskCache16,
+    TaskCache32,
+    TaskCache64
+);
+impl_nested_apply_state_conversion!(
+    Bdd32,
+    Bdd64,
+    NodeTable32,
+    NodeTable64,
+    TaskCache32,
+    TaskCache32,
+    TaskCache64
+);
 
 /// Like [`nested_apply_any`], but constructs the initial state necessary to start the computation.
 fn nested_apply_any_default_state<
@@ -306,7 +334,8 @@ fn nested_apply_any_default_state<
     TOuterOp: Fn(TBdd1::Id, TBdd2::Id) -> TResultBdd::Id,
     TInnerOp: Fn(TResultBdd::Id, TResultBdd::Id) -> TResultBdd::Id,
     TTrigger: Fn(TResultBdd::VarId) -> bool,
-    TTaskCache: TaskCacheAny<ResultId = TResultBdd::Id>,
+    TOuterCache: TaskCacheAny<ResultId = TResultBdd::Id>,
+    TInnerCache: TaskCacheAny<ResultId = TResultBdd::Id>,
     TNodeTable: NodeTableAny<Id = TResultBdd::Id, VarId = TResultBdd::VarId, Node = TResultBdd::Node>,
 >(
     left: &TBdd1,
@@ -314,13 +343,15 @@ fn nested_apply_any_default_state<
     outer_op: TOuterOp,
     inner_op: TInnerOp,
     trigger: TTrigger,
-) -> Result<TResultBdd, NestedApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TTaskCache, TNodeTable>>
-{
+) -> Result<
+    TResultBdd,
+    NestedApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TOuterCache, TInnerCache, TNodeTable>,
+> {
     let state = NestedApplyState {
         stack: vec![(left.root(), right.root(), TResultBdd::VarId::undefined())],
         results: Vec::new(),
-        outer_task_cache: TTaskCache::default(),
-        inner_task_cache: TTaskCache::default(),
+        outer_task_cache: TOuterCache::default(),
+        inner_task_cache: TInnerCache::default(),
         node_table: TNodeTable::default(),
         inner_state: InnerApplyState::default(),
     };
@@ -338,7 +369,8 @@ fn nested_apply_any<
     TOuterOp: Fn(TBdd1::Id, TBdd2::Id) -> TResultBdd::Id,
     TInnerOp: Fn(TResultBdd::Id, TResultBdd::Id) -> TResultBdd::Id,
     TTrigger: Fn(TResultBdd::VarId) -> bool,
-    TTaskCache: TaskCacheAny<ResultId = TResultBdd::Id>,
+    TOuterCache: TaskCacheAny<ResultId = TResultBdd::Id>,
+    TInnerCache: TaskCacheAny<ResultId = TResultBdd::Id>,
     TNodeTable: NodeTableAny<Id = TResultBdd::Id, VarId = TResultBdd::VarId, Node = TResultBdd::Node>,
 >(
     left: &TBdd1,
@@ -346,9 +378,11 @@ fn nested_apply_any<
     outer_op: TOuterOp,
     inner_op: TInnerOp,
     trigger: TTrigger,
-    state: NestedApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TTaskCache, TNodeTable>,
-) -> Result<TResultBdd, NestedApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TTaskCache, TNodeTable>>
-{
+    state: NestedApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TOuterCache, TInnerCache, TNodeTable>,
+) -> Result<
+    TResultBdd,
+    NestedApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TOuterCache, TInnerCache, TNodeTable>,
+> {
     let NestedApplyState {
         mut stack,
         mut results,
@@ -499,6 +533,7 @@ fn nested_apply_16_bit_input<
         _,
         _,
         TaskCache16<NodeId16>,
+        TaskCache16<NodeId16>,
         NodeTable16,
     >(
         left,
@@ -513,7 +548,17 @@ fn nested_apply_16_bit_input<
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var.unchecked_into());
 
-    let state = match nested_apply_any::<Bdd32, _, _, _, _, _, TaskCache16<NodeId32>, NodeTable32>(
+    let state = match nested_apply_any::<
+        Bdd32,
+        _,
+        _,
+        _,
+        _,
+        _,
+        TaskCache16<NodeId32>,
+        TaskCache32<NodeId32>,
+        NodeTable32,
+    >(
         left,
         right,
         lift_operator(&outer_op),
@@ -528,7 +573,17 @@ fn nested_apply_16_bit_input<
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
 
     Bdd::Size64(
-        nested_apply_any::<Bdd64, _, _, _, _, _, TaskCache16<NodeId64>, NodeTable64>(
+        nested_apply_any::<
+            Bdd64,
+            _,
+            _,
+            _,
+            _,
+            _,
+            TaskCache16<NodeId64>,
+            TaskCache64<NodeId64>,
+            NodeTable64,
+        >(
             left,
             right,
             lift_operator(outer_op),
@@ -568,6 +623,7 @@ fn nested_apply_32_bit_input<
         _,
         _,
         TaskCache32<NodeId32>,
+        TaskCache32<NodeId32>,
         NodeTable32,
     >(
         left,
@@ -583,7 +639,17 @@ fn nested_apply_32_bit_input<
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
 
     Bdd::Size64(
-        nested_apply_any::<Bdd64, _, _, _, _, _, TaskCache32<NodeId64>, NodeTable64>(
+        nested_apply_any::<
+            Bdd64,
+            _,
+            _,
+            _,
+            _,
+            _,
+            TaskCache32<NodeId64>,
+            TaskCache64<NodeId64>,
+            NodeTable64,
+        >(
             left,
             right,
             lift_operator(&outer_op),
@@ -614,7 +680,17 @@ fn nested_apply_64_bit_input<
     let trigger = |var: VarIdPacked64| variable_set.contains(&var);
 
     Bdd::Size64(
-        nested_apply_any_default_state::<Bdd64, _, _, _, _, _, TaskCache64<NodeId64>, NodeTable64>(
+        nested_apply_any_default_state::<
+            Bdd64,
+            _,
+            _,
+            _,
+            _,
+            _,
+            TaskCache64<NodeId64>,
+            TaskCache64<NodeId64>,
+            NodeTable64,
+        >(
             left,
             right,
             lift_operator(outer_op),
