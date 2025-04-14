@@ -935,5 +935,28 @@ mod tests {
 
         let result = ripple_carry_adder(40);
         assert_eq!(result.node_count(), 229376);
+
+        let result = ripple_carry_adder(42);
+        assert_eq!(result.node_count(), 262144);
+    }
+
+    #[test]
+    fn nested_apply_input_sizes() {
+        for var_a in [1 << 12, 1 << 28, 1u64 << 60] {
+            let var_a = VariableId::new_long(var_a).unwrap();
+            for var_b in [1 << 12, 1 << 28, 1u64 << 60] {
+                let var_b = VariableId::new_long(var_b).unwrap();
+
+                let bdd_a = Bdd::new_literal(var_a, true);
+                let bdd_b = Bdd::new_literal(var_b, true);
+                // Exists a: a | b is a tautology.
+                // Forall a,b: a | b is a contradiction.
+                let exists = Bdd::binary_op_with_exists(&bdd_a, &bdd_b, TriBool::or, &[var_a]);
+                assert!(exists.is_true());
+                let forall =
+                    Bdd::binary_op_with_for_all(&bdd_a, &bdd_b, TriBool::or, &[var_a, var_b]);
+                assert!(forall.is_false());
+            }
+        }
     }
 }
