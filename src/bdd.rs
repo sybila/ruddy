@@ -1,7 +1,7 @@
 //! Defines the representation of (standalone) binary decision diagrams. Includes: [`BddAny`]
 //! and [`Bdd32`].
 
-use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny};
+use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, BddNodeImpl};
 use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
@@ -73,142 +73,127 @@ pub trait BddAny: Debug + Clone {
     unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node;
 }
 
-macro_rules! impl_bdd {
-    ($name:ident, $NodeId:ident, $VarId:ident, $Node:ident) => {
-        impl $name {
-            /// Returns the number of nodes in the BDD, including the terminal nodes.
-            pub fn node_count(&self) -> usize {
-                self.nodes.len()
-            }
+/// A generic implementation of [`BddAny`] using [`BddNodeImpl`]. In addition to
+/// the requirements of the [`BddAny`] trait, this struct also expects the BDD to
+/// be ordered and reduced.
+#[derive(Debug, Clone)]
+pub struct BddImpl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> {
+    root: TNodeId,
+    nodes: Vec<BddNodeImpl<TNodeId, TVarId>>,
+}
 
-            /// Convert the BDD into a raw list of nodes.
-            pub fn into_nodes(self) -> Vec<$Node> {
-                self.nodes
-            }
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
+    /// Returns the number of nodes in the BDD, including the terminal nodes.
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
 
-            /// Calculate a BDD representing the boolean formula `!self` (negation).
-            fn not(&self) -> Self {
-                if self.is_true() {
-                    return Self::new_false();
-                }
-                if self.is_false() {
-                    return Self::new_true();
-                }
-
-                let mut nodes = self.nodes.clone();
-                for node in nodes.iter_mut().skip(2) {
-                    node.low = node.low.flipped_if_terminal();
-                    node.high = node.high.flipped_if_terminal();
-                }
-
-                Self {
-                    root: self.root,
-                    nodes,
-                }
-            }
-
-            /// Compares the two BDDs structurally, i.e. by comparing their roots and the
-            /// underlying lists of nodes.
-            ///
-            /// Note that this does not guarantee that the two BDDs represent the same boolean function,
-            /// unless their nodes are also ordered the same way (which they are, assuming the BDDs were
-            /// created using the same `apply` algorithm).
-            pub fn structural_eq(&self, other: &Self) -> bool {
-                self.root == other.root && self.nodes == other.nodes
-            }
+    /// Calculate a BDD representing the boolean formula `!self` (negation).
+    fn not(&self) -> Self {
+        if self.is_true() {
+            return Self::new_false();
+        }
+        if self.is_false() {
+            return Self::new_true();
         }
 
-        impl BddAny for $name {
-            type Id = $NodeId;
-            type VarId = $VarId;
-            type Node = $Node;
-
-            fn new_true() -> Self {
-                Self {
-                    root: $NodeId::one(),
-                    nodes: vec![$Node::zero(), $Node::one()],
-                }
-            }
-
-            fn new_false() -> Self {
-                Self {
-                    root: $NodeId::zero(),
-                    nodes: vec![$Node::zero()],
-                }
-            }
-
-            fn is_true(&self) -> bool {
-                debug_assert!(self.root.is_one() == (self.nodes.len() == 2));
-                self.root.is_one()
-            }
-
-            fn is_false(&self) -> bool {
-                debug_assert!(self.root.is_zero() == (self.nodes.len() == 1));
-                self.root.is_zero()
-            }
-
-            fn new_literal(var: Self::VarId, value: bool) -> Self {
-                let root = $NodeId::new(2);
-                let node = if value {
-                    $Node::new(var, $NodeId::zero(), $NodeId::one())
-                } else {
-                    $Node::new(var, $NodeId::one(), $NodeId::zero())
-                };
-                Self {
-                    root,
-                    nodes: vec![$Node::zero(), $Node::one(), node],
-                }
-            }
-
-            unsafe fn new_unchecked(root: Self::Id, nodes: Vec<Self::Node>) -> Self {
-                Self { root, nodes }
-            }
-
-            fn root(&self) -> Self::Id {
-                self.root
-            }
-
-            fn get(&self, id: Self::Id) -> Option<&Self::Node> {
-                self.nodes.get(id.as_usize())
-            }
-
-            unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node {
-                debug_assert!(id.as_usize() < self.nodes.len());
-                unsafe { self.nodes.get_unchecked(id.as_usize()) }
-            }
+        let mut nodes = self.nodes.clone();
+        for node in nodes.iter_mut().skip(2) {
+            node.low = node.low.flipped_if_terminal();
+            node.high = node.high.flipped_if_terminal();
         }
-    };
+
+        Self {
+            root: self.root,
+            nodes,
+        }
+    }
+
+    /// Compares the two BDDs structurally, i.e. by comparing their roots and the
+    /// underlying lists of nodes.
+    ///
+    /// Note that this does not guarantee that the two BDDs represent the same boolean function,
+    /// unless their nodes are also ordered the same way (which they are, assuming the BDDs were
+    /// created using the same `apply` algorithm).
+    pub fn structural_eq(&self, other: &Self) -> bool {
+        self.root == other.root && self.nodes == other.nodes
+    }
+
+    /// Convert the BDD into a raw list of nodes.
+    pub fn into_nodes(self) -> Vec<BddNodeImpl<TNodeId, TVarId>> {
+        self.nodes
+    }
+}
+
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddAny for BddImpl<TNodeId, TVarId> {
+    type Id = TNodeId;
+    type VarId = TVarId;
+    type Node = BddNodeImpl<TNodeId, TVarId>;
+
+    fn new_true() -> Self {
+        Self {
+            root: TNodeId::one(),
+            nodes: vec![BddNodeImpl::zero(), BddNodeImpl::one()],
+        }
+    }
+
+    fn new_false() -> Self {
+        Self {
+            root: TNodeId::zero(),
+            nodes: vec![BddNodeImpl::zero()],
+        }
+    }
+
+    fn new_literal(var: Self::VarId, value: bool) -> Self {
+        let node = if value {
+            Self::Node::new(var, TNodeId::zero(), TNodeId::one())
+        } else {
+            Self::Node::new(var, TNodeId::one(), TNodeId::zero())
+        };
+        Self {
+            root: 2usize.unchecked_into(),
+            nodes: vec![Self::Node::zero(), Self::Node::one(), node],
+        }
+    }
+
+    fn is_true(&self) -> bool {
+        debug_assert!(self.root.is_one() == (self.nodes.len() == 2));
+        self.root.is_one()
+    }
+
+    fn is_false(&self) -> bool {
+        debug_assert!(self.root.is_zero() == (self.nodes.len() == 1));
+        self.root.is_zero()
+    }
+
+    unsafe fn new_unchecked(root: Self::Id, nodes: Vec<Self::Node>) -> Self {
+        Self { root, nodes }
+    }
+
+    fn root(&self) -> Self::Id {
+        self.root
+    }
+
+    fn get(&self, id: Self::Id) -> Option<&Self::Node> {
+        self.nodes.get(id.as_usize())
+    }
+
+    unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node {
+        unsafe { self.nodes.get_unchecked(id.as_usize()) }
+    }
 }
 
 /// An implementation of [`BddAny`] using [`BddNode16`]. In addition to the requirements of the
-/// [`BddAny`] trait, this struct also expects the BDD to be ordered and reduced.
-#[derive(Clone, Debug)]
-pub struct Bdd16 {
-    root: NodeId16,
-    nodes: Vec<BddNode16>,
-}
-
-impl_bdd!(Bdd16, NodeId16, VarIdPacked16, BddNode16);
+/// [`BddAny`] trait, this type also expects the BDD to be ordered and reduced.
+pub type Bdd16 = BddImpl<NodeId16, VarIdPacked16>;
 
 /// An implementation of [`BddAny`] using [`BddNode32`]. In addition to the requirements of the
-/// [`BddAny`] trait, this struct also expects the BDD to be ordered and reduced.
-#[derive(Clone, Debug)]
-pub struct Bdd32 {
-    root: NodeId32,
-    nodes: Vec<BddNode32>,
-}
-
-impl_bdd!(Bdd32, NodeId32, VarIdPacked32, BddNode32);
+/// [`BddAny`] trait, this type also expects the BDD to be ordered and reduced.
+pub type Bdd32 = BddImpl<NodeId32, VarIdPacked32>;
 
 /// An implementation of [`BddAny`] using [`BddNode64`]. In addition to the requirements of the
-/// [`BddAny`] trait, this struct also expects the BDD to be ordered and reduced.
-#[derive(Clone, Debug)]
-pub struct Bdd64 {
-    root: NodeId64,
-    nodes: Vec<BddNode64>,
-}
-
-impl_bdd!(Bdd64, NodeId64, VarIdPacked64, BddNode64);
+/// [`BddAny`] trait, this type also expects the BDD to be ordered and reduced.
+pub type Bdd64 = BddImpl<NodeId64, VarIdPacked64>;
 
 /// A trait indicating that the node and variable IDs of the BDD can be upcast
 /// to the node and variable IDs of the BDD specified by the generic type.

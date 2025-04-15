@@ -359,6 +359,10 @@ impl BddOverflowError {
     }
 }
 
+// We use a macro here because it is hard to give a concrete `Cache` type here
+// (as that would require specifying the `THashSize` generic parameter).
+// That is doable by, for example, giving a `Width` associated type to `NodeIdAny`
+// but that seems like overkill for now.
 macro_rules! impl_bdd_operations {
     ($Bdd:ident, $Cache:ident, $Table:ident) => {
         impl $Bdd {

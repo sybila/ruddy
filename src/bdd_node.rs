@@ -88,125 +88,107 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     }
 }
 
-macro_rules! impl_bdd_node {
-    ($name:ident, $NodeId:ident, $VarId:ident) => {
-        impl BddNodeAny for $name {
-            type Id = $NodeId;
-            type VarId = $VarId;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BddNodeImpl<TNodeId, TVarId> {
+    pub variable: TVarId,
+    pub low: TNodeId,
+    pub high: TNodeId,
+}
 
-            fn new(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self {
-                debug_assert!(!variable.is_undefined());
-                debug_assert!(!low.is_undefined());
-                debug_assert!(!high.is_undefined());
-                Self {
-                    variable,
-                    low,
-                    high,
-                }
-            }
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddNodeAny for BddNodeImpl<TNodeId, TVarId> {
+    type Id = TNodeId;
+    type VarId = TVarId;
 
-            fn zero() -> Self {
-                Self {
-                    variable: $VarId::undefined(),
-                    low: $NodeId::zero(),
-                    high: $NodeId::zero(),
-                }
-            }
-
-            fn one() -> Self {
-                Self {
-                    variable: $VarId::undefined(),
-                    low: $NodeId::one(),
-                    high: $NodeId::one(),
-                }
-            }
-
-            fn is_zero(&self) -> bool {
-                self.is_terminal() && self.low.is_zero()
-            }
-
-            fn is_one(&self) -> bool {
-                self.is_terminal() && self.low.is_one()
-            }
-
-            fn is_terminal(&self) -> bool {
-                self.variable.is_undefined()
-            }
-
-            fn low(&self) -> Self::Id {
-                self.low
-            }
-
-            fn low_mut(&mut self) -> &mut Self::Id {
-                &mut self.low
-            }
-
-            fn high(&self) -> Self::Id {
-                self.high
-            }
-
-            fn high_mut(&mut self) -> &mut Self::Id {
-                &mut self.high
-            }
-
-            fn variable(&self) -> Self::VarId {
-                self.variable
-            }
-
-            fn increment_parent_counter(&mut self) {
-                self.variable.increment_parents();
-            }
-
-            fn reset_parent_counter(&mut self) {
-                self.variable = self.variable.reset_parents();
-            }
-
-            fn mark_as_reachable(&mut self, cycle: ReachabilityCycle) {
-                debug_assert!(!self.is_terminal());
-                self.variable.mark_as_reachable(cycle);
-            }
+    fn new(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self {
+        debug_assert!(!variable.is_undefined());
+        debug_assert!(!low.is_undefined());
+        debug_assert!(!high.is_undefined());
+        Self {
+            variable,
+            low,
+            high,
         }
-    };
+    }
+
+    fn zero() -> Self {
+        Self {
+            variable: TVarId::undefined(),
+            low: TNodeId::zero(),
+            high: TNodeId::zero(),
+        }
+    }
+
+    fn one() -> Self {
+        Self {
+            variable: TVarId::undefined(),
+            low: TNodeId::one(),
+            high: TNodeId::one(),
+        }
+    }
+
+    fn is_zero(&self) -> bool {
+        self.is_terminal() && self.low.is_zero()
+    }
+
+    fn is_one(&self) -> bool {
+        self.is_terminal() && self.low.is_one()
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.variable.is_undefined()
+    }
+
+    fn low(&self) -> Self::Id {
+        self.low
+    }
+
+    fn high(&self) -> Self::Id {
+        self.high
+    }
+
+    fn variable(&self) -> Self::VarId {
+        self.variable
+    }
+
+    fn low_mut(&mut self) -> &mut Self::Id {
+        &mut self.low
+    }
+
+    fn high_mut(&mut self) -> &mut Self::Id {
+        &mut self.high
+    }
+
+    fn increment_parent_counter(&mut self) {
+        self.variable.increment_parents();
+    }
+
+    fn reset_parent_counter(&mut self) {
+        self.variable = self.variable.reset_parents();
+    }
+
+    fn mark_as_reachable(&mut self, cycle: ReachabilityCycle) {
+        debug_assert!(!self.is_terminal());
+        self.variable.mark_as_reachable(cycle);
+    }
 }
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId16`] and [`VarIdPacked16`].
 ///
 /// Note that [`VarIdPacked16`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BddNode16 {
-    pub variable: VarIdPacked16,
-    pub low: NodeId16,
-    pub high: NodeId16,
-}
-
-impl_bdd_node!(BddNode16, NodeId16, VarIdPacked16);
+pub type BddNode16 = BddNodeImpl<NodeId16, VarIdPacked16>;
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId32`] and [`VarIdPacked32`].
 ///
 /// Note that [`VarIdPacked32`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BddNode32 {
-    pub variable: VarIdPacked32,
-    pub low: NodeId32,
-    pub high: NodeId32,
-}
-
-impl_bdd_node!(BddNode32, NodeId32, VarIdPacked32);
+pub type BddNode32 = BddNodeImpl<NodeId32, VarIdPacked32>;
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId64`] and [`VarIdPacked64`].
 ///
 /// Note that [`VarIdPacked64`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BddNode64 {
-    pub variable: VarIdPacked64,
-    pub low: NodeId64,
-    pub high: NodeId64,
-}
-
-impl_bdd_node!(BddNode64, NodeId64, VarIdPacked64);
+pub type BddNode64 = BddNodeImpl<NodeId64, VarIdPacked64>;
 
 macro_rules! impl_from {
     ($Small:ident => $Large:ident) => {
