@@ -372,9 +372,9 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCacheAny for TaskCache<THas
     }
 }
 
-pub type TaskCache16<TResultId> = TaskCache<u32, TResultId>;
-pub type TaskCache32<TResultId> = TaskCache<u64, TResultId>;
-pub type TaskCache64<TResultId> = TaskCache<u128, TResultId>;
+pub type TaskCache16<TResultId = NodeId16> = TaskCache<u32, TResultId>;
+pub type TaskCache32<TResultId = NodeId32> = TaskCache<u64, TResultId>;
+pub type TaskCache64<TResultId = NodeId64> = TaskCache<u128, TResultId>;
 
 macro_rules! impl_from_task_cache_no_extension {
     ($from_id:ident, $to_id:ident) => {
