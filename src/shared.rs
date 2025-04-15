@@ -421,7 +421,7 @@ fn not_32_bit(node_table: NodeTable32, root: NodeId32) -> (NodeId, NodeTable) {
 }
 
 fn not_64_bit(node_table: NodeTable64, root: NodeId64) -> (NodeId, NodeTable) {
-    let (root, table) = (not_default_state::<_, TaskCache32<NodeId64>>(node_table, root))
+    let (root, table) = not_default_state::<_, TaskCache32<NodeId64>>(node_table, root)
         .expect("TODO: 64-bit not failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
@@ -768,29 +768,56 @@ struct NestedApplyState<TOuterCache, TInnerCache, TNodeTable: NodeTableAny> {
     inner_state: InnerApplyState<TNodeTable>,
 }
 
-macro_rules! impl_nested_apply_state_conversion {
-    ($from_table:ident, $to_table:ident, $outer_cache:ident, $from_inner_cache:ident, $to_inner_cache:ident) => {
-        impl
-            From<
-                NestedApplyState<
-                    $outer_cache<NodeTableId<$from_table>>,
-                    $from_inner_cache<NodeTableId<$from_table>>,
-                    $from_table,
-                >,
-            >
-            for NestedApplyState<
-                $outer_cache<NodeTableId<$to_table>>,
-                $to_inner_cache<NodeTableId<$to_table>>,
-                $to_table,
-            >
+macro_rules! impl_nested_apply_state_variant {
+    ($variant_name:ident, $constructor:ident, $task_cache:ident, $node_table:ident) => {
+        type $variant_name<TOuterCache = $task_cache> =
+            NestedApplyState<TOuterCache, $task_cache, $node_table>;
+
+        fn $constructor(
+            left: <$node_table as NodeTableAny>::Id,
+            right: <$node_table as NodeTableAny>::Id,
+            node_table: $node_table,
+        ) -> $variant_name {
+            let undefined_var = <$node_table as NodeTableAny>::VarId::undefined();
+            NestedApplyState {
+                stack: vec![(left, right, undefined_var)],
+                results: Vec::new(),
+                outer_task_cache: $task_cache::default(),
+                inner_task_cache: $task_cache::default(),
+                node_table,
+                inner_state: InnerApplyState::default(),
+            }
+        }
+    };
+}
+
+impl_nested_apply_state_variant!(
+    NestedApplyState16,
+    default_state_16,
+    TaskCache16,
+    NodeTable16
+);
+
+impl_nested_apply_state_variant!(
+    NestedApplyState32,
+    default_state_32,
+    TaskCache32,
+    NodeTable32
+);
+
+impl_nested_apply_state_variant!(
+    NestedApplyState64,
+    default_state_64,
+    TaskCache64,
+    NodeTable64
+);
+
+macro_rules! impl_nested_apply_state_conversion_simple {
+    ($from_variant:ident, $to_variant:ident) => {
+        impl<TCacheIn, TCacheOut: From<TCacheIn>> From<$from_variant<TCacheIn>>
+            for $to_variant<TCacheOut>
         {
-            fn from(
-                state: NestedApplyState<
-                    $outer_cache<NodeTableId<$from_table>>,
-                    $from_inner_cache<NodeTableId<$from_table>>,
-                    $from_table,
-                >,
-            ) -> Self {
+            fn from(state: $from_variant<TCacheIn>) -> Self {
                 Self {
                     stack: state
                         .stack
@@ -808,59 +835,13 @@ macro_rules! impl_nested_apply_state_conversion {
     };
 }
 
-impl_nested_apply_state_conversion!(
-    NodeTable16,
-    NodeTable32,
-    TaskCache16,
-    TaskCache16,
-    TaskCache32
-);
-impl_nested_apply_state_conversion!(
-    NodeTable32,
-    NodeTable64,
-    TaskCache16,
-    TaskCache32,
-    TaskCache64
-);
-impl_nested_apply_state_conversion!(
-    NodeTable32,
-    NodeTable64,
-    TaskCache32,
-    TaskCache32,
-    TaskCache64
-);
-
-fn nested_apply_any_default_state<
-    TNodeTable: NodeTableAny,
-    TOuterOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
-    TInnerOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
-    TTrigger: Fn(TNodeTable::VarId) -> bool,
-    TOuterCache: TaskCacheAny<ResultId = TNodeTable::Id>,
-    TInnerCache: TaskCacheAny<ResultId = TNodeTable::Id>,
->(
-    left: TNodeTable::Id,
-    right: TNodeTable::Id,
-    node_table: TNodeTable,
-    outer_op: TOuterOp,
-    inner_op: TInnerOp,
-    trigger: TTrigger,
-) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TOuterCache, TInnerCache, TNodeTable>> {
-    let state = NestedApplyState {
-        stack: vec![(left, right, TNodeTable::VarId::undefined())],
-        results: Vec::new(),
-        outer_task_cache: TOuterCache::default(),
-        inner_task_cache: TInnerCache::default(),
-        node_table,
-        inner_state: InnerApplyState::default(),
-    };
-
-    nested_apply_any(outer_op, inner_op, trigger, state)
-}
+impl_nested_apply_state_conversion_simple!(NestedApplyState16, NestedApplyState32);
+impl_nested_apply_state_conversion_simple!(NestedApplyState32, NestedApplyState64);
 
 fn nested_apply_any<
     TNodeTable: NodeTableAny,
-    TOuterOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
-    TInnerOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
+    TOuterOp: Fn(TriBool, TriBool) -> TriBool,
+    TInnerOp: Fn(TriBool, TriBool) -> TriBool,
     TTrigger: Fn(TNodeTable::VarId) -> bool,
     TOuterCache: TaskCacheAny<ResultId = TNodeTable::Id>,
     TInnerCache: TaskCacheAny<ResultId = TNodeTable::Id>,
@@ -870,6 +851,9 @@ fn nested_apply_any<
     trigger: TTrigger,
     state: NestedApplyState<TOuterCache, TInnerCache, TNodeTable>,
 ) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TOuterCache, TInnerCache, TNodeTable>> {
+    let outer_op = lift_operator::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id, _>(&outer_op);
+    let inner_op = lift_operator::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id, _>(&inner_op);
+
     let NestedApplyState {
         mut stack,
         mut results,
@@ -1010,49 +994,28 @@ fn nested_apply_16_bit<
         FxHashSet::from_iter(variables.iter().map(|&v| v.unchecked_into()));
 
     let trigger = |var: VarIdPacked16| variable_set.contains(&var);
-
-    let state = match nested_apply_any_default_state::<
-        _,
-        _,
-        _,
-        _,
-        TaskCache16<NodeId16>,
-        TaskCache16<NodeId16>,
-    >(
-        left,
-        right,
-        node_table,
-        lift_operator(&outer_op),
-        lift_operator(&inner_op),
-        trigger,
-    ) {
+    let state = default_state_16(left, right, node_table);
+    let result_16 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let state = match result_16 {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size16(table)),
         Err(state) => state,
     };
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var.unchecked_into());
-
-    let state = match nested_apply_any::<_, _, _, _, TaskCache16<NodeId32>, TaskCache32<NodeId32>>(
-        lift_operator(&outer_op),
-        lift_operator(&inner_op),
-        trigger,
-        state.into(),
-    ) {
+    let state: NestedApplyState32<TaskCache16<NodeId32>> = state.into();
+    let result_32 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let state = match result_32 {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
         Err(state) => state,
     };
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
-
-    let (root, table) =
-        nested_apply_any::<_, _, _, _, TaskCache16<NodeId64>, TaskCache64<NodeId64>>(
-            lift_operator(&outer_op),
-            lift_operator(&inner_op),
-            trigger,
-            state.into(),
-        )
-        .expect("64-bit operation failed");
-    (NodeId::unchecked_from(root), NodeTable::Size64(table))
+    let state: NestedApplyState64<TaskCache16<NodeId64>> = state.into();
+    let result_64 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    match result_64 {
+        Ok((root, table)) => (NodeId::unchecked_from(root), NodeTable::Size64(table)),
+        Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
+    }
 }
 
 fn nested_apply_32_bit<
@@ -1070,38 +1033,20 @@ fn nested_apply_32_bit<
         FxHashSet::from_iter(variables.iter().map(|&v| v.unchecked_into()));
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var);
-
-    let state = match nested_apply_any_default_state::<
-        _,
-        _,
-        _,
-        _,
-        TaskCache32<NodeId32>,
-        TaskCache32<NodeId32>,
-    >(
-        left,
-        right,
-        node_table,
-        lift_operator(&outer_op),
-        lift_operator(&inner_op),
-        trigger,
-    ) {
+    let state = default_state_32(left, right, node_table);
+    let result_32 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let state = match result_32 {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
         Err(state) => state,
     };
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
-
-    let (root, table) =
-        nested_apply_any::<_, _, _, _, TaskCache32<NodeId64>, TaskCache64<NodeId64>>(
-            lift_operator(&outer_op),
-            lift_operator(&inner_op),
-            trigger,
-            state.into(),
-        )
-        .expect("64-bit operation failed");
-
-    (NodeId::unchecked_from(root), NodeTable::Size64(table))
+    let state: NestedApplyState64<TaskCache32<NodeId64>> = state.into();
+    let result_64 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    match result_64 {
+        Ok((root, table)) => (NodeId::unchecked_from(root), NodeTable::Size64(table)),
+        Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
+    }
 }
 
 fn nested_apply_64_bit<
@@ -1119,19 +1064,12 @@ fn nested_apply_64_bit<
         FxHashSet::from_iter(variables.iter().map(|&v| v.unchecked_into()));
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var);
-
-    let (root, table) =
-        nested_apply_any_default_state::<_, _, _, _, TaskCache64<NodeId64>, TaskCache64<NodeId64>>(
-            left,
-            right,
-            node_table,
-            lift_operator(outer_op),
-            lift_operator(inner_op),
-            trigger,
-        )
-        .expect("64-bit operation failed");
-
-    (NodeId::unchecked_from(root), NodeTable::Size64(table))
+    let state = default_state_64(left, right, node_table);
+    let result_64 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    match result_64 {
+        Ok((root, table)) => (NodeId::unchecked_from(root), NodeTable::Size64(table)),
+        Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
+    }
 }
 #[cfg(test)]
 mod tests {
