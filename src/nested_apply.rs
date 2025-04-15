@@ -876,14 +876,14 @@ mod tests {
         let high16 = Bdd::new_literal(v_high16, true);
         let high32 = Bdd::new_literal(v_high32, true);
 
-        // Create more complex bdds
+        // Create more complex BDDs
         let e1 = x1.implies(&x2).and(&x3.xor(&x4.iff(&x5)));
-        let e2 = (x1.and(&x2).or(&x3)).xor(&(x4.and(&x5))).and(&high16);
-        let e3 = (x3.implies(&x4).or(&x5)).iff(&(x1.or(&x2))).and(&high32);
+        let e2 = x1.and(&x2).or(&x3).xor(&(x4.and(&x5))).and(&high16);
+        let e3 = x3.implies(&x4).or(&x5).iff(&(x1.or(&x2))).and(&high32);
 
-        let nested_and = |b1: &Bdd, b2: &Bdd| (b1.binary_op_with_exists(b2, TriBool::and, &[]));
+        let nested_and = |b1: &Bdd, b2: &Bdd| b1.binary_op_with_exists(b2, TriBool::and, &[]);
 
-        let nested_iff = |b1: &Bdd, b2: &Bdd| (b1.binary_op_with_for_all(b2, TriBool::iff, &[]));
+        let nested_iff = |b1: &Bdd, b2: &Bdd| b1.binary_op_with_for_all(b2, TriBool::iff, &[]);
 
         let result1 = nested_and(&e1, &e2);
         let result2 = e1.and(&e2);
@@ -897,7 +897,7 @@ mod tests {
 
     #[test]
     fn nested_apply_growth_test() {
-        // This is the same test as implemented for shared BDDs, but with stanalone ones.
+        // This is the same test as implemented for shared BDDs, but with standalone ones.
 
         fn ripple_carry_adder(num_vars: u32) -> Bdd {
             let mut result = Bdd::new_false();
