@@ -518,6 +518,16 @@ impl NodeId {
     pub(crate) fn fits_in_node_id32(self) -> bool {
         self.0 <= NodeId32::MAX_ID.into()
     }
+
+    /// Returns `true` if this node corresponds to [NodeId::one].
+    pub(crate) fn is_one(&self) -> bool {
+        self.0 == 1
+    }
+
+    /// Returns `true` if this node corresponds to [NodeId::zero].
+    pub(crate) fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
 }
 
 impl fmt::Display for NodeId {

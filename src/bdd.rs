@@ -174,6 +174,7 @@ macro_rules! impl_bdd {
             }
 
             unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node {
+                debug_assert!(id.as_usize() < self.nodes.len());
                 unsafe { self.nodes.get_unchecked(id.as_usize()) }
             }
         }
@@ -298,6 +299,24 @@ impl Bdd {
             Bdd::Size16(bdd) => Bdd::Size16(bdd.not()),
             Bdd::Size32(bdd) => Bdd::Size32(bdd.not()),
             Bdd::Size64(bdd) => Bdd::Size64(bdd.not()),
+        }
+    }
+
+    /// Returns `true` if the BDD represents the constant boolean function `true`.
+    pub fn is_true(&self) -> bool {
+        match self {
+            Bdd::Size16(bdd) => bdd.is_true(),
+            Bdd::Size32(bdd) => bdd.is_true(),
+            Bdd::Size64(bdd) => bdd.is_true(),
+        }
+    }
+
+    /// Returns `true` if the BDD represents the constant boolean function `false`.
+    pub fn is_false(&self) -> bool {
+        match self {
+            Bdd::Size16(bdd) => bdd.is_false(),
+            Bdd::Size32(bdd) => bdd.is_false(),
+            Bdd::Size64(bdd) => bdd.is_false(),
         }
     }
 
@@ -691,5 +710,26 @@ mod tests {
     fn bdd_cannot_shrink() {
         let bdd64 = Bdd::new_literal(VariableId::new_long(1u64 << 48).unwrap(), true);
         assert!(bdd64.clone().shrink().structural_eq(&bdd64));
+    }
+
+    #[test]
+    fn bdd_constants() {
+        let bdd_true = Bdd::new_true();
+        let bdd_false = Bdd::new_false();
+        assert!(bdd_true.is_true() && !bdd_true.is_false());
+        assert!(bdd_false.is_false() && !bdd_false.is_true());
+
+        // There is no "normal" way to build 32-bit and 64-bit constant BDD,
+        // but in theory they are valid BDDs, they are just not "reduced" properly.
+
+        let true_32 = Bdd::Size32(Bdd32::new_true());
+        let false_32 = Bdd::Size32(Bdd32::new_false());
+        assert!(true_32.is_true() && !true_32.is_false());
+        assert!(false_32.is_false() && !false_32.is_true());
+
+        let true_64 = Bdd::Size64(Bdd64::new_true());
+        let false_64 = Bdd::Size64(Bdd64::new_false());
+        assert!(true_64.is_true() && !true_64.is_false());
+        assert!(false_64.is_false() && !false_64.is_true());
     }
 }

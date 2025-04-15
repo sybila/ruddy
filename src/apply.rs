@@ -3,13 +3,12 @@
 
 #![allow(clippy::type_complexity)]
 
-use std::fmt::Display;
+use std::{fmt::Display, vec};
 
 use crate::{
     bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     bdd_node::BddNodeAny,
-    boolean_operators,
-    boolean_operators::{lift_operator, TriBool},
+    boolean_operators::{self, lift_operator, TriBool},
     node_id::{NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
@@ -46,7 +45,7 @@ pub(crate) fn apply_16_bit_input<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
     )
 }
 
-/// Like [`apply_any_default_state`], but specifically at most 32-bit wide BDDs.
+/// Like [`apply_any_default_state`], but specifically for at most 32-bit wide BDDs.
 ///
 /// The function automatically grows the BDD to 64 bits if the result does not fit.
 pub(crate) fn apply_32_bit_input<
