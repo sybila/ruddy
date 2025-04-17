@@ -1103,6 +1103,43 @@ mod tests {
         let _id: VarIdPacked32 = id.unchecked_into();
     }
 
+    #[test]
+    fn debug_formatting_variable_id() {
+        let mut id = VarIdPacked16::new(10);
+        id.set_use_cache(true);
+        id.increment_parents();
+        id.increment_parents();
+        assert_eq!(
+            format!("{:?}", id),
+            "VarIdPacked16(id=10,cache=true,parents=11)"
+        );
+        let mut id = VarIdPacked32::new(10);
+        id.set_use_cache(true);
+        id.increment_parents();
+        id.increment_parents();
+        assert_eq!(
+            format!("{:?}", id),
+            "VarIdPacked32(id=10,cache=true,parents=11)"
+        );
+        let mut id = VarIdPacked64::new(10);
+        id.set_use_cache(true);
+        id.increment_parents();
+        id.increment_parents();
+        assert_eq!(
+            format!("{:?}", id),
+            "VarIdPacked64(id=10,cache=true,parents=11)"
+        );
+
+        let undef = VarIdPacked16::undefined();
+        assert_eq!(format!("{:?}", undef), "VarIdPacked16(undefined)");
+
+        let undef = VarIdPacked32::undefined();
+        assert_eq!(format!("{:?}", undef), "VarIdPacked32(undefined)");
+
+        let undef = VarIdPacked64::undefined();
+        assert_eq!(format!("{:?}", undef), "VarIdPacked64(undefined)");
+    }
+
     macro_rules! test_packed_id_reachability {
         ($func:ident, $VarId:ident) => {
             #[test]
