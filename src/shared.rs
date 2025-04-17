@@ -125,6 +125,8 @@ impl BddManager {
     }
 
     pub fn new_bdd_literal(&mut self, variable: VariableId, value: bool) -> Bdd {
+        self.maybe_collect_garbage();
+
         match &self.unique_table {
             NodeTable::Size16(_) if variable.fits_only_in_packed64() => {
                 self.grow_to_64();
@@ -166,7 +168,6 @@ impl BddManager {
         let bdd = Bdd::new(root);
         self.roots.push(bdd.root_weak());
 
-        self.maybe_collect_garbage();
         bdd
     }
 
@@ -199,6 +200,8 @@ impl BddManager {
         right: &Bdd,
         operator: TTriBoolOp,
     ) -> Bdd {
+        self.maybe_collect_garbage();
+
         let mut bdd_root = NodeId::undefined();
 
         replace_with_or_default(&mut self.unique_table, |table| match table {
@@ -239,7 +242,6 @@ impl BddManager {
         let bdd = Bdd::new(bdd_root);
         self.roots.push(bdd.root_weak());
 
-        self.maybe_collect_garbage();
         bdd
     }
 
@@ -270,6 +272,8 @@ impl BddManager {
 
     /// Calculate a [`Bdd`] representing the boolean formula `!bdd` (negation).
     pub fn not(&mut self, bdd: &Bdd) -> Bdd {
+        self.maybe_collect_garbage();
+
         let mut bdd_root = NodeId::undefined();
 
         replace_with_or_default(&mut self.unique_table, |table| match table {
@@ -295,7 +299,6 @@ impl BddManager {
         let bdd = Bdd::new(bdd_root);
         self.roots.push(bdd.root_weak());
 
-        self.maybe_collect_garbage();
         bdd
     }
 
@@ -310,6 +313,8 @@ impl BddManager {
         inner_op: TTriboolOp2,
         variables: &[VariableId],
     ) -> Bdd {
+        self.maybe_collect_garbage();
+
         let mut bdd_root = NodeId::undefined();
 
         replace_with_or_default(&mut self.unique_table, |table| match table {
@@ -356,7 +361,6 @@ impl BddManager {
         let bdd = Bdd::new(bdd_root);
         self.roots.push(bdd.root_weak());
 
-        self.maybe_collect_garbage();
         bdd
     }
 
