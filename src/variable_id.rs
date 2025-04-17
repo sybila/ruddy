@@ -1,15 +1,15 @@
 //! Defines the representation of variable identifiers. Includes: [`VarIdPackedAny`],
 //! [`VarIdPacked16`], [`VarIdPacked32`], and [`VarIdPacked64`].
 
+use crate::{
+    conversion::{UncheckedFrom, UncheckedInto},
+    node_table::ReachabilityCycle,
+};
+use std::fmt::Formatter;
 use std::{
     convert::TryFrom,
     fmt::{self, Debug},
     hash::Hash,
-};
-
-use crate::{
-    conversion::{UncheckedFrom, UncheckedInto},
-    node_table::ReachabilityCycle,
 };
 
 /// An internal trait implemented by types that can serve as BDD variable identifiers within
@@ -112,8 +112,24 @@ pub trait VarIdPackedAny:
 /// Note that the "packed metadata" is ignored when comparing variable IDs using `Eq`,
 /// `Ord` or `Hash`.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct VarIdPacked16(u16);
+
+impl Debug for VarIdPacked16 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.is_undefined() {
+            write!(f, "VarIdPacked16(undefined)")
+        } else {
+            write!(
+                f,
+                "VarIdPacked16(id={},cache={},parents={:b})",
+                self.unpack(),
+                self.use_cache(),
+                self.0 & 0b11
+            )
+        }
+    }
+}
 
 impl VarIdPacked16 {
     /// The largest variable ID that can be safely represented by [`VarIdPacked16`].
@@ -190,8 +206,24 @@ impl VarIdPacked16 {
 /// Note that the "packed metadata" is ignored when comparing variable IDs using `Eq`,
 /// `Ord` or `Hash`.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct VarIdPacked32(u32);
+
+impl Debug for VarIdPacked32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.is_undefined() {
+            write!(f, "VarIdPacked32(undefined)")
+        } else {
+            write!(
+                f,
+                "VarIdPacked32(id={},cache={},parents={:b})",
+                self.unpack(),
+                self.use_cache(),
+                self.0 & 0b11
+            )
+        }
+    }
+}
 
 impl VarIdPacked32 {
     /// The largest variable ID that can be safely represented by [`VarIdPacked32`].
@@ -273,8 +305,24 @@ impl VarIdPacked32 {
 /// Note that the "packed metadata" is ignored when comparing variable IDs using `Eq`,
 /// `Ord` or `Hash`.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct VarIdPacked64(u64);
+
+impl Debug for VarIdPacked64 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.is_undefined() {
+            write!(f, "VarIdPacked64(undefined)")
+        } else {
+            write!(
+                f,
+                "VarIdPacked64(id={},cache={},parents={:b})",
+                self.unpack(),
+                self.use_cache(),
+                self.0 & 0b11
+            )
+        }
+    }
+}
 
 impl VarIdPacked64 {
     /// The largest variable ID that can be safely represented by [`VarIdPacked64`].
