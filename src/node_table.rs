@@ -562,6 +562,9 @@ where
     ///
     /// This method should not be used to "create" terminal nodes, i.e. it must hold that
     /// `variable != VarId::undefined`.
+    // This method is currently not used, but could be useful in
+    // the future, so let\s not remove it.
+    #[allow(unused)]
     pub(crate) fn ensure_literal(
         &mut self,
         variable: TVarId,
