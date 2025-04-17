@@ -20,5 +20,4 @@ unnecessary_cast = "warn"
 
 [dependencies]
 replace_with = "0.1.7"
-biodivine-lib-bdd = "0.5.23"
 rustc-hash = "2.1.1"
