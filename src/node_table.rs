@@ -1,11 +1,6 @@
 //! Defines the representation of node tables (used to represent BDDs). Includes: [`NodeTableAny`],
 //! [`NodeTableImpl`], [`NodeTable16`], [`NodeTable32`], and [`NodeTable64`].
 //!
-use std::cell::Cell;
-use std::cmp::{max, min};
-use std::fmt;
-use std::rc::Weak;
-
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
 use crate::{
@@ -15,6 +10,12 @@ use crate::{
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny},
 };
 use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
+use rustc_hash::{FxBuildHasher, FxHashSet};
+use std::cell::Cell;
+use std::cmp::{max, min};
+use std::collections::HashSet;
+use std::fmt;
+use std::rc::Weak;
 
 /// The `NodeTableAny` is a data structure that enforces uniqueness of BDD nodes created
 /// during the BDD construction process.
@@ -67,6 +68,22 @@ pub trait NodeTableAny: Default {
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
     unsafe fn into_bdd<TBdd: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>>(
+        self,
+        root: Self::Id,
+    ) -> TBdd;
+
+    /// Create a new [`BddAny`] from `self` rooted in `root`. The conversion preserves
+    /// only the nodes that are reachable from the root node.
+    ///
+    /// ## Safety
+    ///
+    /// Similar to [`BddAny::new_unchecked`], this function is unsafe, because it can be used to
+    /// create an invariant-breaking BDD. While [`NodeTableAny`] cannot be used (under normal
+    /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
+    /// broken variable ordering.
+    unsafe fn into_reachable_bdd<
+        TBdd: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
+    >(
         self,
         root: Self::Id,
     ) -> TBdd;
@@ -556,6 +573,40 @@ where
             self.ensure_node(variable, TNodeId::one(), TNodeId::zero())
         }
     }
+
+    /// Compute the number of nodes that are reachable from the given `root` node. This
+    /// is not very useful for standalone BDDs, but it is used often to compute BDD size
+    /// for shared BDDs.
+    pub(crate) fn reachable_node_count(&self, root: TNodeId) -> usize {
+        debug_assert!(!root.is_undefined());
+
+        // Ensure that the root exists. Transitively, everything reachable from root
+        // also exists and we can safely avoid bounds checks.
+        assert!(self.get_entry(root).is_some());
+
+        if root.is_zero() {
+            return 1;
+        }
+        if root.is_one() {
+            return 2;
+        }
+
+        let mut stack = vec![root];
+        let mut visited: FxHashSet<TNodeId> =
+            HashSet::with_capacity_and_hasher(1024, FxBuildHasher);
+
+        while let Some(node) = stack.pop() {
+            if node.is_terminal() || visited.contains(&node) {
+                continue;
+            }
+            visited.insert(node);
+            let entry = unsafe { self.get_entry_unchecked(node) };
+            stack.push(entry.node.high());
+            stack.push(entry.node.low());
+        }
+
+        visited.len() + 2 // plus two terminal nodes...
+    }
 }
 
 impl<
@@ -901,6 +952,87 @@ impl<
         }
         let nodes = self.entries.into_iter().map(|entry| entry.node).collect();
         unsafe { TBdd::new_unchecked(root, nodes) }
+    }
+
+    unsafe fn into_reachable_bdd<
+        TBdd: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
+    >(
+        mut self,
+        root: Self::Id,
+    ) -> TBdd {
+        // Zero and one have special cases to always ensure that they are structurally equivalent
+        // to the result of [`BddAny::new_false`]/[`BddAny::new_true`], regardless of what's in the
+        // provided node table.
+        if root.is_zero() {
+            return TBdd::new_false();
+        }
+        if root.is_one() {
+            return TBdd::new_true();
+        }
+
+        let mut result = vec![TNode::zero(), TNode::one()];
+        let mut stack = vec![root];
+
+        // After the flip, all of the reachable nodes will be marked as unreachable for the cycle.
+        let next_cycle = self.cycle.flipped();
+        self.cycle = next_cycle;
+
+        // `0` and `1` have correct translations.
+        unsafe {
+            let zero = self.get_entry_unchecked_mut(TNodeId::zero());
+            zero.parent = TNodeId::zero();
+
+            let one = self.get_entry_unchecked_mut(TNodeId::one());
+            one.parent = TNodeId::one();
+        }
+
+        while let Some(id) = stack.pop() {
+            let node = unsafe { self.get_node_unchecked(id) };
+            if node.is_reachable(next_cycle) {
+                continue;
+            }
+
+            let low = node.low();
+            let high = node.high();
+            let variable = node.variable();
+
+            let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
+            let low_is_translated = low_entry.node.is_reachable(next_cycle);
+            let new_low = low_entry.parent;
+
+            let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
+            let high_is_translated = high_entry.node.is_reachable(next_cycle);
+            let new_high = high_entry.parent;
+
+            if low_is_translated && high_is_translated {
+                result.push(TNode::new(variable.reset(), new_low, new_high));
+                unsafe {
+                    result
+                        .get_unchecked_mut(new_low.as_usize())
+                        .increment_parent_counter();
+                    result
+                        .get_unchecked_mut(new_high.as_usize())
+                        .increment_parent_counter();
+                }
+                let entry = unsafe { self.get_entry_unchecked_mut(id) };
+                entry.parent = (result.len() - 1).unchecked_into();
+                entry.node.mark_as_reachable(next_cycle);
+                continue;
+            }
+
+            stack.push(id);
+
+            if !high_is_translated {
+                stack.push(high);
+            }
+
+            if !low_is_translated {
+                stack.push(low);
+            }
+        }
+
+        let new_root = unsafe { self.get_entry_unchecked_mut(root) }.parent;
+        unsafe { TBdd::new_unchecked(new_root, result) }
     }
 }
 
@@ -1365,7 +1497,8 @@ mod tests {
     use std::cell::Cell;
     use std::rc::{Rc, Weak};
 
-    use crate::bdd_node::BddNodeAny;
+    use crate::bdd::{Bdd32, BddAny};
+    use crate::bdd_node::{BddNode32, BddNodeAny};
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeIdAny};
     use crate::node_table::{
@@ -2738,5 +2871,46 @@ mod tests {
         assert_ne!(new_table.cycle, expected.cycle);
         new_table.cycle = new_table.cycle.flipped();
         assert_eq!(new_table, expected);
+    }
+
+    #[test]
+    fn into_reachable_bdd() {
+        // Manually create a very broken bdd (not in post-order, with nodes
+        // not in the bdd inbetween nodes in the bdd) inside the node table.
+        // bdd: v1 or !v2 or v3 or v4
+        // the nodes are organized as: 0, 1, v4, vi1, vi2, v1, vi3, v2, v3
+        let mut table = NodeTable32::new();
+
+        let v1 = VarIdPacked32::new(1);
+        let v2 = VarIdPacked32::new(2);
+        let v3 = VarIdPacked32::new(3);
+        let v4 = VarIdPacked32::new(4);
+
+        let vi1 = VarIdPacked32::new(10);
+        let vi2 = VarIdPacked32::new(11);
+        let vi3 = VarIdPacked32::new(12);
+
+        let n: Vec<NodeId32> = (0..9).map(NodeId32::new).collect();
+
+        table.entries.push(BddNode32::new(v4, n[0], n[1]).into());
+        table.entries.push(BddNode32::new(vi1, n[0], n[4]).into());
+        table.entries.push(BddNode32::new(vi2, n[6], n[0]).into());
+        table.entries.push(BddNode32::new(v1, n[7], n[1]).into());
+        table.entries.push(BddNode32::new(vi3, n[1], n[0]).into());
+        table.entries.push(BddNode32::new(v2, n[1], n[8]).into());
+        table.entries.push(BddNode32::new(v3, n[2], n[1]).into());
+
+        let b1 = Bdd32::new_literal(v1, true);
+        let b2 = Bdd32::new_literal(v2, false);
+        let b3 = Bdd32::new_literal(v3, true);
+        let b4 = Bdd32::new_literal(v4, true);
+
+        let expected = b1.or(&b2).unwrap().or(&b3).unwrap().or(&b4).unwrap();
+
+        let result: Bdd32 = unsafe { table.into_reachable_bdd(n[5]) };
+
+        assert_eq!(result.node_count(), expected.node_count());
+        assert!(result.iff(&expected).unwrap().is_true());
+        assert!(expected.structural_eq(&result));
     }
 }
