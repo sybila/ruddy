@@ -8,7 +8,6 @@ use crate::{
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId},
 };
-use std::collections::HashMap;
 use std::{
     cell::Cell,
     rc::{Rc, Weak},
@@ -17,7 +16,7 @@ use std::{
 use crate::node_table::GarbageCollector;
 
 use replace_with::replace_with_or_default;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum GarbageCollection {
@@ -125,7 +124,7 @@ impl BddManager {
     }
 
     pub fn import_standalone(&mut self, bdd: &crate::bdd::Bdd) -> Bdd {
-        let mut equivalent: HashMap<NodeId, Bdd> = HashMap::new();
+        let mut equivalent: FxHashMap<NodeId, Bdd> = FxHashMap::default();
         equivalent.insert(NodeId::zero(), self.new_bdd_false());
         equivalent.insert(NodeId::one(), self.new_bdd_true());
         let root = bdd.root();
@@ -137,7 +136,12 @@ impl BddManager {
             let high_replica = equivalent.get(&high);
             match (low_replica, high_replica) {
                 (Some(low_replica), Some(high_replica)) => {
-                    let node_replica = self.if_then_else(variable, low_replica, high_replica);
+                    let node_replica = self.if_then_else_internal(
+                        variable,
+                        high_replica,
+                        low_replica,
+                        node == root,
+                    );
                     equivalent.insert(node, node_replica);
                 }
                 _ => {
@@ -155,6 +159,16 @@ impl BddManager {
     }
 
     pub fn if_then_else(&mut self, condition: VariableId, then: &Bdd, else_: &Bdd) -> Bdd {
+        self.if_then_else_internal(condition, then, else_, true)
+    }
+
+    fn if_then_else_internal(
+        &mut self,
+        condition: VariableId,
+        then: &Bdd,
+        else_: &Bdd,
+        is_root: bool,
+    ) -> Bdd {
         match &self.unique_table {
             NodeTable::Size16(_) if condition.fits_only_in_packed64() => {
                 self.grow_to_64();
@@ -206,7 +220,12 @@ impl BddManager {
         };
 
         let bdd = Bdd::new(root);
-        self.roots.push(bdd.root_weak());
+        if is_root {
+            // If the created BDD node is a root, we have to save it into the internal pool.
+            // This is not always required though, especially when we are creating nodes
+            // for internal purposes.
+            self.roots.push(bdd.root_weak());
+        }
 
         self.maybe_collect_garbage();
         bdd
@@ -1695,5 +1714,21 @@ pub mod tests {
 
         let result = ripple_carry_adder_with_projection(&mut manager, 40);
         assert_eq!(manager.node_count(&result), 229376);
+    }
+
+    #[test]
+    fn standalone_import() {
+        let bdd_a = crate::apply::tests::ripple_carry_adder(24).unwrap();
+        let bdd_a = crate::bdd::Bdd::Size16(bdd_a);
+
+        let mut manager = BddManager::no_gc();
+        let imported = manager.import_standalone(&bdd_a);
+        // First, check that the created BDD will survive GC (i.e., the root is correctly set).
+        manager.collect_garbage();
+        let op_test = manager.and(&imported, &imported);
+        assert_eq!(op_test, imported);
+
+        let expected = ripple_carry_adder(&mut manager, 24);
+        assert_eq!(expected, imported);
     }
 }
