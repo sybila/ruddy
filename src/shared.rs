@@ -1122,7 +1122,7 @@ fn nested_apply_64_bit<
     }
 }
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::{
         node_id::{NodeId32, NodeId64, NodeIdAny},
@@ -1639,6 +1639,17 @@ mod tests {
         }
     }
 
+    pub fn ripple_carry_adder(manager: &mut BddManager, num_vars: u32) -> Bdd {
+        let mut result = manager.new_bdd_false();
+        for x in 0..(num_vars / 2) {
+            let x1 = manager.new_bdd_literal(VariableId::new(x), true);
+            let x2 = manager.new_bdd_literal(VariableId::new(x + num_vars / 2), true);
+            let and = manager.and(&x1, &x2);
+            result = manager.or(&result, &and);
+        }
+        result
+    }
+
     #[test]
     fn nested_apply_growth_test() {
         // Should test that the manager can reuse state when the data structures need to grow
@@ -1646,7 +1657,7 @@ mod tests {
         // normal BDD tests. This is not particularly relevant for nested apply operations,
         // but we just need to test that the growth phase actually completes successfully.
 
-        fn ripple_carry_adder(manager: &mut BddManager, num_vars: u32) -> Bdd {
+        pub fn ripple_carry_adder_with_projection(manager: &mut BddManager, num_vars: u32) -> Bdd {
             let mut result = manager.new_bdd_false();
             for x in 0..(num_vars / 2) {
                 let x1 = manager.new_bdd_literal(VariableId::new(x), true);
@@ -1667,22 +1678,22 @@ mod tests {
 
         let mut manager = BddManager::no_gc();
 
-        let result = ripple_carry_adder(&mut manager, 4);
+        let result = ripple_carry_adder_with_projection(&mut manager, 4);
         assert_eq!(manager.node_count(&result), 6);
 
-        let result = ripple_carry_adder(&mut manager, 8);
+        let result = ripple_carry_adder_with_projection(&mut manager, 8);
         assert_eq!(manager.node_count(&result), 24);
 
-        let result = ripple_carry_adder(&mut manager, 16);
+        let result = ripple_carry_adder_with_projection(&mut manager, 16);
         assert_eq!(manager.node_count(&result), 256);
 
-        let result = ripple_carry_adder(&mut manager, 24);
+        let result = ripple_carry_adder_with_projection(&mut manager, 24);
         assert_eq!(manager.node_count(&result), 2560);
 
-        let result = ripple_carry_adder(&mut manager, 32);
+        let result = ripple_carry_adder_with_projection(&mut manager, 32);
         assert_eq!(manager.node_count(&result), 24576);
 
-        let result = ripple_carry_adder(&mut manager, 40);
+        let result = ripple_carry_adder_with_projection(&mut manager, 40);
         assert_eq!(manager.node_count(&result), 229376);
     }
 }

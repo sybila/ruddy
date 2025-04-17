@@ -406,7 +406,7 @@ impl_bdd_operations!(Bdd32, TaskCache32, NodeTable32);
 impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64);
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use crate::apply::BddOverflowError;
     use crate::bdd::{Bdd16, Bdd32, Bdd64, BddAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
@@ -509,18 +509,18 @@ mod tests {
         assert!(bdd64.iff(&bdd64).unwrap().is_true());
     }
 
+    pub fn ripple_carry_adder(num_vars: u16) -> Result<Bdd16, BddOverflowError> {
+        let mut result = Bdd16::new_false();
+        for x in 0..(num_vars / 2) {
+            let x1 = Bdd16::new_literal(VarIdPacked16::new(x), true);
+            let x2 = Bdd16::new_literal(VarIdPacked16::new(x + num_vars / 2), true);
+            result = result.or(&x1.and(&x2)?)?;
+        }
+        Ok(result)
+    }
+
     #[test]
     fn bdd_size_overflow_test() {
-        fn ripple_carry_adder(num_vars: u16) -> Result<Bdd16, BddOverflowError> {
-            let mut result = Bdd16::new_false();
-            for x in 0..(num_vars / 2) {
-                let x1 = Bdd16::new_literal(VarIdPacked16::new(x), true);
-                let x2 = Bdd16::new_literal(VarIdPacked16::new(x + num_vars / 2), true);
-                result = result.or(&x1.and(&x2)?)?;
-            }
-            Ok(result)
-        }
-
         let result = ripple_carry_adder(4).unwrap();
         assert_eq!(result.node_count(), 8);
 
