@@ -421,7 +421,7 @@ mod tests {
     use crate::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::bdd_node::BddNodeAny;
     use crate::conversion::UncheckedInto;
-    use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
+    use crate::node_id::{NodeId, NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId};
 
     macro_rules! test_bdd_not_invariants {
@@ -769,5 +769,25 @@ mod tests {
         let false_64 = Bdd::Size64(Bdd64::new_false());
         assert!(true_64.is_true() && !true_64.is_false());
         assert!(false_64.is_false() && !false_64.is_true());
+    }
+
+    #[test]
+    fn bdd_getters() {
+        let var16 = VariableId::new(1u32 << 8);
+        let var32 = VariableId::new(1u32 << 24);
+        let var64 = VariableId::new_long(1u64 << 48).unwrap();
+        let bdd16 = Bdd::new_literal(var16, true);
+        let bdd32 = Bdd::new_literal(var32, true);
+        let bdd64 = Bdd::new_literal(var64, true);
+        let zero = NodeId::zero();
+        let one = NodeId::one();
+
+        assert_eq!(bdd16.get_variable(bdd16.root()), var16);
+        assert_eq!(bdd32.get_variable(bdd32.root()), var32);
+        assert_eq!(bdd64.get_variable(bdd64.root()), var64);
+
+        assert_eq!(bdd16.get_links(bdd16.root()), (zero, one));
+        assert_eq!(bdd32.get_links(bdd32.root()), (zero, one));
+        assert_eq!(bdd64.get_links(bdd64.root()), (zero, one));
     }
 }
