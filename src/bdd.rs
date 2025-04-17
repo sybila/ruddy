@@ -385,32 +385,31 @@ impl Bdd {
     }
 
     pub fn get_variable(&self, node: NodeId) -> VariableId {
-        // TODO: Make these conversions nicer.
         let index: usize = node.unchecked_into();
         match self {
             Bdd::Size16(bdd) => bdd.nodes[index].variable.unpack().into(),
             Bdd::Size32(bdd) => bdd.nodes[index].variable.unpack().into(),
-            Bdd::Size64(bdd) => VariableId::new_long(bdd.nodes[index].variable.unpack()).unwrap(),
+            Bdd::Size64(bdd) => VariableId::new_long(bdd.nodes[index].variable.unpack())
+                .unwrap_or_else(|| {
+                    unreachable!("Variable stored in BDD table does not fit into standard range.")
+                }),
         }
     }
 
     pub fn get_links(&self, node: NodeId) -> (NodeId, NodeId) {
-        // TODO: Make these conversions nicer.
+        // The unchecked casts are necessary to ensure we are not using any undefined values.
         let index: usize = node.unchecked_into();
         match self {
             Bdd::Size16(bdd) => {
-                let low = bdd.nodes[index].low;
-                let high = bdd.nodes[index].high;
+                let BddNode16 { low, high, .. } = bdd.nodes[index];
                 (low.unchecked_into(), high.unchecked_into())
             }
             Bdd::Size32(bdd) => {
-                let low = bdd.nodes[index].low;
-                let high = bdd.nodes[index].high;
+                let BddNode32 { low, high, .. } = bdd.nodes[index];
                 (low.unchecked_into(), high.unchecked_into())
             }
             Bdd::Size64(bdd) => {
-                let low = bdd.nodes[index].low;
-                let high = bdd.nodes[index].high;
+                let BddNode64 { low, high, .. } = bdd.nodes[index];
                 (low.unchecked_into(), high.unchecked_into())
             }
         }
