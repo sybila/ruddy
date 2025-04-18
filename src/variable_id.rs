@@ -716,6 +716,23 @@ impl fmt::Display for VarIdPacked64 {
     }
 }
 
+/// Calculate the number of variables between `larger` and `smaller`. If `larger`
+/// is `undefined`, return the number of variables between `max_variable` and `smaller`
+/// instead.
+pub(crate) fn variables_between<TVarId: VarIdPackedAny>(
+    larger: TVarId,
+    smaller: TVarId,
+    max_variable: TVarId,
+) -> u64 {
+    debug_assert!(!smaller.is_undefined());
+    debug_assert!(!max_variable.is_undefined());
+    if larger.is_undefined() {
+        max_variable.unpack_u64() - smaller.unpack_u64()
+    } else {
+        larger.unpack_u64() - smaller.unpack_u64() - 1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::conversion::{UncheckedFrom, UncheckedInto};

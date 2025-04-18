@@ -6,7 +6,8 @@ use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
 use crate::variable_id::{
-    AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
+    variables_between, AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
+    VariableId,
 };
 use std::fmt::Debug;
 
@@ -122,6 +123,146 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
     /// Convert the BDD into a raw list of nodes.
     pub fn into_nodes(self) -> Vec<BddNodeImpl<TNodeId, TVarId>> {
         self.nodes
+    }
+
+    /// Approximately counts the number of satisfying paths in the BDD.
+    fn satisfying_paths(&self) -> f64 {
+        if self.is_false() {
+            return 0.0;
+        }
+
+        let mut counts = vec![0.0; self.node_count()];
+        counts[1] = 1.0;
+
+        let mut done = vec![false; self.node_count()];
+        done[0] = true;
+        done[1] = true;
+
+        let root = self.root;
+
+        let mut stack = vec![root];
+
+        while let Some(id) = stack.pop() {
+            if done[id.as_usize()] {
+                continue;
+            }
+
+            let node = unsafe { self.get_node_unchecked(id) };
+            let low = node.low;
+            let high = node.high;
+            let low_is_done = done[low.as_usize()];
+            let high_is_done = done[high.as_usize()];
+
+            if low_is_done && high_is_done {
+                done[id.as_usize()] = true;
+                counts[id.as_usize()] = counts[low.as_usize()] + counts[high.as_usize()];
+                continue;
+            }
+
+            stack.push(id);
+
+            if !low_is_done {
+                stack.push(low);
+            }
+
+            if !high_is_done {
+                stack.push(high);
+            }
+        }
+        let result: f64 = counts[root.as_usize()];
+        debug_assert!(!result.is_nan());
+        result
+    }
+
+    /// Approximately counts the number of satisfying valuations in the BDD.
+    fn satisfying_valuations(&self) -> f64 {
+        if self.is_false() {
+            return 0.0;
+        }
+
+        if self.is_true() {
+            return 1.0;
+        }
+
+        let max_variable = self
+            .nodes
+            .iter()
+            .map(|node| node.variable())
+            .reduce(|v1, v2| v1.max_defined(v2))
+            .expect("BDD has at least one node");
+
+        let mut counts = vec![0.0; self.node_count()];
+        counts[1] = 1.0;
+
+        let mut done = vec![false; self.node_count()];
+        done[0] = true;
+        done[1] = true;
+
+        let root = self.root;
+
+        let mut stack = vec![root];
+
+        while let Some(id) = stack.pop() {
+            if done[id.as_usize()] {
+                continue;
+            }
+
+            let node = unsafe { self.get_node_unchecked(id) };
+            let low = node.low();
+            let high = node.high();
+            let low_is_done = done[low.as_usize()];
+            let high_is_done = done[high.as_usize()];
+
+            let low_node = unsafe { self.get_node_unchecked(low) };
+            let high_node = unsafe { self.get_node_unchecked(high) };
+
+            let variable = node.variable();
+            let low_variable = low_node.variable();
+            let high_variable = high_node.variable();
+
+            if low_is_done && high_is_done {
+                done[id.as_usize()] = true;
+
+                let between = variables_between(low_variable, variable, max_variable)
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP);
+                let low_count = counts[low.as_usize()] * 2.0f64.powi(between);
+
+                let between = variables_between(high_variable, variable, max_variable)
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP);
+                let high_count = counts[high.as_usize()] * 2.0f64.powi(between);
+
+                counts[id.as_usize()] = low_count + high_count;
+
+                continue;
+            }
+
+            stack.push(id);
+
+            if !low_is_done {
+                stack.push(low);
+            }
+
+            if !high_is_done {
+                stack.push(high);
+            }
+        }
+
+        let root_variable = unsafe { self.get_node_unchecked(root) }.variable();
+        let result = counts[root.as_usize()]
+            * 2.0f64.powi(
+                root_variable
+                    .unpack_u64()
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP),
+            );
+
+        if result.is_nan() {
+            f64::INFINITY
+        } else {
+            result
+        }
     }
 }
 
@@ -397,6 +538,24 @@ impl Bdd {
                 let BddNode64 { low, high, .. } = bdd.nodes[index];
                 (low.unchecked_into(), high.unchecked_into())
             }
+        }
+    }
+
+    /// Approximately counts the number of satisfying valuations.
+    pub fn satisfying_valuations(&self) -> f64 {
+        match self {
+            Bdd::Size16(bdd) => bdd.satisfying_valuations(),
+            Bdd::Size32(bdd) => bdd.satisfying_valuations(),
+            Bdd::Size64(bdd) => bdd.satisfying_valuations(),
+        }
+    }
+
+    /// Approximately counts the number of satisfying paths.
+    pub fn satisfying_paths(&self) -> f64 {
+        match self {
+            Bdd::Size16(bdd) => bdd.satisfying_paths(),
+            Bdd::Size32(bdd) => bdd.satisfying_paths(),
+            Bdd::Size64(bdd) => bdd.satisfying_paths(),
         }
     }
 }
@@ -774,5 +933,143 @@ mod tests {
         assert_eq!(bdd16.get_links(bdd16.root()), (zero, one));
         assert_eq!(bdd32.get_links(bdd32.root()), (zero, one));
         assert_eq!(bdd64.get_links(bdd64.root()), (zero, one));
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn queens(n: usize) -> Bdd {
+        fn mk_negative_literals(n: usize) -> Vec<Bdd> {
+            let mut bdd_literals = Vec::with_capacity(n * n);
+            for i in 0..n {
+                for j in 0..n {
+                    let literal = Bdd::new_literal(((i * n + j) as u32).into(), false);
+                    bdd_literals.push(literal);
+                }
+            }
+            bdd_literals
+        }
+
+        fn one_queen(n: usize, i: usize, j: usize, negative: &[Bdd]) -> Bdd {
+            let mut s = Bdd::new_literal(((i * n + j) as u32).into(), true);
+
+            // no queens in the same row
+            for k in 0..n {
+                if k != j {
+                    s = s.and(&negative[i * n + k]);
+                }
+            }
+
+            // no queens in the same column
+            for k in 0..n {
+                if k != i {
+                    s = s.and(&negative[k * n + j]);
+                }
+            }
+
+            // no queens in the main diagonal (top-left to bot-right)
+            // r - c = i - j  =>  c = (r + j) - i
+            for row in 0..n {
+                if let Some(col) = (row + j).checked_sub(i) {
+                    if col < n && row != i {
+                        s = s.and(&negative[row * n + col]);
+                    }
+                }
+            }
+
+            // no queens in the anti diagonal (top-right to bot-left)
+            // r + c = i + j  =>  c = (i + j) - r
+            for row in 0..n {
+                if let Some(col) = (i + j).checked_sub(row) {
+                    if col < n && row != i {
+                        s = s.and(&negative[row * n + col]);
+                    }
+                }
+            }
+
+            s
+        }
+
+        fn queen_in_row(n: usize, row: usize, negative: &[Bdd]) -> Bdd {
+            let mut r = Bdd::new_false();
+            for col in 0..n {
+                let one_queen = one_queen(n, row, col, negative);
+                r = r.or(&one_queen);
+            }
+            r
+        }
+
+        let negative = mk_negative_literals(n);
+        let mut result = Bdd::new_true();
+        for row in 0..n {
+            let in_row = queen_in_row(n, row, &negative);
+            result = result.and(&in_row);
+        }
+        result
+    }
+
+    #[test]
+    fn count_sat_valuations() {
+        assert_eq!(Bdd::new_false().satisfying_valuations(), 0.0,);
+
+        assert_eq!(Bdd::new_true().satisfying_valuations(), 1.0,);
+
+        assert_eq!(
+            Bdd::new_literal(VariableId::new(0u32), true).satisfying_valuations(),
+            1.0,
+        );
+
+        assert_eq!(
+            Bdd::new_literal(VariableId::new(0u32), false).satisfying_valuations(),
+            1.0,
+        );
+
+        let bdd4 = queens(6);
+        let bdd8 = queens(9);
+
+        assert_eq!(bdd4.satisfying_valuations(), 4.0);
+        assert_eq!(bdd8.satisfying_valuations(), 352.0);
+
+        let or3 = Bdd::new_literal(VariableId::new(0u32), true)
+            .or(&Bdd::new_literal(VariableId::new(1u32), true))
+            .or(&Bdd::new_literal(VariableId::new(3u32), true));
+
+        let and3 = Bdd::new_literal(VariableId::new(0u32), true)
+            .and(&Bdd::new_literal(VariableId::new(1u32), true))
+            .and(&Bdd::new_literal(VariableId::new(3u32), true));
+
+        assert_eq!(or3.satisfying_valuations(), 14.0);
+        assert_eq!(and3.satisfying_valuations(), 2.0);
+    }
+
+    #[test]
+    fn count_sat_paths() {
+        assert_eq!(Bdd::new_false().satisfying_paths(), 0.0,);
+        assert_eq!(Bdd::new_true().satisfying_paths(), 1.0,);
+
+        assert_eq!(
+            Bdd::new_literal(VariableId::new(0u32), true).satisfying_paths(),
+            1.0,
+        );
+
+        assert_eq!(
+            Bdd::new_literal(VariableId::new(0u32), false).satisfying_paths(),
+            1.0,
+        );
+
+        let bdd4 = queens(6);
+        let bdd8 = queens(9);
+
+        assert_eq!(bdd4.satisfying_paths(), 4.0);
+        assert_eq!(bdd8.satisfying_paths(), 352.0);
+
+        let or3 = Bdd::new_literal(VariableId::new(0u32), true)
+            .or(&Bdd::new_literal(VariableId::new(1u32), true))
+            .or(&Bdd::new_literal(VariableId::new(3u32), true));
+
+        let and3 = Bdd::new_literal(VariableId::new(0u32), true)
+            .and(&Bdd::new_literal(VariableId::new(1u32), true))
+            .and(&Bdd::new_literal(VariableId::new(3u32), true));
+
+        assert_eq!(or3.satisfying_paths(), 3.0);
+        assert_eq!(and3.satisfying_paths(), 1.0);
     }
 }
