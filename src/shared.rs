@@ -1,8 +1,3 @@
-use std::{
-    cell::Cell,
-    rc::{Rc, Weak},
-};
-
 use crate::{
     bdd_node::BddNodeAny,
     boolean_operators::{lift_operator, TriBool},
@@ -13,11 +8,15 @@ use crate::{
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId},
 };
+use std::{
+    cell::Cell,
+    rc::{Rc, Weak},
+};
 
 use crate::node_table::GarbageCollector;
 
 use replace_with::replace_with_or_default;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum GarbageCollection {
@@ -124,17 +123,64 @@ impl BddManager {
         }
     }
 
-    pub fn new_bdd_literal(&mut self, variable: VariableId, value: bool) -> Bdd {
-        self.maybe_collect_garbage();
+    pub fn import_standalone(&mut self, bdd: &crate::bdd::Bdd) -> Bdd {
+        let mut equivalent: FxHashMap<NodeId, Bdd> = FxHashMap::default();
+        equivalent.insert(NodeId::zero(), self.new_bdd_false());
+        equivalent.insert(NodeId::one(), self.new_bdd_true());
+        let root = bdd.root();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            let variable = bdd.get_variable(node);
+            let (low, high) = bdd.get_links(node);
+            let low_replica = equivalent.get(&low);
+            let high_replica = equivalent.get(&high);
+            match (low_replica, high_replica) {
+                (Some(low_replica), Some(high_replica)) => {
+                    let node_replica = self.if_then_else_internal(
+                        variable,
+                        high_replica,
+                        low_replica,
+                        node == root,
+                    );
+                    equivalent.insert(node, node_replica);
+                }
+                _ => {
+                    stack.push(node);
+                    if low_replica.is_none() {
+                        stack.push(low);
+                    }
+                    if high_replica.is_none() {
+                        stack.push(high);
+                    }
+                }
+            }
+        }
+        equivalent.get(&root).unwrap().clone()
+    }
+
+    pub fn if_then_else(&mut self, condition: VariableId, then: &Bdd, else_: &Bdd) -> Bdd {
+        self.if_then_else_internal(condition, then, else_, true)
+    }
+
+    fn if_then_else_internal(
+        &mut self,
+        condition: VariableId,
+        then: &Bdd,
+        else_: &Bdd,
+        is_root: bool,
+    ) -> Bdd {
+        if is_root {
+            self.maybe_collect_garbage();
+        }
 
         match &self.unique_table {
-            NodeTable::Size16(_) if variable.fits_only_in_packed64() => {
+            NodeTable::Size16(_) if condition.fits_only_in_packed64() => {
                 self.grow_to_64();
             }
-            NodeTable::Size32(_) if variable.fits_only_in_packed64() => {
+            NodeTable::Size32(_) if condition.fits_only_in_packed64() => {
                 self.grow();
             }
-            NodeTable::Size16(_) if variable.fits_only_in_packed32() => {
+            NodeTable::Size16(_) if condition.fits_only_in_packed32() => {
                 self.grow();
             }
             _ => {}
@@ -147,28 +193,53 @@ impl BddManager {
         let root: NodeId = match &mut self.unique_table {
             NodeTable::Size16(table) => {
                 let root = table
-                    .ensure_literal(variable.unchecked_into(), value)
+                    .ensure_node(
+                        condition.unchecked_into(),
+                        else_.root.get().unchecked_into(),
+                        then.root.get().unchecked_into(),
+                    )
                     .expect("ensuring literal after growth should always succeed");
                 root.unchecked_into()
             }
             NodeTable::Size32(table) => {
                 let root = table
-                    .ensure_literal(variable.unchecked_into(), value)
+                    .ensure_node(
+                        condition.unchecked_into(),
+                        else_.root.get().unchecked_into(),
+                        then.root.get().unchecked_into(),
+                    )
                     .expect("ensuring literal after growth should always succeed");
                 root.unchecked_into()
             }
             NodeTable::Size64(table) => {
                 let root = table
-                    .ensure_literal(variable.unchecked_into(), value)
+                    .ensure_node(
+                        condition.unchecked_into(),
+                        else_.root.get().unchecked_into(),
+                        then.root.get().unchecked_into(),
+                    )
                     .expect("TODO: 64-bit ensure_literal failed");
                 root.unchecked_into()
             }
         };
 
         let bdd = Bdd::new(root);
-        self.roots.push(bdd.root_weak());
+        if is_root {
+            // If the created BDD node is a root, we have to save it into the internal pool.
+            // This is not always required though, especially when we are creating nodes
+            // for internal purposes.
+            self.roots.push(bdd.root_weak());
+        }
 
         bdd
+    }
+
+    pub fn new_bdd_literal(&mut self, variable: VariableId, value: bool) -> Bdd {
+        if value {
+            self.if_then_else(variable, &self.new_bdd_true(), &self.new_bdd_false())
+        } else {
+            self.if_then_else(variable, &self.new_bdd_false(), &self.new_bdd_true())
+        }
     }
 
     fn maybe_collect_garbage(&mut self) {
@@ -1076,7 +1147,7 @@ fn nested_apply_64_bit<
     }
 }
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::{
         node_id::{NodeId32, NodeId64, NodeIdAny},
@@ -1593,6 +1664,17 @@ mod tests {
         }
     }
 
+    pub fn ripple_carry_adder(manager: &mut BddManager, num_vars: u32) -> Bdd {
+        let mut result = manager.new_bdd_false();
+        for x in 0..(num_vars / 2) {
+            let x1 = manager.new_bdd_literal(VariableId::new(x), true);
+            let x2 = manager.new_bdd_literal(VariableId::new(x + num_vars / 2), true);
+            let and = manager.and(&x1, &x2);
+            result = manager.or(&result, &and);
+        }
+        result
+    }
+
     #[test]
     fn nested_apply_growth_test() {
         // Should test that the manager can reuse state when the data structures need to grow
@@ -1600,7 +1682,7 @@ mod tests {
         // normal BDD tests. This is not particularly relevant for nested apply operations,
         // but we just need to test that the growth phase actually completes successfully.
 
-        fn ripple_carry_adder(manager: &mut BddManager, num_vars: u32) -> Bdd {
+        pub fn ripple_carry_adder_with_projection(manager: &mut BddManager, num_vars: u32) -> Bdd {
             let mut result = manager.new_bdd_false();
             for x in 0..(num_vars / 2) {
                 let x1 = manager.new_bdd_literal(VariableId::new(x), true);
@@ -1621,22 +1703,38 @@ mod tests {
 
         let mut manager = BddManager::no_gc();
 
-        let result = ripple_carry_adder(&mut manager, 4);
+        let result = ripple_carry_adder_with_projection(&mut manager, 4);
         assert_eq!(manager.node_count(&result), 6);
 
-        let result = ripple_carry_adder(&mut manager, 8);
+        let result = ripple_carry_adder_with_projection(&mut manager, 8);
         assert_eq!(manager.node_count(&result), 24);
 
-        let result = ripple_carry_adder(&mut manager, 16);
+        let result = ripple_carry_adder_with_projection(&mut manager, 16);
         assert_eq!(manager.node_count(&result), 256);
 
-        let result = ripple_carry_adder(&mut manager, 24);
+        let result = ripple_carry_adder_with_projection(&mut manager, 24);
         assert_eq!(manager.node_count(&result), 2560);
 
-        let result = ripple_carry_adder(&mut manager, 32);
+        let result = ripple_carry_adder_with_projection(&mut manager, 32);
         assert_eq!(manager.node_count(&result), 24576);
 
-        let result = ripple_carry_adder(&mut manager, 40);
+        let result = ripple_carry_adder_with_projection(&mut manager, 40);
         assert_eq!(manager.node_count(&result), 229376);
+    }
+
+    #[test]
+    fn standalone_import() {
+        let bdd_a = crate::apply::tests::ripple_carry_adder(24).unwrap();
+        let bdd_a = crate::bdd::Bdd::Size16(bdd_a);
+
+        let mut manager = BddManager::no_gc();
+        let imported = manager.import_standalone(&bdd_a);
+        // First, check that the created BDD will survive GC (i.e., the root is correctly set).
+        manager.collect_garbage();
+        let op_test = manager.and(&imported, &imported);
+        assert_eq!(op_test, imported);
+
+        let expected = ripple_carry_adder(&mut manager, 24);
+        assert_eq!(expected, imported);
     }
 }
