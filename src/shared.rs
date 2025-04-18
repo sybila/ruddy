@@ -281,6 +281,30 @@ impl BddManager {
         self.nodes_after_last_gc = self.unique_table.node_count();
     }
 
+    /// Approximately counts the number of satisfying paths in the BDD.
+    pub fn satisfying_paths(&self, bdd: &Bdd) -> f64 {
+        match &self.unique_table {
+            NodeTable::Size16(table) => table.satisfying_paths(bdd.root.get().unchecked_into()),
+            NodeTable::Size32(table) => table.satisfying_paths(bdd.root.get().unchecked_into()),
+            NodeTable::Size64(table) => table.satisfying_paths(bdd.root.get().unchecked_into()),
+        }
+    }
+
+    /// Approximately counts the number of satisfying valuations in the BDD.
+    pub fn satisfying_valuations(&self, bdd: &Bdd) -> f64 {
+        match &self.unique_table {
+            NodeTable::Size16(table) => {
+                table.satisfying_valuations(bdd.root.get().unchecked_into())
+            }
+            NodeTable::Size32(table) => {
+                table.satisfying_valuations(bdd.root.get().unchecked_into())
+            }
+            NodeTable::Size64(table) => {
+                table.satisfying_valuations(bdd.root.get().unchecked_into())
+            }
+        }
+    }
+
     fn apply<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
         &mut self,
         left: &Bdd,
@@ -1754,5 +1778,144 @@ pub mod tests {
 
         let expected = ripple_carry_adder(&mut manager, 24);
         assert_eq!(expected, imported);
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn queens(n: usize) -> (BddManager, Bdd) {
+        let mut m = BddManager::no_gc();
+        fn mk_negative_literals(n: usize, m: &mut BddManager) -> Vec<Bdd> {
+            let mut bdd_literals = Vec::with_capacity(n * n);
+            for i in 0..n {
+                for j in 0..n {
+                    let literal = m.new_bdd_literal(((i * n + j) as u32).into(), false);
+                    bdd_literals.push(literal);
+                }
+            }
+            bdd_literals
+        }
+
+        fn one_queen(n: usize, i: usize, j: usize, m: &mut BddManager, negative: &[Bdd]) -> Bdd {
+            let mut s = m.new_bdd_literal(((i * n + j) as u32).into(), true);
+
+            // no queens in the same row
+            for k in 0..n {
+                if k != j {
+                    s = m.and(&s, &negative[i * n + k]);
+                }
+            }
+
+            // no queens in the same column
+            for k in 0..n {
+                if k != i {
+                    s = m.and(&s, &negative[k * n + j]);
+                }
+            }
+
+            // no queens in the main diagonal (top-left to bot-right)
+            // r - c = i - j  =>  c = (r + j) - i
+            for row in 0..n {
+                if let Some(col) = (row + j).checked_sub(i) {
+                    if col < n && row != i {
+                        s = m.and(&s, &negative[row * n + col]);
+                    }
+                }
+            }
+
+            // no queens in the anti diagonal (top-right to bot-left)
+            // r + c = i + j  =>  c = (i + j) - r
+            for row in 0..n {
+                if let Some(col) = (i + j).checked_sub(row) {
+                    if col < n && row != i {
+                        s = m.and(&s, &negative[row * n + col]);
+                    }
+                }
+            }
+
+            s
+        }
+
+        fn queen_in_row(n: usize, row: usize, m: &mut BddManager, negative: &[Bdd]) -> Bdd {
+            let mut r = m.new_bdd_false();
+            for col in 0..n {
+                let one_queen = one_queen(n, row, col, m, negative);
+                r = m.or(&r, &one_queen);
+            }
+            r
+        }
+
+        let negative = mk_negative_literals(n, &mut m);
+        let mut result = m.new_bdd_true();
+        for row in 0..n {
+            let in_row = queen_in_row(n, row, &mut m, &negative);
+            result = m.and(&result, &in_row);
+        }
+        (m, result)
+    }
+
+    #[test]
+    fn count_sat_valuations() {
+        let mut m = BddManager::no_gc();
+        let f = m.new_bdd_false();
+        let t = m.new_bdd_true();
+        let v0 = m.new_bdd_literal(VariableId::new(0), true);
+        let v0n = m.new_bdd_literal(VariableId::new(0), false);
+
+        assert_eq!(m.satisfying_valuations(&f), 0.0,);
+
+        assert_eq!(m.satisfying_valuations(&t), 1.0,);
+
+        assert_eq!(m.satisfying_valuations(&v0), 1.0,);
+
+        assert_eq!(m.satisfying_valuations(&v0n), 1.0,);
+
+        let v1 = m.new_bdd_literal(VariableId::new(1), true);
+        let v3 = m.new_bdd_literal(VariableId::new(3), true);
+        let or2 = m.or(&v0, &v1);
+        let or3 = m.or(&or2, &v3);
+
+        let and2 = m.and(&v0, &v1);
+        let and3 = m.and(&and2, &v3);
+
+        assert_eq!(m.satisfying_valuations(&or3), 14.0);
+        assert_eq!(m.satisfying_valuations(&and3), 2.0);
+
+        let (m, bdd4) = queens(4);
+        assert_eq!(m.satisfying_valuations(&bdd4), 2.0);
+        let (m, bdd8) = queens(8);
+        assert_eq!(m.satisfying_valuations(&bdd8), 92.0);
+    }
+
+    #[test]
+    fn count_sat_paths() {
+        let mut m = BddManager::no_gc();
+        let f = m.new_bdd_false();
+        let t = m.new_bdd_true();
+        let v0 = m.new_bdd_literal(VariableId::new(0), true);
+        let v0n = m.new_bdd_literal(VariableId::new(0), false);
+
+        assert_eq!(m.satisfying_paths(&f), 0.0,);
+
+        assert_eq!(m.satisfying_paths(&t), 1.0,);
+
+        assert_eq!(m.satisfying_paths(&v0), 1.0,);
+
+        assert_eq!(m.satisfying_paths(&v0n), 1.0,);
+
+        let v1 = m.new_bdd_literal(VariableId::new(1), true);
+        let v3 = m.new_bdd_literal(VariableId::new(3), true);
+        let or2 = m.or(&v0, &v1);
+        let or3 = m.or(&or2, &v3);
+
+        let and2 = m.and(&v0, &v1);
+        let and3 = m.and(&and2, &v3);
+
+        assert_eq!(m.satisfying_paths(&or3), 3.0);
+        assert_eq!(m.satisfying_paths(&and3), 1.0);
+
+        let (m, bdd4) = queens(6);
+        assert_eq!(m.satisfying_paths(&bdd4), 4.0);
+
+        let (m, bdd8) = queens(9);
+        assert_eq!(m.satisfying_paths(&bdd8), 352.0);
     }
 }

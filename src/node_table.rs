@@ -3,6 +3,7 @@
 //!
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
+use crate::variable_id::variables_between;
 use crate::{
     bdd::BddAny,
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
@@ -10,7 +11,7 @@ use crate::{
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny},
 };
 use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
-use rustc_hash::{FxBuildHasher, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use std::cell::Cell;
 use std::cmp::{max, min};
 use std::collections::HashSet;
@@ -609,6 +610,144 @@ where
         }
 
         visited.len() + 2 // plus two terminal nodes...
+    }
+
+    /// Approximately counts the number of satisfying paths in the BDD rooted
+    /// in `root`.
+    pub(crate) fn satisfying_paths(&self, root: TNodeId) -> f64 {
+        debug_assert!(!root.is_undefined());
+        assert!(self.get_entry(root).is_some());
+
+        let mut cache: FxHashMap<TNodeId, f64> =
+            FxHashMap::with_capacity_and_hasher(1024, FxBuildHasher);
+
+        cache.insert(TNodeId::zero(), 0.0);
+        cache.insert(TNodeId::one(), 1.0);
+
+        let mut stack = vec![root];
+
+        while let Some(id) = stack.pop() {
+            if cache.contains_key(&id) {
+                continue;
+            }
+
+            let node = unsafe { self.get_node_unchecked(id) };
+            let low = node.low();
+            let high = node.high();
+
+            let low_count = cache.get(&low);
+            let high_count = cache.get(&high);
+
+            match (low_count, high_count) {
+                (Some(low_count), Some(high_count)) => {
+                    cache.insert(id, low_count + high_count);
+                }
+                _ => {
+                    stack.push(id);
+
+                    if low_count.is_none() {
+                        stack.push(low);
+                    }
+
+                    if high_count.is_none() {
+                        stack.push(high);
+                    }
+                }
+            };
+        }
+
+        *cache.get(&root).expect("count for root present in cache")
+    }
+
+    /// Approximately counts the number of satisfying valuations in the BDD rooted
+    /// in `root`.
+    pub(crate) fn satisfying_valuations(&self, root: TNodeId) -> f64 {
+        debug_assert!(!root.is_undefined());
+        if root.is_zero() {
+            return 0.0;
+        }
+        if root.is_one() {
+            return 1.0;
+        }
+        let root_variable = match self.get_node(root) {
+            Some(node) => node.variable(),
+            None => unreachable!(),
+        };
+
+        let mut cache: FxHashMap<TNodeId, f64> =
+            FxHashMap::with_capacity_and_hasher(1024, FxBuildHasher);
+
+        cache.insert(TNodeId::zero(), 0.0);
+        cache.insert(TNodeId::one(), 1.0);
+
+        let max_variable = self
+            .entries
+            .iter()
+            .map(|entry| entry.node.variable())
+            .reduce(TVarId::max_defined)
+            .expect("node table is not empty");
+
+        let mut stack = vec![root];
+
+        while let Some(&id) = stack.last() {
+            if cache.contains_key(&id) {
+                stack.pop();
+                continue;
+            }
+
+            let node = unsafe { self.get_node_unchecked(id) };
+            let low = node.low();
+            let high = node.high();
+            let variable = node.variable();
+            let low_variable = unsafe { self.get_node_unchecked(low) }.variable();
+            let high_variable = unsafe { self.get_node_unchecked(high) }.variable();
+
+            let low_count = cache.get(&low);
+            let high_count = cache.get(&high);
+
+            match (low_count, high_count) {
+                (Some(low_count), Some(high_count)) => {
+                    let skipped = variables_between(low_variable, variable, max_variable)
+                        .try_into()
+                        .unwrap_or(f64::MAX_EXP);
+
+                    let low_count = low_count * 2.0f64.powi(skipped);
+
+                    let skipped = variables_between(high_variable, variable, max_variable)
+                        .try_into()
+                        .unwrap_or(f64::MAX_EXP);
+
+                    let high_count = high_count * 2.0f64.powi(skipped);
+
+                    cache.insert(id, low_count + high_count);
+                }
+                _ => {
+                    stack.push(id);
+
+                    if low_count.is_none() {
+                        stack.push(low);
+                    }
+
+                    if high_count.is_none() {
+                        stack.push(high);
+                    }
+                }
+            };
+        }
+
+        let count = cache.get(&root).expect("count for root present in cache");
+        let result = count
+            * 2.0f64.powi(
+                root_variable
+                    .unpack_u64()
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP),
+            );
+        if result.is_nan() {
+            f64::INFINITY
+        } else {
+            result
+        }
     }
 }
 

@@ -223,15 +223,15 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             if low_is_done && high_is_done {
                 done[id.as_usize()] = true;
 
-                let between = variables_between(low_variable, variable, max_variable)
+                let skipped = variables_between(low_variable, variable, max_variable)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
-                let low_count = counts[low.as_usize()] * 2.0f64.powi(between);
+                let low_count = counts[low.as_usize()] * 2.0f64.powi(skipped);
 
-                let between = variables_between(high_variable, variable, max_variable)
+                let skipped = variables_between(high_variable, variable, max_variable)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
-                let high_count = counts[high.as_usize()] * 2.0f64.powi(between);
+                let high_count = counts[high.as_usize()] * 2.0f64.powi(skipped);
 
                 counts[id.as_usize()] = low_count + high_count;
 
