@@ -131,31 +131,30 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             return 0.0;
         }
 
-        let mut counts = vec![0.0; self.node_count()];
+        // Use a negative value to indicate that the count is not yet computed.
+        let mut counts = vec![-1.0f64; self.node_count()];
+        counts[0] = 0.0;
         counts[1] = 1.0;
-
-        let mut done = vec![false; self.node_count()];
-        done[0] = true;
-        done[1] = true;
 
         let root = self.root;
 
         let mut stack = vec![root];
 
         while let Some(id) = stack.pop() {
-            if done[id.as_usize()] {
+            if counts[id.as_usize()] >= 0.0 {
                 continue;
             }
 
             let node = unsafe { self.get_node_unchecked(id) };
             let low = node.low;
             let high = node.high;
-            let low_is_done = done[low.as_usize()];
-            let high_is_done = done[high.as_usize()];
+            let low_count = counts[low.as_usize()];
+            let high_count = counts[high.as_usize()];
+            let low_is_done = low_count >= 0.0;
+            let high_is_done = high_count >= 0.0;
 
             if low_is_done && high_is_done {
-                done[id.as_usize()] = true;
-                counts[id.as_usize()] = counts[low.as_usize()] + counts[high.as_usize()];
+                counts[id.as_usize()] = low_count + high_count;
                 continue;
             }
 
@@ -170,6 +169,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             }
         }
         let result: f64 = counts[root.as_usize()];
+        debug_assert!(result >= 0.0);
         debug_assert!(!result.is_nan());
         result
     }
@@ -191,27 +191,27 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             .reduce(|v1, v2| v1.max_defined(v2))
             .expect("BDD has at least one node");
 
-        let mut counts = vec![0.0; self.node_count()];
+        // Use a negative value to indicate that the count is not yet computed.
+        let mut counts = vec![-1.0f64; self.node_count()];
+        counts[0] = 0.0;
         counts[1] = 1.0;
-
-        let mut done = vec![false; self.node_count()];
-        done[0] = true;
-        done[1] = true;
 
         let root = self.root;
 
         let mut stack = vec![root];
 
         while let Some(id) = stack.pop() {
-            if done[id.as_usize()] {
+            if counts[id.as_usize()] >= 0.0 {
                 continue;
             }
 
             let node = unsafe { self.get_node_unchecked(id) };
             let low = node.low();
             let high = node.high();
-            let low_is_done = done[low.as_usize()];
-            let high_is_done = done[high.as_usize()];
+            let low_count = counts[low.as_usize()];
+            let high_count = counts[high.as_usize()];
+            let low_is_done = low_count >= 0.0;
+            let high_is_done = high_count >= 0.0;
 
             let low_node = unsafe { self.get_node_unchecked(low) };
             let high_node = unsafe { self.get_node_unchecked(high) };
@@ -221,17 +221,15 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             let high_variable = high_node.variable();
 
             if low_is_done && high_is_done {
-                done[id.as_usize()] = true;
-
                 let skipped = variables_between(low_variable, variable, max_variable)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
-                let low_count = counts[low.as_usize()] * 2.0f64.powi(skipped);
+                let low_count = low_count * 2.0f64.powi(skipped);
 
                 let skipped = variables_between(high_variable, variable, max_variable)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
-                let high_count = counts[high.as_usize()] * 2.0f64.powi(skipped);
+                let high_count = high_count * 2.0f64.powi(skipped);
 
                 counts[id.as_usize()] = low_count + high_count;
 
@@ -248,6 +246,8 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
                 stack.push(high);
             }
         }
+
+        debug_assert!(counts[root.as_usize()] >= 0.0);
 
         let root_variable = unsafe { self.get_node_unchecked(root) }.variable();
         let result = counts[root.as_usize()]
