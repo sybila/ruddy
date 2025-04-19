@@ -3,7 +3,7 @@
 //!
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
-use crate::variable_id::variables_between;
+use crate::variable_id::{variables_between, Mark};
 use crate::{
     bdd::BddAny,
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
@@ -238,34 +238,6 @@ fn top_bit_is_one(hash: u64) -> bool {
     hash & (1 << (u64::BITS - 1)) != 0
 }
 
-/// A type-safe wrapper on `u8` that represents the current reachability cycle
-/// of the garbage-collection algorithm.
-///
-/// We can use one bit to mark a node as reachable (1) or unreachable (0).
-/// However, this requires clearing the reachability bit of each node
-/// before recalculating reachability. Instead, we use a cycle counter
-/// that flips between two values, allowing us to treat all previously
-/// reachable nodes as unreachable by simply flipping the cycle.
-///
-/// A node is considered reachable if its reachability bit matches the current cycle value.
-///
-/// To simplify bitwise operations, we use `0x00` and `0xFF` as the two cycle values.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct ReachabilityCycle(u8);
-
-impl ReachabilityCycle {
-    /// Returns the flipped cycle value.
-    pub(crate) fn flipped(self) -> Self {
-        Self(!self.0)
-    }
-}
-
-impl From<ReachabilityCycle> for u8 {
-    fn from(cycle: ReachabilityCycle) -> u8 {
-        cycle.0
-    }
-}
-
 /// A generic implementation of [`NodeTableAny`] backed by [`BddNodeAny`].
 ///
 /// Instead of "normal" hashing, it uses a "tree of parents" scheme, where each node is stored
@@ -288,7 +260,7 @@ pub struct NodeTableImpl<
     entries: Vec<NodeEntry<TNodeId, TVarId, TNode>>,
     first_free: TNodeId,
     deleted: usize,
-    cycle: ReachabilityCycle,
+    current_mark: Mark,
 }
 
 impl<TNodeId, TVarId, TNode> NodeTableImpl<TNodeId, TVarId, TNode>
@@ -303,7 +275,7 @@ where
             entries: vec![NodeEntry::zero(), NodeEntry::one()],
             first_free: TNodeId::undefined(),
             deleted: 0,
-            cycle: ReachabilityCycle::default(),
+            current_mark: Mark::default(),
         }
     }
 
@@ -322,14 +294,15 @@ where
     /// table. This requirement is not checked in release mode and if broken results
     /// in undefined behavior.
     unsafe fn push_node(&mut self, variable: TVarId, low: TNodeId, high: TNodeId) {
+        debug_assert!(!variable.is_undefined());
         self.get_node_unchecked_mut(low).increment_parent_counter();
 
         self.get_node_unchecked_mut(high).increment_parent_counter();
 
         // Reset the parent counter of the new node.
         let mut variable = variable.reset_parents();
-        // Consider the new node as reachable in the current cycle.
-        variable.mark_as_reachable(self.cycle);
+        // We want the new node to have the same mark as the rest of the nodes.
+        variable.set_mark(self.current_mark);
 
         let new_entry = TNode::new(variable, low, high).into();
 
@@ -780,7 +753,7 @@ impl<
             entries,
             first_free: TNodeId::undefined(),
             deleted: 0,
-            cycle: ReachabilityCycle::default(),
+            current_mark: Mark::default(),
         }
     }
 
@@ -1115,9 +1088,7 @@ impl<
         let mut result = vec![TNode::zero(), TNode::one()];
         let mut stack = vec![root];
 
-        // After the flip, all of the reachable nodes will be marked as unreachable for the cycle.
-        let next_cycle = self.cycle.flipped();
-        self.cycle = next_cycle;
+        let new_mark = self.current_mark.flipped();
 
         // `0` and `1` have correct translations.
         unsafe {
@@ -1130,7 +1101,7 @@ impl<
 
         while let Some(id) = stack.pop() {
             let node = unsafe { self.get_node_unchecked(id) };
-            if node.is_reachable(next_cycle) {
+            if node.has_same_mark(new_mark) {
                 continue;
             }
 
@@ -1139,11 +1110,11 @@ impl<
             let variable = node.variable();
 
             let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
-            let low_is_translated = low_entry.node.is_reachable(next_cycle);
+            let low_is_translated = low_entry.node.has_same_mark(new_mark);
             let new_low = low_entry.parent;
 
             let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
-            let high_is_translated = high_entry.node.is_reachable(next_cycle);
+            let high_is_translated = high_entry.node.has_same_mark(new_mark);
             let new_high = high_entry.parent;
 
             if low_is_translated && high_is_translated {
@@ -1158,7 +1129,7 @@ impl<
                 }
                 let entry = unsafe { self.get_entry_unchecked_mut(id) };
                 entry.parent = (result.len() - 1).unchecked_into();
-                entry.node.mark_as_reachable(next_cycle);
+                entry.node.set_mark(new_mark);
                 continue;
             }
 
@@ -1195,7 +1166,7 @@ macro_rules! impl_from_node_table {
                     entries,
                     first_free: table.first_free.into(),
                     deleted: table.deleted,
-                    cycle: table.cycle,
+                    current_mark: table.current_mark,
                 }
             }
         }
@@ -1305,11 +1276,10 @@ where
     /// The `roots` vector is modified to only contain the roots that are still alive.
     /// The nodes' parent counters are recalculated to only count the reachable parents.
     fn mark_reachable(&mut self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> MarkPhaseData<TVarId> {
-        // Flip the mark cycle to avoid having to reset the reachability mark of all nodes.
-        // Now, the nodes that were previously considered reachable will be viewed
-        // as unreachable.
-        let next_cycle = self.cycle.flipped();
-        self.cycle = next_cycle;
+        // Currently, all nodes have their mark set to `self.current_mark`.
+        // Flip the mark to avoid having to explicitly reset the mark of all nodes.
+        let new_mark = self.current_mark.flipped();
+        self.current_mark = new_mark;
 
         // Terminal nodes are always reachable.
         let mut reachable_count = 2usize;
@@ -1319,10 +1289,10 @@ where
             if let Some(root) = root.upgrade() {
                 let root_id: TNodeId = root.get().unchecked_into();
                 let root_node = unsafe { self.get_node_unchecked_mut(root_id) };
-                if root_node.is_reachable(next_cycle) {
+                if root_node.has_same_mark(new_mark) {
                     return true;
                 }
-                root_node.mark_as_reachable(next_cycle);
+                root_node.set_mark(new_mark);
                 root_node.reset_parent_counter();
                 reachable_count += 1;
 
@@ -1338,18 +1308,18 @@ where
                     let low = node.low();
 
                     let high_node = unsafe { self.get_node_unchecked_mut(high) };
-                    if !high_node.is_reachable(next_cycle) {
+                    if !high_node.has_same_mark(new_mark) {
                         high_node.reset_parent_counter();
-                        high_node.mark_as_reachable(next_cycle);
+                        high_node.set_mark(new_mark);
                         reachable_count += 1;
                         stack.push(high);
                     }
                     high_node.increment_parent_counter();
 
                     let low_node = unsafe { self.get_node_unchecked_mut(low) };
-                    if !low_node.is_reachable(next_cycle) {
+                    if !low_node.has_same_mark(new_mark) {
                         low_node.reset_parent_counter();
-                        low_node.mark_as_reachable(next_cycle);
+                        low_node.set_mark(new_mark);
                         reachable_count += 1;
                         stack.push(low);
                     }
@@ -1399,15 +1369,10 @@ where
         // pointer is not used during the traversal.
         //
         // Furthermore, we want to avoid initializing all of the `parent` pointers to `undefined`.
-        // We can do so by using the `reachable` bit of the nodes to store whether that
-        // entry's parent is a translation or not. We expect all of the reachable nodes to
-        // have their `reachable` bit correctly set. Therefore, we flip the table's cycle
-        // and use the nodes' reachability as a marker for whether the `parent` pointer
-        // contains a computed translation or not.
+        // We can do so by using the mark of the nodes to store whether that
+        // entry's parent is a translation or not.
 
-        // After the flip, all of the reachable nodes will be marked as unreachable for the cycle.
-        let next_cycle = self.cycle.flipped();
-        self.cycle = next_cycle;
+        let new_mark = self.current_mark.flipped();
 
         // `0` and `1` have correct translations.
         unsafe {
@@ -1431,11 +1396,11 @@ where
                     let high = node.high();
 
                     let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
-                    let low_is_translated = low_entry.node.is_reachable(next_cycle);
+                    let low_is_translated = low_entry.node.has_same_mark(new_mark);
                     let new_low = low_entry.parent;
 
                     let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
-                    let high_is_translated = high_entry.node.is_reachable(next_cycle);
+                    let high_is_translated = high_entry.node.has_same_mark(new_mark);
                     let new_high = high_entry.parent;
 
                     if low_is_translated && high_is_translated {
@@ -1450,7 +1415,7 @@ where
                             );
                         let entry = unsafe { self.get_entry_unchecked_mut(id) };
                         entry.parent = new_id.into();
-                        entry.node.mark_as_reachable(next_cycle);
+                        entry.node.set_mark(new_mark);
                         continue;
                     }
 
@@ -1467,7 +1432,7 @@ where
 
                 debug_assert!(self
                     .get_node(root_id)
-                    .is_some_and(|node| node.is_reachable(next_cycle)));
+                    .is_some_and(|node| node.has_same_mark(new_mark)));
                 let new_root = unsafe { self.get_entry_unchecked_mut(root_id).parent };
                 root.set(new_root.unchecked_into());
             }
@@ -1488,7 +1453,7 @@ where
             // Hence we use `self.entries.get_unchecked` directly.
             // `delete` handles deleted nodes correctly.
             let entry = unsafe { self.entries.get_unchecked(idx) };
-            if !entry.node.is_reachable(self.cycle) {
+            if !entry.node.has_same_mark(self.current_mark) {
                 self.delete(id);
             }
         }
@@ -2216,14 +2181,6 @@ mod tests {
         assert_eq!(node4_entry.parent, NodeId32::undefined());
     }
 
-    impl NodeTable32 {
-        /// Returns `true` if the node with the given `id` is considered reachable in the current cycle.
-        unsafe fn is_node_reachable_unchecked(&self, id: NodeId32) -> bool {
-            let node = unsafe { self.get_node_unchecked(id) };
-            node.is_reachable(self.cycle)
-        }
-    }
-
     #[test]
     fn mark_reachable() {
         let mut table = NodeTable32::new();
@@ -2328,7 +2285,10 @@ mod tests {
         assert_eq!(mark_data.max_var_id, reachable_max_var_id);
 
         for &id in ids_reachable.iter() {
-            assert!(unsafe { table.is_node_reachable_unchecked(id) });
+            assert!(table
+                .get_node(id)
+                .unwrap()
+                .has_same_mark(table.current_mark));
             if !id.is_terminal() && id != root_32 && id != root_subtree_32 {
                 // The reachable nodes should have exactly one parent.
                 let node = &mut table.get_entry_mut(id).unwrap().node;
@@ -2347,12 +2307,18 @@ mod tests {
         let root_subtree = &mut table.get_entry_mut(root_subtree_32).unwrap().node;
         assert!(root_subtree.has_many_parents());
 
-        for id in ids_unreachable_1.iter() {
-            assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
+        for &id in ids_unreachable_1.iter() {
+            assert!(!table
+                .get_node(id)
+                .unwrap()
+                .has_same_mark(table.current_mark));
         }
 
-        for id in ids_unreachable_2.iter() {
-            assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
+        for &id in ids_unreachable_2.iter() {
+            assert!(!table
+                .get_node(id)
+                .unwrap()
+                .has_same_mark(table.current_mark));
         }
     }
 
@@ -2477,8 +2443,8 @@ mod tests {
     #[test]
     fn rebuild_32_to_16() {
         let mut table = NodeTable32::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = u16::MAX as usize;
 
@@ -2504,8 +2470,8 @@ mod tests {
     #[test]
     fn rebuild_64_to_16() {
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = u16::MAX as usize;
 
@@ -2531,8 +2497,8 @@ mod tests {
     #[test]
     fn rebuild_64_to_32() {
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         // Making 2**32 nodes is impractical, so just 2**17 for now.
         let reachable = (u16::MAX as usize) * 2;
@@ -2577,20 +2543,16 @@ mod tests {
             .collect::<Vec<_>>();
 
         // At this point all of the nodes are considered reachable.
-        // Flip cycle and mark reachable nodes.
-        let cycle = table.cycle.flipped();
-        table.cycle = cycle;
+        // Flip mark and remark reachable nodes.
+        let new_mark = table.current_mark.flipped();
+        table.current_mark = new_mark;
 
         for &id in reachable_ids.iter() {
-            table
-                .get_entry_mut(id)
-                .unwrap()
-                .node
-                .mark_as_reachable(cycle);
+            table.get_entry_mut(id).unwrap().node.set_mark(new_mark);
         }
 
         for &id in unreachable_ids.iter() {
-            assert!(!table.get_node(id).unwrap().is_reachable(cycle));
+            assert!(!table.get_node(id).unwrap().has_same_mark(new_mark));
         }
 
         table.delete_unreachable();
@@ -2601,7 +2563,7 @@ mod tests {
         for &id in reachable_ids.iter() {
             assert!(table.get_entry(id).is_some());
             assert!(!table.entries[id.as_usize()].is_deleted());
-            assert!(table.get_node(id).unwrap().is_reachable(cycle));
+            assert!(table.get_node(id).unwrap().has_same_mark(new_mark));
         }
 
         for &id in unreachable_ids.iter() {
@@ -2630,7 +2592,7 @@ mod tests {
         assert_eq!(table.deleted, nodes as usize);
 
         // Delete the rest of the nodes.
-        table.cycle = table.cycle.flipped();
+        table.current_mark = table.current_mark.flipped();
         table.delete_unreachable();
 
         assert_eq!(table.node_count(), 2);
@@ -2754,8 +2716,8 @@ mod tests {
     fn rebuild_shrink_64_to_16() {
         use super::GarbageCollector;
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = NodeTable64::SHRINK_THRESHOLD_16_BIT;
 
@@ -2781,8 +2743,8 @@ mod tests {
     fn rebuild_shrink_64_to_32() {
         use super::GarbageCollector;
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = NodeTable64::SHRINK_THRESHOLD_16_BIT + 1;
 
@@ -2808,8 +2770,8 @@ mod tests {
     fn rebuild_shrink_32_to_16() {
         use super::GarbageCollector;
         let mut table = NodeTable32::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = NodeTable32::SHRINK_THRESHOLD_16_BIT;
 
@@ -3007,11 +2969,11 @@ mod tests {
 
         assert_eq!(roots.len(), 1);
         assert_eq!(new_table.node_count(), reachable);
-        // The tables should still be equal except for the cycle.
+        // The tables should still be equal except for the mark.
         // This might break if we also start checking that the packed information
         // in the variables is the same.
-        assert_ne!(new_table.cycle, expected.cycle);
-        new_table.cycle = new_table.cycle.flipped();
+        assert_ne!(new_table.current_mark, expected.current_mark);
+        new_table.current_mark = new_table.current_mark.flipped();
         assert_eq!(new_table, expected);
     }
 

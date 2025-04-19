@@ -4,12 +4,11 @@
 use std::fmt::Debug;
 use std::{convert::TryFrom, fmt};
 
-use crate::node_table::ReachabilityCycle;
 use crate::{
     conversion::{UncheckedFrom, UncheckedInto},
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny, TryFromNodeIdError},
     variable_id::{
-        TryFromVarIdPackedError, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
+        Mark, TryFromVarIdPackedError, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
     },
 };
 
@@ -74,17 +73,20 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     /// Reset the parent counter of the node.
     fn reset_parent_counter(&mut self);
 
-    /// Mark the node as reachable in the given cycle.
-    ///
-    /// This method should not be used on terminal nodes, as these are always
-    /// considered reachable. For performance reasons, this condition is only
-    /// checked in debug mode.
-    fn mark_as_reachable(&mut self, cycle: ReachabilityCycle);
+    /// Return the mark of this node.
+    fn mark(&self) -> Mark {
+        self.variable().mark()
+    }
 
-    /// Returns `true` if the node is reachable in the given cycle. Terminal
-    /// nodes are always considered reachable.
-    fn is_reachable(&self, cycle: ReachabilityCycle) -> bool {
-        self.is_terminal() || self.variable().is_reachable(cycle)
+    /// Set the node's mark to `mark`.
+    fn set_mark(&mut self, mark: Mark);
+
+    /// Flip the mark of this node.
+    fn flip_mark(&mut self);
+
+    /// Returns `true` if the node has the mark `mark`.
+    fn has_same_mark(&self, mark: Mark) -> bool {
+        self.variable().has_same_mark(mark)
     }
 }
 
@@ -166,9 +168,12 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddNodeAny for BddNodeImpl<TNod
         self.variable = self.variable.reset_parents();
     }
 
-    fn mark_as_reachable(&mut self, cycle: ReachabilityCycle) {
-        debug_assert!(!self.is_terminal());
-        self.variable.mark_as_reachable(cycle);
+    fn set_mark(&mut self, mark: Mark) {
+        self.variable.set_mark(mark);
+    }
+
+    fn flip_mark(&mut self) {
+        self.variable.flip_mark();
     }
 }
 
@@ -275,7 +280,6 @@ impl_try_from!(BddNode64 => BddNode32);
 mod tests {
     use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, TryFromBddNodeError};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
-    use crate::node_table::ReachabilityCycle;
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
 
     macro_rules! test_bdd_node_invariants {
@@ -368,23 +372,18 @@ mod tests {
             #[test]
             pub fn $func() {
                 let mut n = $BddNode::new($VarId::new(1), $NodeId::zero(), $NodeId::one());
-                let cycle = ReachabilityCycle::default();
-                n.mark_as_reachable(cycle);
-                assert!(n.is_reachable(cycle));
-                let flipped = cycle.flipped();
-                assert!(!n.is_reachable(flipped));
-                n.mark_as_reachable(flipped);
-                assert!(!n.is_reachable(cycle));
-                assert!(n.is_reachable(flipped));
+                let mark = n.mark();
+                n.has_same_mark(mark);
+                let flipped = mark.flipped();
+                assert!(!n.has_same_mark(flipped));
+                n.flip_mark();
+                assert!(n.has_same_mark(flipped));
+                n.flip_mark();
+                assert!(!n.has_same_mark(flipped));
+                assert!(n.has_same_mark(mark));
+                assert!(n.has_same_mark(mark.flipped().flipped()));
 
-                let flipped_twice = flipped.flipped().flipped();
-                assert!(n.is_reachable(flipped_twice));
-
-                assert!($BddNode::one().is_reachable(cycle));
-                assert!($BddNode::one().is_reachable(flipped));
-
-                assert!($BddNode::zero().is_reachable(cycle));
-                assert!($BddNode::zero().is_reachable(flipped));
+                assert_ne!(mark, flipped);
             }
         };
     }
