@@ -114,12 +114,12 @@ impl std::error::Error for NodeTableFullError {}
 /// referencing the `parent` tree that is rooted in this entry, plus two `next_parent` pointers
 /// that define the parent tree which contains the entry itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NodeEntry<
+pub struct NodeEntry<
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
 > {
-    pub(crate) node: TNode,
+    pub node: TNode,
     parent: TNodeId,
     next_parent_zero: TNodeId,
     next_parent_one: TNodeId,
@@ -344,14 +344,14 @@ where
     }
 
     /// Get a checked reference to the entry with the given `id`, or `None` if the entry does not exist.
-    pub(crate) fn get_entry(&self, id: TNodeId) -> Option<&NodeEntry<TNodeId, TVarId, TNode>> {
+    pub fn get_entry(&self, id: TNodeId) -> Option<&NodeEntry<TNodeId, TVarId, TNode>> {
         self.entries
             .get(id.as_usize())
             .filter(|entry| !entry.is_deleted())
     }
 
     /// Get a checked mutable reference to the entry with the given `id`, or `None` if the entry does not exist.
-    fn get_entry_mut(&mut self, id: TNodeId) -> Option<&mut NodeEntry<TNodeId, TVarId, TNode>> {
+    pub fn get_entry_mut(&mut self, id: TNodeId) -> Option<&mut NodeEntry<TNodeId, TVarId, TNode>> {
         self.entries
             .get_mut(id.as_usize())
             .filter(|entry| !entry.is_deleted())

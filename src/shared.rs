@@ -113,6 +113,25 @@ impl BddManager {
         });
     }
 
+    /// The total number of *used* nodes stored in the [`BddManager`].
+    pub fn total_node_count(&self) -> usize {
+        match &self.unique_table {
+            NodeTable::Size16(table) => table.node_count(),
+            NodeTable::Size32(table) => table.node_count(),
+            NodeTable::Size64(table) => table.node_count(),
+        }
+    }
+
+    /// The total number of node slots available in the [`BddManager`], including
+    /// free and full slots.
+    pub fn total_capacity(&self) -> usize {
+        match &self.unique_table {
+            NodeTable::Size16(table) => table.size(),
+            NodeTable::Size32(table) => table.size(),
+            NodeTable::Size64(table) => table.size(),
+        }
+    }
+
     pub fn node_count(&self, bdd: &Bdd) -> usize {
         let root = bdd.root.get();
         // TODO: Maybe this should not use unchecked into?
