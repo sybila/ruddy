@@ -21,46 +21,6 @@ pub fn lift_operator<
     }
 }
 
-/// Three-valued conjunction of two [`NodeIdAny`] identifiers.
-pub fn and<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::and)(left, right)
-}
-
-/// Three-valued disjunction of two [`NodeIdAny`] identifiers.
-pub fn or<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::or)(left, right)
-}
-
-/// Three-valued exclusive or (non-equivalence) of two [`NodeIdAny`] identifiers.
-pub fn xor<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::xor)(left, right)
-}
-
-/// Three-valued implication of two [`NodeIdAny`] identifiers.
-pub fn implies<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::implies)(left, right)
-}
-
-/// Three-valued equivalence of two [`NodeIdAny`] identifiers.
-pub fn iff<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::iff)(left, right)
-}
-
 /// A type representing a three-valued logic value.
 #[derive(PartialOrd, Ord, PartialEq, Eq, Debug)]
 #[repr(i8)]
@@ -115,20 +75,128 @@ impl std::ops::Not for TriBool {
     }
 }
 
+pub trait BooleanOperator: Clone + Copy {
+    /// Return a function implementing this boolean operation on [`NodeIdAny`] identifiers,
+    /// suitable for split BDDs.
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId;
+    /// Return a function implementing this boolean operation on [`NodeIdAny`] identifiers,
+    /// suitable for shared BDDs.
+    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId;
+}
+
+/// A type representing a logical conjunction.
+#[derive(Clone, Copy)]
+pub struct And;
+
+impl BooleanOperator for And {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::and)
+    }
+
+    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        // TODO: For now just use the same operator as split.
+        self.for_split()
+    }
+}
+
+/// A type representing a logical disjunction.
+#[derive(Clone, Copy)]
+pub struct Or;
+
+impl BooleanOperator for Or {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::or)
+    }
+
+    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        // TODO: For now just use the same operator as split.
+        self.for_split()
+    }
+}
+
+/// A type representing a logical equivalence.
+#[derive(Clone, Copy)]
+pub struct Iff;
+
+impl BooleanOperator for Iff {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::iff)
+    }
+
+    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        // TODO: For now just use the same operator as split.
+        self.for_split()
+    }
+}
+
+/// A type representing a logical implication.
+#[derive(Clone, Copy)]
+pub struct Implies;
+
+impl BooleanOperator for Implies {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::implies)
+    }
+
+    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        // TODO: For now just use the same operator as split.
+        self.for_split()
+    }
+}
+
+/// A type representing a logical xor.
+#[derive(Clone, Copy)]
+pub struct Xor;
+
+impl BooleanOperator for Xor {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::xor)
+    }
+
+    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        // TODO: For now just use the same operator as split.
+        self.for_split()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::node_id::NodeId32;
 
     #[test]
-    pub fn three_valued_logic_invariants() {
+    pub fn operators_for_split() {
         // Just a representative subset of input-output pairs for each operator.
 
-        let and = and::<NodeId32, NodeId32, NodeId32>;
-        let or = or::<NodeId32, NodeId32, NodeId32>;
-        let implies = implies::<NodeId32, NodeId32, NodeId32>;
-        let xor = xor::<NodeId32, NodeId32, NodeId32>;
-        let iff = iff::<NodeId32, NodeId32, NodeId32>;
+        let and = And.for_split::<NodeId32, NodeId32, NodeId32>();
+        let or = Or.for_split::<NodeId32, NodeId32, NodeId32>();
+        let implies = Implies.for_split::<NodeId32, NodeId32, NodeId32>();
+        let xor = Xor.for_split::<NodeId32, NodeId32, NodeId32>();
+        let iff = Iff.for_split::<NodeId32, NodeId32, NodeId32>();
 
         assert!(and(NodeId32::one(), NodeId32::one()).is_one());
         assert!(and(NodeId32::zero(), NodeId32::one()).is_zero());

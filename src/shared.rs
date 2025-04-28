@@ -1,6 +1,6 @@
 use crate::{
     bdd_node::BddNodeAny,
-    boolean_operators::{lift_operator, TriBool},
+    boolean_operators::{self, BooleanOperator},
     conversion::{UncheckedFrom, UncheckedInto},
     nested_apply::{inner_apply_any, InnerApplyState},
     node_id::{NodeId, NodeId16, NodeId32, NodeId64, NodeIdAny},
@@ -312,11 +312,11 @@ impl BddManager {
         }
     }
 
-    fn apply<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+    fn apply<TBooleanOp: BooleanOperator>(
         &mut self,
         left: &Bdd,
         right: &Bdd,
-        operator: TTriBoolOp,
+        operator: TBooleanOp,
     ) -> Bdd {
         self.maybe_collect_garbage();
 
@@ -365,27 +365,27 @@ impl BddManager {
 
     /// Calculate a [`Bdd`] representing the boolean formula `left && right` (conjunction).
     pub fn and(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
-        self.apply(left, right, TriBool::and)
+        self.apply(left, right, boolean_operators::And)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `left || right` (disjunction).
     pub fn or(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
-        self.apply(left, right, TriBool::or)
+        self.apply(left, right, boolean_operators::Or)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `left ^ right` (xor; non-equivalence).
     pub fn xor(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
-        self.apply(left, right, TriBool::xor)
+        self.apply(left, right, boolean_operators::Xor)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `left => right` (implication).
     pub fn implies(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
-        self.apply(left, right, TriBool::implies)
+        self.apply(left, right, boolean_operators::Implies)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `left <=> right` (equivalence).
     pub fn iff(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
-        self.apply(left, right, TriBool::iff)
+        self.apply(left, right, boolean_operators::Iff)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `!bdd` (negation).
@@ -420,15 +420,12 @@ impl BddManager {
         bdd
     }
 
-    fn nested_apply<
-        TTriboolOp1: Fn(TriBool, TriBool) -> TriBool,
-        TTriboolOp2: Fn(TriBool, TriBool) -> TriBool,
-    >(
+    fn nested_apply<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
         &mut self,
         left: &Bdd,
         right: &Bdd,
-        outer_op: TTriboolOp1,
-        inner_op: TTriboolOp2,
+        outer_op: TOuterOp,
+        inner_op: TInnerOp,
         variables: &[VariableId],
     ) -> Bdd {
         self.maybe_collect_garbage();
@@ -484,36 +481,36 @@ impl BddManager {
 
     /// Eliminates the given `variables` using existential quantification.
     pub fn exists(&mut self, bdd: &Bdd, variables: &[VariableId]) -> Bdd {
-        self.binary_op_with_exists(bdd, bdd, TriBool::and, variables)
+        self.binary_op_with_exists(bdd, bdd, boolean_operators::And, variables)
     }
 
     /// Eliminates the given `variables` using universal quantification.
     pub fn for_all(&mut self, bdd: &Bdd, variables: &[VariableId]) -> Bdd {
-        self.binary_op_with_for_all(bdd, bdd, TriBool::and, variables)
+        self.binary_op_with_for_all(bdd, bdd, boolean_operators::And, variables)
     }
 
     /// Applies a binary operator to the BDDs and eliminates the given `variables` using existential
     /// quantification from the result.
-    pub fn binary_op_with_exists<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+    pub fn binary_op_with_exists<TBooleanOp: BooleanOperator>(
         &mut self,
         left: &Bdd,
         right: &Bdd,
-        operator: TTriBoolOp,
+        operator: TBooleanOp,
         variables: &[VariableId],
     ) -> Bdd {
-        self.nested_apply(left, right, operator, TriBool::or, variables)
+        self.nested_apply(left, right, operator, boolean_operators::Or, variables)
     }
 
     /// Applies a binary operator to the BDDs and eliminates the given `variables` using universal
     /// quantification from the result.
-    pub fn binary_op_with_for_all<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+    pub fn binary_op_with_for_all<TBooleanOp: BooleanOperator>(
         &mut self,
         left: &Bdd,
         right: &Bdd,
-        operator: TTriBoolOp,
+        operator: TBooleanOp,
         variables: &[VariableId],
     ) -> Bdd {
-        self.nested_apply(left, right, operator, TriBool::and, variables)
+        self.nested_apply(left, right, operator, boolean_operators::And, variables)
     }
 }
 
@@ -705,7 +702,7 @@ impl_apply_state_conversion!(NodeTable32, NodeTable64, TaskCache32);
 
 fn apply_any_default_state<
     TNodeTable: NodeTableAny,
-    TBooleanOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
+    TBooleanOp: BooleanOperator,
     TTaskCache: TaskCacheAny<ResultId = TNodeTable::Id>,
 >(
     left: TNodeTable::Id,
@@ -725,12 +722,14 @@ fn apply_any_default_state<
 
 fn apply_any<
     TNodeTable: NodeTableAny,
-    TBooleanOp: Fn(TNodeTable::Id, TNodeTable::Id) -> TNodeTable::Id,
+    TBooleanOp: BooleanOperator,
     TTaskCache: TaskCacheAny<ResultId = TNodeTable::Id>,
 >(
     operator: TBooleanOp,
     state: ApplyState<TNodeTable, TTaskCache>,
 ) -> Result<(TNodeTable::Id, TNodeTable), ApplyState<TNodeTable, TTaskCache>> {
+    let operator = operator.for_shared::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
+
     let ApplyState {
         mut stack,
         mut results,
@@ -817,66 +816,54 @@ fn apply_any<
     Ok((root, node_table))
 }
 
-fn apply_16_bit<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+fn apply_16_bit<TBooleanOp: BooleanOperator>(
     node_table: NodeTable16,
     left: NodeId16,
     right: NodeId16,
-    operator: TTriBoolOp,
+    operator: TBooleanOp,
 ) -> (NodeId, NodeTable) {
     let state = match apply_any_default_state::<_, _, TaskCache16<NodeId16>>(
-        left,
-        right,
-        node_table,
-        lift_operator(&operator),
+        left, right, node_table, operator,
     ) {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size16(table)),
         Err(state) => state,
     };
 
-    let state = match apply_any(lift_operator(&operator), state.into()) {
+    let state = match apply_any(operator, state.into()) {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
         Err(state) => state,
     };
 
-    let (root, table) =
-        apply_any(lift_operator(operator), state.into()).expect("64-bit operation failed");
+    let (root, table) = apply_any(operator, state.into()).expect("64-bit operation failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
-fn apply_32_bit<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+fn apply_32_bit<TBooleanOp: BooleanOperator>(
     node_table: NodeTable32,
     left: NodeId32,
     right: NodeId32,
-    operator: TTriBoolOp,
+    operator: TBooleanOp,
 ) -> (NodeId, NodeTable) {
     let state = match apply_any_default_state::<_, _, TaskCache32<NodeId32>>(
-        left,
-        right,
-        node_table,
-        lift_operator(&operator),
+        left, right, node_table, operator,
     ) {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
         Err(state) => state,
     };
 
-    let (root, table) =
-        apply_any(lift_operator(operator), state.into()).expect("64-bit operation failed");
+    let (root, table) = apply_any(operator, state.into()).expect("64-bit operation failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
-fn apply_64_bit<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+fn apply_64_bit<TBooleanOp: BooleanOperator>(
     node_table: NodeTable64,
     left: NodeId64,
     right: NodeId64,
-    operator: TTriBoolOp,
+    operator: TBooleanOp,
 ) -> (NodeId, NodeTable) {
-    let (root, table) = apply_any_default_state::<_, _, TaskCache64<NodeId64>>(
-        left,
-        right,
-        node_table,
-        lift_operator(operator),
-    )
-    .expect("TODO: 64-bit operation failed");
+    let (root, table) =
+        apply_any_default_state::<_, _, TaskCache64<NodeId64>>(left, right, node_table, operator)
+            .expect("TODO: 64-bit operation failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
@@ -962,8 +949,8 @@ impl_nested_apply_state_conversion_simple!(NestedApplyState32, NestedApplyState6
 
 fn nested_apply_any<
     TNodeTable: NodeTableAny,
-    TOuterOp: Fn(TriBool, TriBool) -> TriBool,
-    TInnerOp: Fn(TriBool, TriBool) -> TriBool,
+    TOuterOp: BooleanOperator,
+    TInnerOp: BooleanOperator,
     TTrigger: Fn(TNodeTable::VarId) -> bool,
     TOuterCache: TaskCacheAny<ResultId = TNodeTable::Id>,
     TInnerCache: TaskCacheAny<ResultId = TNodeTable::Id>,
@@ -973,8 +960,8 @@ fn nested_apply_any<
     trigger: TTrigger,
     state: NestedApplyState<TOuterCache, TInnerCache, TNodeTable>,
 ) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TOuterCache, TInnerCache, TNodeTable>> {
-    let outer_op = lift_operator::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id, _>(&outer_op);
-    let inner_op = lift_operator::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id, _>(&inner_op);
+    let outer_op = outer_op.for_shared::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
+    let inner_op = inner_op.for_shared::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
 
     let NestedApplyState {
         mut stack,
@@ -1101,15 +1088,12 @@ fn nested_apply_any<
     Ok((root, node_table))
 }
 
-fn nested_apply_16_bit<
-    TTriBoolOp1: Fn(TriBool, TriBool) -> TriBool,
-    TTriBoolOp2: Fn(TriBool, TriBool) -> TriBool,
->(
+fn nested_apply_16_bit<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
     node_table: NodeTable16,
     left: NodeId16,
     right: NodeId16,
-    outer_op: TTriBoolOp1,
-    inner_op: TTriBoolOp2,
+    outer_op: TOuterOp,
+    inner_op: TInnerOp,
     variables: &[VariableId],
 ) -> (NodeId, NodeTable) {
     let variable_set: FxHashSet<VarIdPacked16> =
@@ -1117,7 +1101,7 @@ fn nested_apply_16_bit<
 
     let trigger = |var: VarIdPacked16| variable_set.contains(&var);
     let state = default_state_16(left, right, node_table);
-    let result_16 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let result_16 = nested_apply_any(outer_op, inner_op, trigger, state);
     let state = match result_16 {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size16(table)),
         Err(state) => state,
@@ -1125,7 +1109,7 @@ fn nested_apply_16_bit<
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var.unchecked_into());
     let state: NestedApplyState32<TaskCache16<NodeId32>> = state.into();
-    let result_32 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let result_32 = nested_apply_any(outer_op, inner_op, trigger, state);
     let state = match result_32 {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
         Err(state) => state,
@@ -1133,22 +1117,19 @@ fn nested_apply_16_bit<
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
     let state: NestedApplyState64<TaskCache16<NodeId64>> = state.into();
-    let result_64 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let result_64 = nested_apply_any(outer_op, inner_op, trigger, state);
     match result_64 {
         Ok((root, table)) => (NodeId::unchecked_from(root), NodeTable::Size64(table)),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
 
-fn nested_apply_32_bit<
-    TriBoolOp1: Fn(TriBool, TriBool) -> TriBool,
-    TriBoolOp2: Fn(TriBool, TriBool) -> TriBool,
->(
+fn nested_apply_32_bit<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
     node_table: NodeTable32,
     left: NodeId32,
     right: NodeId32,
-    outer_op: TriBoolOp1,
-    inner_op: TriBoolOp2,
+    outer_op: TOuterOp,
+    inner_op: TInnerOp,
     variables: &[VariableId],
 ) -> (NodeId, NodeTable) {
     let variable_set: FxHashSet<VarIdPacked32> =
@@ -1156,7 +1137,7 @@ fn nested_apply_32_bit<
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var);
     let state = default_state_32(left, right, node_table);
-    let result_32 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let result_32 = nested_apply_any(outer_op, inner_op, trigger, state);
     let state = match result_32 {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
         Err(state) => state,
@@ -1164,22 +1145,19 @@ fn nested_apply_32_bit<
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
     let state: NestedApplyState64<TaskCache32<NodeId64>> = state.into();
-    let result_64 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let result_64 = nested_apply_any(outer_op, inner_op, trigger, state);
     match result_64 {
         Ok((root, table)) => (NodeId::unchecked_from(root), NodeTable::Size64(table)),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
 
-fn nested_apply_64_bit<
-    TTriBoolOp1: Fn(TriBool, TriBool) -> TriBool,
-    TTriBoolOp2: Fn(TriBool, TriBool) -> TriBool,
->(
+fn nested_apply_64_bit<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
     node_table: NodeTable64,
     left: NodeId64,
     right: NodeId64,
-    outer_op: TTriBoolOp1,
-    inner_op: TTriBoolOp2,
+    outer_op: TOuterOp,
+    inner_op: TInnerOp,
     variables: &[VariableId],
 ) -> (NodeId, NodeTable) {
     let variable_set: FxHashSet<VarIdPacked64> =
@@ -1187,7 +1165,7 @@ fn nested_apply_64_bit<
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var);
     let state = default_state_64(left, right, node_table);
-    let result_64 = nested_apply_any(&outer_op, &inner_op, trigger, state);
+    let result_64 = nested_apply_any(outer_op, inner_op, trigger, state);
     match result_64 {
         Ok((root, table)) => (NodeId::unchecked_from(root), NodeTable::Size64(table)),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
@@ -1561,7 +1539,7 @@ pub mod tests {
         let g = m.iff(&z, &w);
 
         // Calculate left side: ∃x.(f(x) ∧ g)
-        let left_side = m.binary_op_with_exists(&f_x, &g, TriBool::and, &[v_x]);
+        let left_side = m.binary_op_with_exists(&f_x, &g, boolean_operators::And, &[v_x]);
 
         // Calculate right side: (∃x.f(x)) ∧ g
         let right_exists = m.exists(&f_x, &[v_x]);
@@ -1570,7 +1548,7 @@ pub mod tests {
         assert_eq!(left_side, right_side);
 
         // Also test for universal quantification: ∀x.(f(x) ∨ g) = (∀x.f(x)) ∨ g
-        let left_side_forall = m.binary_op_with_for_all(&f_x, &g, TriBool::or, &[v_x]);
+        let left_side_forall = m.binary_op_with_for_all(&f_x, &g, boolean_operators::Or, &[v_x]);
 
         let right_forall = m.for_all(&f_x, &[v_x]);
         let right_side_forall = m.or(&right_forall, &g);
@@ -1668,12 +1646,12 @@ pub mod tests {
         let e3 = manager.and(&iff_part, &high32);
 
         // Test nested_apply vs regular apply for AND operation
-        let result1 = manager.binary_op_with_exists(&e1, &e2, TriBool::and, &[]);
+        let result1 = manager.binary_op_with_exists(&e1, &e2, boolean_operators::And, &[]);
         let result2 = manager.and(&e1, &e2);
         assert_eq!(result1, result2);
 
         // Test nested_apply vs regular apply for IFF operation
-        let result3 = manager.binary_op_with_for_all(&e1, &e3, TriBool::iff, &[]);
+        let result3 = manager.binary_op_with_for_all(&e1, &e3, boolean_operators::Iff, &[]);
         let result4 = manager.iff(&e1, &e3);
         assert_eq!(result3, result4);
     }
@@ -1696,19 +1674,19 @@ pub mod tests {
 
             // exists v1. (v1 & v1) is tautology
             assert!(manager
-                .binary_op_with_exists(&v_true, &v_true, TriBool::and, &[v])
+                .binary_op_with_exists(&v_true, &v_true, boolean_operators::And, &[v])
                 .is_true());
             // exists v1. (v1 & !v1) is contradiction
             assert!(manager
-                .binary_op_with_exists(&v_true, &v_false, TriBool::and, &[v])
+                .binary_op_with_exists(&v_true, &v_false, boolean_operators::And, &[v])
                 .is_false());
             // forall v1. (v1 | !v1) is tautology
             assert!(manager
-                .binary_op_with_for_all(&v_true, &v_false, TriBool::or, &[v])
+                .binary_op_with_for_all(&v_true, &v_false, boolean_operators::Or, &[v])
                 .is_true());
             // forall v1. (v1 | v1) is contradiction
             assert!(manager
-                .binary_op_with_for_all(&v_true, &v_true, TriBool::or, &[v])
+                .binary_op_with_for_all(&v_true, &v_true, boolean_operators::Or, &[v])
                 .is_false());
         }
     }
@@ -1739,11 +1717,11 @@ pub mod tests {
                 // To make it a bit more fun, we always erase some previously used variable.
                 // This means we are not computing ripple carry adder after all, but at least
                 // it tests the nested apply operator.
-                let and = manager.binary_op_with_exists(&x1, &x2, TriBool::and, &[]);
+                let and = manager.binary_op_with_exists(&x1, &x2, boolean_operators::And, &[]);
                 result = manager.binary_op_with_exists(
                     &result,
                     &and,
-                    TriBool::or,
+                    boolean_operators::Or,
                     &[VariableId::new(x / 4)],
                 );
             }

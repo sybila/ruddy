@@ -8,7 +8,7 @@ use std::{fmt::Display, vec};
 use crate::{
     bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     bdd_node::BddNodeAny,
-    boolean_operators::{self, lift_operator, TriBool},
+    boolean_operators::{self, BooleanOperator},
     node_id::{NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
@@ -18,29 +18,23 @@ use crate::{
 /// Like [`apply_any_default_state`], but specifically for 16-bit BDDs.
 ///
 /// The function automatically grows the BDD to 32, or 64 bits if the result does not fit.
-pub(crate) fn apply_16_bit_input<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+pub(crate) fn apply_16_bit_input<TBooleanOp: BooleanOperator>(
     left: &Bdd16,
     right: &Bdd16,
-    operator: TTriBoolOp,
+    operator: TBooleanOp,
 ) -> Bdd {
-    let data = match apply_any_default_state::<Bdd16, _, _, _, _, _>(
-        left,
-        right,
-        lift_operator(&operator),
-    ) {
+    let data = match apply_any_default_state::<Bdd16, _, _, _, _, _>(left, right, operator) {
         Ok(bdd) => return Bdd::Size16(bdd),
         Err(data) => data,
     };
 
-    let data =
-        match apply_any::<Bdd32, _, _, _, _, _>(left, right, lift_operator(&operator), data.into())
-        {
-            Ok(bdd) => return Bdd::Size32(bdd),
-            Err(data) => data,
-        };
+    let data = match apply_any::<Bdd32, _, _, _, _, _>(left, right, operator, data.into()) {
+        Ok(bdd) => return Bdd::Size32(bdd),
+        Err(data) => data,
+    };
 
     Bdd::Size64(
-        apply_any::<Bdd64, _, _, _, _, _>(left, right, lift_operator(operator), data.into())
+        apply_any::<Bdd64, _, _, _, _, _>(left, right, operator, data.into())
             .expect("TODO: 64 bit apply failed"),
     )
 }
@@ -51,23 +45,21 @@ pub(crate) fn apply_16_bit_input<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
 pub(crate) fn apply_32_bit_input<
     TBdd1: AsBdd<Bdd32> + AsBdd<Bdd64>,
     TBdd2: AsBdd<Bdd32> + AsBdd<Bdd64>,
-    TTriBoolOp: Fn(TriBool, TriBool) -> TriBool,
+    TBooleanOp: BooleanOperator,
 >(
     left: &TBdd1,
     right: &TBdd2,
-    operator: TTriBoolOp,
+    operator: TBooleanOp,
 ) -> Bdd {
     let data = match apply_any_default_state::<Bdd32, _, _, _, TaskCache32<NodeId32>, _>(
-        left,
-        right,
-        lift_operator(&operator),
+        left, right, operator,
     ) {
         Ok(bdd) => return Bdd::Size32(bdd),
         Err(data) => data,
     };
 
     Bdd::Size64(
-        apply_any::<Bdd64, _, _, _, _, _>(left, right, lift_operator(operator), data.into())
+        apply_any::<Bdd64, _, _, _, _, _>(left, right, operator, data.into())
             .expect("TODO: 64 bit apply failed"),
     )
 }
@@ -76,17 +68,15 @@ pub(crate) fn apply_32_bit_input<
 pub(crate) fn apply_64_bit_input<
     TBdd1: AsBdd<Bdd64>,
     TBdd2: AsBdd<Bdd64>,
-    TTriBoolOp: Fn(TriBool, TriBool) -> TriBool,
+    TBooleanOp: BooleanOperator,
 >(
     left: &TBdd1,
     right: &TBdd2,
-    operator: TTriBoolOp,
+    operator: TBooleanOp,
 ) -> Bdd {
     Bdd::Size64(
         apply_any_default_state::<Bdd64, _, _, _, TaskCache64<NodeId64>, NodeTable64>(
-            left,
-            right,
-            lift_operator(operator),
+            left, right, operator,
         )
         .expect("TODO: 64-bit apply failed"),
     )
@@ -150,7 +140,7 @@ pub(crate) fn apply_any_default_state<
     TResultBdd: BddAny,
     TBdd1: AsBdd<TResultBdd>,
     TBdd2: AsBdd<TResultBdd>,
-    TBooleanOp: Fn(TBdd1::Id, TBdd2::Id) -> TResultBdd::Id,
+    TBooleanOp: BooleanOperator,
     TTaskCache: TaskCacheAny<ResultId = TResultBdd::Id>,
     TNodeTable: NodeTableAny<Id = TResultBdd::Id, VarId = TResultBdd::VarId, Node = TResultBdd::Node>,
 >(
@@ -194,7 +184,7 @@ fn apply_any<
     TResultBdd: BddAny,
     TBdd1: AsBdd<TResultBdd>,
     TBdd2: AsBdd<TResultBdd>,
-    TBooleanOp: Fn(TBdd1::Id, TBdd2::Id) -> TResultBdd::Id,
+    TBooleanOp: BooleanOperator,
     TTaskCache: TaskCacheAny<ResultId = TResultBdd::Id>,
     TNodeTable: NodeTableAny<Id = TResultBdd::Id, VarId = TResultBdd::VarId, Node = TResultBdd::Node>,
 >(
@@ -203,6 +193,8 @@ fn apply_any<
     operator: TBooleanOp,
     state: ApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TTaskCache, TNodeTable>,
 ) -> Result<TResultBdd, ApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TTaskCache, TNodeTable>> {
+    let operator = operator.for_split::<TBdd1::Id, TBdd2::Id, TResultBdd::Id>();
+
     let ApplyState {
         mut stack,
         mut results,
@@ -292,33 +284,33 @@ fn apply_any<
 impl Bdd {
     /// Calculate a [`Bdd`] representing the boolean formula `self && other` (conjunction).
     pub fn and(&self, other: &Bdd) -> Bdd {
-        self.apply(other, TriBool::and)
+        self.apply(other, boolean_operators::And)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `self || other` (disjunction).
     pub fn or(&self, other: &Bdd) -> Bdd {
-        self.apply(other, TriBool::or)
+        self.apply(other, boolean_operators::Or)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `self ^ other` (xor; non-equivalence).
     pub fn xor(&self, other: &Bdd) -> Bdd {
-        self.apply(other, TriBool::xor)
+        self.apply(other, boolean_operators::Xor)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `self => other` (implication).
     pub fn implies(&self, other: &Bdd) -> Bdd {
-        self.apply(other, TriBool::implies)
+        self.apply(other, boolean_operators::Implies)
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `self <=> other` (equivalence).
     pub fn iff(&self, other: &Bdd) -> Bdd {
-        self.apply(other, TriBool::iff)
+        self.apply(other, boolean_operators::Iff)
     }
 
-    pub(crate) fn apply<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+    pub(crate) fn apply<TBooleanOp: BooleanOperator>(
         &self,
         other: &Bdd,
-        operator: TTriBoolOp,
+        operator: TBooleanOp,
     ) -> Bdd {
         match (self, other) {
             (Bdd::Size16(left), Bdd::Size16(right)) => apply_16_bit_input(left, right, operator),
@@ -368,30 +360,30 @@ macro_rules! impl_bdd_operations {
         impl $Bdd {
             /// Calculate a Bdd representing the boolean formula `self && other` (conjunction).
             pub fn and(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::and)
+                Self::apply(self, other, boolean_operators::And)
             }
 
             /// Calculate a Bdd representing the boolean formula `self || other` (disjunction).
             pub fn or(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::or)
+                Self::apply(self, other, boolean_operators::Or)
             }
 
             /// Calculate a Bdd representing the boolean formula `self ^ other` (xor; non-equivalence).
             pub fn xor(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::xor)
+                Self::apply(self, other, boolean_operators::Xor)
             }
 
             /// Calculate a Bdd representing the boolean formula `self => other` (implication).
             pub fn implies(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::implies)
+                Self::apply(self, other, boolean_operators::Implies)
             }
 
             /// Calculate a Bdd representing the boolean formula `self <=> other` (equivalence).
             pub fn iff(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::iff)
+                Self::apply(self, other, boolean_operators::Iff)
             }
 
-            pub fn apply<TBooleanOp: Fn(NodeId<$Bdd>, NodeId<$Bdd>) -> NodeId<$Bdd>>(
+            pub fn apply<TBooleanOp: BooleanOperator>(
                 left: &$Bdd,
                 right: &$Bdd,
                 operator: TBooleanOp,
