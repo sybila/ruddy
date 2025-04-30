@@ -82,11 +82,8 @@ impl BddManager {
         Self::default()
     }
 
-    pub fn with_gc(self, garbage_collection: GarbageCollection) -> Self {
-        Self {
-            gc: garbage_collection,
-            ..self
-        }
+    pub fn set_gc(&mut self, garbage_collection: GarbageCollection) {
+        self.gc = garbage_collection;
     }
 
     pub fn new_bdd_false(&self) -> Bdd {
@@ -1176,7 +1173,9 @@ pub mod tests {
 
     impl BddManager {
         fn no_gc() -> Self {
-            Self::new().with_gc(GarbageCollection::Manual)
+            let mut manager = BddManager::new();
+            manager.set_gc(GarbageCollection::Manual);
+            manager
         }
     }
 
