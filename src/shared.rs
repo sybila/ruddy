@@ -290,17 +290,24 @@ impl BddManager {
         }
     }
 
-    /// Approximately counts the number of satisfying valuations in the BDD.
-    pub fn satisfying_valuations(&self, bdd: &Bdd) -> f64 {
+    /// Approximately counts the number of satisfying valuations in the BDD
+    /// rooted in `root`. If `largest_variable` is [`Option::Some`], then it is
+    /// assumed to be the largest variable. Otherwise, the largest variable in the
+    /// table is used.
+    ///
+    /// Assumes that the given variable is greater than or equal to than any
+    /// variable in the BDD. Otherwise, the function may give unexpected results
+    /// in release mode or panic in debug mode.
+    pub fn satisfying_valuations(&self, bdd: &Bdd, largest_variable: Option<VariableId>) -> f64 {
         match &self.unique_table {
             NodeTable::Size16(table) => {
-                table.satisfying_valuations(bdd.root.get().unchecked_into())
+                table.satisfying_valuations(bdd.root.get().unchecked_into(), largest_variable)
             }
             NodeTable::Size32(table) => {
-                table.satisfying_valuations(bdd.root.get().unchecked_into())
+                table.satisfying_valuations(bdd.root.get().unchecked_into(), largest_variable)
             }
             NodeTable::Size64(table) => {
-                table.satisfying_valuations(bdd.root.get().unchecked_into())
+                table.satisfying_valuations(bdd.root.get().unchecked_into(), largest_variable)
             }
         }
     }
@@ -1860,13 +1867,15 @@ pub mod tests {
         let v0 = m.new_bdd_literal(VariableId::new(0), true);
         let v0n = m.new_bdd_literal(VariableId::new(0), false);
 
-        assert_eq!(m.satisfying_valuations(&f), 0.0,);
+        assert_eq!(m.satisfying_valuations(&f, Some(VariableId::new(0))), 0.0,);
 
-        assert_eq!(m.satisfying_valuations(&t), 1.0,);
+        assert_eq!(m.satisfying_valuations(&t, Some(VariableId::new(0))), 2.0,);
 
-        assert_eq!(m.satisfying_valuations(&v0), 1.0,);
+        assert_eq!(m.satisfying_valuations(&t, None), 2.0,);
 
-        assert_eq!(m.satisfying_valuations(&v0n), 1.0,);
+        assert_eq!(m.satisfying_valuations(&v0, None), 1.0,);
+
+        assert_eq!(m.satisfying_valuations(&v0n, Some(VariableId::new(2))), 4.0,);
 
         let v1 = m.new_bdd_literal(VariableId::new(1), true);
         let v3 = m.new_bdd_literal(VariableId::new(3), true);
@@ -1876,13 +1885,13 @@ pub mod tests {
         let and2 = m.and(&v0, &v1);
         let and3 = m.and(&and2, &v3);
 
-        assert_eq!(m.satisfying_valuations(&or3), 14.0);
-        assert_eq!(m.satisfying_valuations(&and3), 2.0);
+        assert_eq!(m.satisfying_valuations(&or3, None), 14.0);
+        assert_eq!(m.satisfying_valuations(&and3, None), 2.0);
 
         let (m, bdd4) = queens(4);
-        assert_eq!(m.satisfying_valuations(&bdd4), 2.0);
+        assert_eq!(m.satisfying_valuations(&bdd4, None), 2.0);
         let (m, bdd8) = queens(8);
-        assert_eq!(m.satisfying_valuations(&bdd8), 92.0);
+        assert_eq!(m.satisfying_valuations(&bdd8, None), 92.0);
     }
 
     #[test]

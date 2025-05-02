@@ -174,22 +174,38 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
         result
     }
 
-    /// Approximately counts the number of satisfying valuations in the BDD.
-    fn satisfying_valuations(&self) -> f64 {
+    /// Approximately counts the number of satisfying valuations in the BDD. If
+    /// `largest_variable` is [`Option::Some`], then it is assumed to be the largest
+    /// variable. Otherwise, the largest variable in the BDD is used.
+    ///
+    /// Assumes that the given variable is greater than or equal to than any
+    /// variable in the BDD. Otherwise, the function may give unexpected results
+    /// in release mode or panic in debug mode.
+    fn satisfying_valuations(&self, largest_variable: Option<VariableId>) -> f64 {
         if self.is_false() {
             return 0.0;
         }
 
         if self.is_true() {
-            return 1.0;
+            if let Some(largest_variable) = largest_variable {
+                let exponent = (Into::<u64>::into(largest_variable) + 1)
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP);
+                return 2.0f64.powi(exponent);
+            }
+            return 1.0f64;
         }
 
-        let max_variable = self
-            .nodes
-            .iter()
-            .map(|node| node.variable())
-            .reduce(|v1, v2| v1.max_defined(v2))
-            .expect("BDD has at least one node");
+        let largest_variable = if let Some(largest_variable) = largest_variable {
+            largest_variable
+        } else {
+            self.nodes
+                .iter()
+                .map(|node| node.variable())
+                .reduce(TVarId::max_defined)
+                .expect("BDD is not empty")
+                .unchecked_into()
+        };
 
         // Use a negative value to indicate that the count is not yet computed.
         let mut counts = vec![-1.0f64; self.node_count()];
@@ -221,12 +237,12 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             let high_variable = high_node.variable();
 
             if low_is_done && high_is_done {
-                let skipped = variables_between(low_variable, variable, max_variable)
+                let skipped = variables_between(low_variable, variable, largest_variable)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
                 let low_count = low_count * 2.0f64.powi(skipped);
 
-                let skipped = variables_between(high_variable, variable, max_variable)
+                let skipped = variables_between(high_variable, variable, largest_variable)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
                 let high_count = high_count * 2.0f64.powi(skipped);
@@ -541,12 +557,18 @@ impl Bdd {
         }
     }
 
-    /// Approximately counts the number of satisfying valuations.
-    pub fn satisfying_valuations(&self) -> f64 {
+    /// Approximately counts the number of satisfying valuations in the BDD. If
+    /// `largest_variable` is [`Option::Some`], then it is assumed to be the largest
+    /// variable. Otherwise, the largest variable in the BDD is used.
+    ///
+    /// Assumes that the given variable is greater than or equal to than any
+    /// variable in the BDD. Otherwise, the function may give unexpected results
+    /// in release mode or panic in debug mode.
+    pub fn satisfying_valuations(&self, largest_variable: Option<VariableId>) -> f64 {
         match self {
-            Bdd::Size16(bdd) => bdd.satisfying_valuations(),
-            Bdd::Size32(bdd) => bdd.satisfying_valuations(),
-            Bdd::Size64(bdd) => bdd.satisfying_valuations(),
+            Bdd::Size16(bdd) => bdd.satisfying_valuations(largest_variable),
+            Bdd::Size32(bdd) => bdd.satisfying_valuations(largest_variable),
+            Bdd::Size64(bdd) => bdd.satisfying_valuations(largest_variable),
         }
     }
 
@@ -1008,25 +1030,42 @@ mod tests {
 
     #[test]
     fn count_sat_valuations() {
-        assert_eq!(Bdd::new_false().satisfying_valuations(), 0.0,);
+        assert_eq!(Bdd::new_false().satisfying_valuations(None), 0.0,);
 
-        assert_eq!(Bdd::new_true().satisfying_valuations(), 1.0,);
+        assert_eq!(Bdd::new_true().satisfying_valuations(None), 1.0,);
 
         assert_eq!(
-            Bdd::new_literal(VariableId::new(0u32), true).satisfying_valuations(),
+            Bdd::new_true().satisfying_valuations(Some(VariableId::new(0))),
+            2.0,
+        );
+
+        assert_eq!(
+            Bdd::new_literal(VariableId::new(0u32), true)
+                .satisfying_valuations(Some(VariableId::new(0u32))),
             1.0,
         );
 
         assert_eq!(
-            Bdd::new_literal(VariableId::new(0u32), false).satisfying_valuations(),
+            Bdd::new_literal(VariableId::new(0u32), true).satisfying_valuations(None),
             1.0,
         );
 
-        let bdd4 = queens(6);
+        assert_eq!(
+            Bdd::new_literal(VariableId::new(0u32), false).satisfying_valuations(None),
+            1.0,
+        );
+
+        assert_eq!(
+            Bdd::new_literal(VariableId::new(0u32), false)
+                .satisfying_valuations(Some(VariableId::new(2u32))),
+            4.0,
+        );
+
+        let bdd6 = queens(6);
         let bdd8 = queens(9);
 
-        assert_eq!(bdd4.satisfying_valuations(), 4.0);
-        assert_eq!(bdd8.satisfying_valuations(), 352.0);
+        assert_eq!(bdd6.satisfying_valuations(None), 4.0);
+        assert_eq!(bdd8.satisfying_valuations(None), 352.0);
 
         let or3 = Bdd::new_literal(VariableId::new(0u32), true)
             .or(&Bdd::new_literal(VariableId::new(1u32), true))
@@ -1036,8 +1075,8 @@ mod tests {
             .and(&Bdd::new_literal(VariableId::new(1u32), true))
             .and(&Bdd::new_literal(VariableId::new(3u32), true));
 
-        assert_eq!(or3.satisfying_valuations(), 14.0);
-        assert_eq!(and3.satisfying_valuations(), 2.0);
+        assert_eq!(or3.satisfying_valuations(None), 14.0);
+        assert_eq!(and3.satisfying_valuations(None), 2.0);
     }
 
     #[test]

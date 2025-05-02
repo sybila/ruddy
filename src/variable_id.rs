@@ -2,7 +2,7 @@
 //! [`VarIdPacked16`], [`VarIdPacked32`], and [`VarIdPacked64`].
 
 use crate::conversion::{UncheckedFrom, UncheckedInto};
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use std::{
     convert::TryFrom,
     fmt::{self, Debug},
@@ -27,7 +27,17 @@ use std::{
 /// Note that the last two features are primarily used to speed up the `apply` algorithm and
 /// have no meaning outside of it.
 pub trait VarIdPackedAny:
-    Copy + Clone + PartialEq + Eq + PartialOrd + Ord + Hash + Debug + UncheckedFrom<VariableId>
+    Copy
+    + Clone
+    + PartialEq
+    + Eq
+    + PartialOrd
+    + Ord
+    + Hash
+    + Debug
+    + UncheckedFrom<VariableId>
+    + Display
+    + UncheckedInto<VariableId>
 {
     /// Return an instance of the "undefined" variable ID.
     fn undefined() -> Self;
@@ -730,6 +740,24 @@ impl UncheckedFrom<VariableId> for VarIdPacked16 {
     }
 }
 
+impl UncheckedFrom<VarIdPacked16> for VariableId {
+    fn unchecked_from(value: VarIdPacked16) -> Self {
+        VariableId::from(value.unpack())
+    }
+}
+
+impl UncheckedFrom<VarIdPacked32> for VariableId {
+    fn unchecked_from(value: VarIdPacked32) -> Self {
+        VariableId::from(value.unpack())
+    }
+}
+
+impl UncheckedFrom<VarIdPacked64> for VariableId {
+    fn unchecked_from(value: VarIdPacked64) -> Self {
+        VariableId(value.unpack())
+    }
+}
+
 impl From<u16> for VariableId {
     fn from(value: u16) -> Self {
         VariableId::new(u32::from(value))
@@ -739,6 +767,12 @@ impl From<u16> for VariableId {
 impl From<u32> for VariableId {
     fn from(value: u32) -> Self {
         VariableId::new(value)
+    }
+}
+
+impl From<VariableId> for u64 {
+    fn from(value: VariableId) -> Self {
+        value.0
     }
 }
 
@@ -760,18 +794,27 @@ impl fmt::Display for VarIdPacked64 {
     }
 }
 
+impl fmt::Display for VariableId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Calculate the number of variables between `larger` and `smaller`. If `larger`
-/// is `undefined`, return the number of variables between `max_variable` and `smaller`
+/// is `undefined`, return the number of variables between `largest_variable` and `smaller`
 /// instead.
 pub(crate) fn variables_between<TVarId: VarIdPackedAny>(
     larger: TVarId,
     smaller: TVarId,
-    max_variable: TVarId,
+    largest_variable: VariableId,
 ) -> u64 {
     debug_assert!(!smaller.is_undefined());
-    debug_assert!(!max_variable.is_undefined());
     if larger.is_undefined() {
-        max_variable.unpack_u64() - smaller.unpack_u64()
+        debug_assert!(
+            Into::<u64>::into(largest_variable) >= smaller.unpack_u64(),
+            "largest variable {largest_variable} is smaller than variable {smaller} in the BDD"
+        );
+        Into::<u64>::into(largest_variable) - smaller.unpack_u64()
     } else {
         larger.unpack_u64() - smaller.unpack_u64() - 1
     }

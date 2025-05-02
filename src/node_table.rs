@@ -3,7 +3,7 @@
 //!
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
-use crate::variable_id::{variables_between, Mark};
+use crate::variable_id::{variables_between, Mark, VariableId};
 use crate::{
     bdd::BddAny,
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
@@ -632,16 +632,42 @@ where
         *cache.get(&root).expect("count for root present in cache")
     }
 
-    /// Approximately counts the number of satisfying valuations in the BDD rooted
-    /// in `root`.
-    pub(crate) fn satisfying_valuations(&self, root: TNodeId) -> f64 {
+    /// Approximately counts the number of satisfying valuations in the BDD
+    /// rooted in `root`. If `largest_variable` is [`Option::Some`], then it is
+    /// assumed to be the largest variable. Otherwise, the largest variable in the
+    /// table is used.
+    ///
+    /// Assumes that the given variable is greater than or equal to than any
+    /// variable in the BDD. Otherwise, the function may give unexpected results
+    /// in release mode or panic in debug mode.
+    pub(crate) fn satisfying_valuations(
+        &self,
+        root: TNodeId,
+        largest_variable: Option<VariableId>,
+    ) -> f64 {
         debug_assert!(!root.is_undefined());
         if root.is_zero() {
             return 0.0;
         }
+
+        let largest_variable = if let Some(largest_variable) = largest_variable {
+            largest_variable
+        } else {
+            self.entries
+                .iter()
+                .map(|entry| entry.node.variable())
+                .reduce(TVarId::max_defined)
+                .expect("node table is not empty")
+                .unchecked_into()
+        };
+
         if root.is_one() {
-            return 1.0;
+            let exponent = (Into::<u64>::into(largest_variable) + 1)
+                .try_into()
+                .unwrap_or(f64::MAX_EXP);
+            return 2.0f64.powi(exponent);
         }
+
         let root_variable = match self.get_node(root) {
             Some(node) => node.variable(),
             None => unreachable!(),
@@ -652,13 +678,6 @@ where
 
         cache.insert(TNodeId::zero(), 0.0);
         cache.insert(TNodeId::one(), 1.0);
-
-        let max_variable = self
-            .entries
-            .iter()
-            .map(|entry| entry.node.variable())
-            .reduce(TVarId::max_defined)
-            .expect("node table is not empty");
 
         let mut stack = vec![root];
 
@@ -680,13 +699,13 @@ where
 
             match (low_count, high_count) {
                 (Some(low_count), Some(high_count)) => {
-                    let skipped = variables_between(low_variable, variable, max_variable)
+                    let skipped = variables_between(low_variable, variable, largest_variable)
                         .try_into()
                         .unwrap_or(f64::MAX_EXP);
 
                     let low_count = low_count * 2.0f64.powi(skipped);
 
-                    let skipped = variables_between(high_variable, variable, max_variable)
+                    let skipped = variables_between(high_variable, variable, largest_variable)
                         .try_into()
                         .unwrap_or(f64::MAX_EXP);
 
