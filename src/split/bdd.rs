@@ -584,10 +584,10 @@ impl Bdd {
 
 #[cfg(test)]
 mod tests {
-    use crate::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::bdd_node::BddNodeAny;
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeId64, NodeIdAny};
+    use crate::split::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId};
 
     macro_rules! test_bdd_not_invariants {

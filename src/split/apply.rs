@@ -6,11 +6,11 @@
 use std::{fmt::Display, vec};
 
 use crate::{
-    bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     bdd_node::BddNodeAny,
     boolean_operators::{self, BooleanOperator},
     node_id::{NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
+    split::bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::VarIdPackedAny,
 };
@@ -403,10 +403,10 @@ impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64);
 
 #[cfg(test)]
 pub mod tests {
-    use crate::apply::BddOverflowError;
-    use crate::bdd::{Bdd16, Bdd32, Bdd64, BddAny};
+    use crate::split::apply::BddOverflowError;
+    use crate::split::bdd::{Bdd16, Bdd32, Bdd64, BddAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
-    use crate::{bdd::Bdd, variable_id::VariableId};
+    use crate::{split::bdd::Bdd, variable_id::VariableId};
 
     #[test]
     pub fn basic_apply_invariants() {

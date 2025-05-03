@@ -5,9 +5,9 @@ use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
 use crate::variable_id::{variables_between, Mark, VariableId};
 use crate::{
-    bdd::BddAny,
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
+    split::bdd::BddAny,
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny},
 };
 use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
@@ -1623,13 +1623,13 @@ mod tests {
     use std::cell::Cell;
     use std::rc::{Rc, Weak};
 
-    use crate::bdd::{Bdd32, BddAny};
     use crate::bdd_node::{BddNode32, BddNodeAny};
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeIdAny};
     use crate::node_table::{
         hash_node_data, NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny,
     };
+    use crate::split::bdd::{Bdd32, BddAny};
     use crate::variable_id::{
         VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     };

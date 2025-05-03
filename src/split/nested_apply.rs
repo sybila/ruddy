@@ -6,12 +6,12 @@
 use rustc_hash::FxHashSet;
 
 use crate::{
-    bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     bdd_node::BddNodeAny,
     boolean_operators::{self, BooleanOperator},
     conversion::UncheckedInto,
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
+    split::bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId},
 };
@@ -582,12 +582,14 @@ fn nested_apply_64_bit_input<
 #[cfg(test)]
 mod tests {
     use crate::{
-        bdd::{Bdd, Bdd32, BddAny},
         bdd_node::BddNodeAny,
         boolean_operators::{self, BooleanOperator},
-        nested_apply::{inner_apply_any, InnerApplyState},
         node_id::NodeId32,
         node_table::{NodeTable32, NodeTableAny},
+        split::{
+            bdd::{Bdd, Bdd32, BddAny},
+            nested_apply::{inner_apply_any, InnerApplyState},
+        },
         task_cache::TaskCache32,
         variable_id::{VarIdPacked32, VarIdPackedAny, VariableId},
     };
