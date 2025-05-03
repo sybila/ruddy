@@ -8,7 +8,7 @@ use std::{fmt::Display, vec};
 use crate::{
     bdd_node::BddNodeAny,
     boolean_operators::{self, BooleanOperator},
-    node_id::{NodeId32, NodeId64, NodeIdAny},
+    node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
     split::bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
@@ -23,20 +23,21 @@ pub(crate) fn apply_16_bit_input<TBooleanOp: BooleanOperator>(
     right: &Bdd16,
     operator: TBooleanOp,
 ) -> Bdd {
-    let data = match apply_any_default_state::<Bdd16, _, _, _, _, _>(left, right, operator) {
-        Ok(bdd) => return Bdd::Size16(bdd),
-        Err(data) => data,
-    };
+    let state: ApplyState16<NodeId16, NodeId16, TaskCache16> = default_state_16(left, right);
 
-    let data = match apply_any::<Bdd32, _, _, _, _, _>(left, right, operator, data.into()) {
-        Ok(bdd) => return Bdd::Size32(bdd),
-        Err(data) => data,
-    };
+    let state: ApplyState32<NodeId16, NodeId16, TaskCache16<NodeId32>> =
+        match apply_any(left, right, operator, state) {
+            Ok(bdd) => return Bdd::Size16(bdd),
+            Err(state) => state.into(),
+        };
 
-    Bdd::Size64(
-        apply_any::<Bdd64, _, _, _, _, _>(left, right, operator, data.into())
-            .expect("TODO: 64 bit apply failed"),
-    )
+    let state: ApplyState64<NodeId16, NodeId16, TaskCache16<NodeId64>> =
+        match apply_any(left, right, operator, state) {
+            Ok(bdd) => return Bdd::Size32(bdd),
+            Err(state) => state.into(),
+        };
+
+    Bdd::Size64(apply_any(left, right, operator, state).expect("64 bit operation failed"))
 }
 
 /// Like [`apply_any_default_state`], but specifically for at most 32-bit wide BDDs.
@@ -51,17 +52,16 @@ pub(crate) fn apply_32_bit_input<
     right: &TBdd2,
     operator: TBooleanOp,
 ) -> Bdd {
-    let data = match apply_any_default_state::<Bdd32, _, _, _, TaskCache32<NodeId32>, _>(
-        left, right, operator,
-    ) {
-        Ok(bdd) => return Bdd::Size32(bdd),
-        Err(data) => data,
-    };
+    let state: ApplyState32<NodeId<TBdd1>, NodeId<TBdd2>, TaskCache32> =
+        default_state_32(left, right);
 
-    Bdd::Size64(
-        apply_any::<Bdd64, _, _, _, _, _>(left, right, operator, data.into())
-            .expect("TODO: 64 bit apply failed"),
-    )
+    let state: ApplyState64<NodeId<TBdd1>, NodeId<TBdd2>, TaskCache32<NodeId64>> =
+        match apply_any(left, right, operator, state) {
+            Ok(bdd) => return Bdd::Size32(bdd),
+            Err(state) => state.into(),
+        };
+
+    Bdd::Size64(apply_any(left, right, operator, state).expect("64 bit operation failed"))
 }
 
 /// Like [`apply_any_default_state`], but specifically for at most 64-bit wide BDDs.
@@ -74,12 +74,9 @@ pub(crate) fn apply_64_bit_input<
     right: &TBdd2,
     operator: TBooleanOp,
 ) -> Bdd {
-    Bdd::Size64(
-        apply_any_default_state::<Bdd64, _, _, _, TaskCache64<NodeId64>, NodeTable64>(
-            left, right, operator,
-        )
-        .expect("TODO: 64-bit apply failed"),
-    )
+    let state: ApplyState64<NodeId<TBdd1>, NodeId<TBdd2>, TaskCache64> =
+        default_state_64(left, right);
+    Bdd::Size64(apply_any(left, right, operator, state).expect("64-bit operation failed"))
 }
 
 /// Data used to store the state of the apply algorithm.
@@ -93,75 +90,74 @@ pub(crate) struct ApplyState<TResultBdd: BddAny, TNodeId1, TNodeId2, TTaskCache,
 
 type NodeId<B> = <B as BddAny>::Id;
 
+macro_rules! impl_apply_state_variant {
+    ($variant_name:ident, $constructor:ident, $out_bdd:ident, $task_cache:ident, $node_table:ident) => {
+        type $variant_name<TId1, TId2, TCache = $task_cache> =
+            ApplyState<$out_bdd, TId1, TId2, TCache, $node_table>;
+
+        fn $constructor<TBdd1: AsBdd<$out_bdd>, TBdd2: AsBdd<$out_bdd>>(
+            left: &TBdd1,
+            right: &TBdd2,
+        ) -> $variant_name<TBdd1::Id, TBdd2::Id> {
+            let undefined_var = <$out_bdd as BddAny>::VarId::undefined();
+            ApplyState {
+                stack: vec![(left.root(), right.root(), undefined_var)],
+                results: Vec::new(),
+                task_cache: $task_cache::default(),
+                node_table: $node_table::default(),
+            }
+        }
+    };
+}
+
+impl_apply_state_variant!(
+    ApplyState16,
+    default_state_16,
+    Bdd16,
+    TaskCache16,
+    NodeTable16
+);
+
+impl_apply_state_variant!(
+    ApplyState32,
+    default_state_32,
+    Bdd32,
+    TaskCache32,
+    NodeTable32
+);
+
+impl_apply_state_variant!(
+    ApplyState64,
+    default_state_64,
+    Bdd64,
+    TaskCache64,
+    NodeTable64
+);
+
 macro_rules! impl_apply_state_conversion {
-    ($from_result:ident, $to_result:ident, $cache:ident, $from_table:ident, $to_table:ident) => {
-        impl<TNodeId1: NodeIdAny, TNodeId2: NodeIdAny>
-            From<
-                ApplyState<
-                    $from_result,
-                    TNodeId1,
-                    TNodeId2,
-                    $cache<NodeId<$from_result>>,
-                    $from_table,
-                >,
-            >
-            for ApplyState<$to_result, TNodeId1, TNodeId2, $cache<NodeId<$to_result>>, $to_table>
+    ($from_variant:ident, $to_variant:ident) => {
+        impl<TNodeId1, TNodeId2, TCacheIn, TCacheOut: From<TCacheIn>>
+            From<$from_variant<TNodeId1, TNodeId2, TCacheIn>>
+            for $to_variant<TNodeId1, TNodeId2, TCacheOut>
         {
-            fn from(
-                data: ApplyState<
-                    $from_result,
-                    TNodeId1,
-                    TNodeId2,
-                    $cache<NodeId<$from_result>>,
-                    $from_table,
-                >,
-            ) -> Self {
+            fn from(state: $from_variant<TNodeId1, TNodeId2, TCacheIn>) -> Self {
                 Self {
-                    stack: data
+                    stack: state
                         .stack
                         .into_iter()
                         .map(|(left, right, var)| (left, right, var.into()))
                         .collect(),
-                    results: data.results.into_iter().map(|id| id.into()).collect(),
-                    task_cache: data.task_cache.into(),
-                    node_table: data.node_table.into(),
+                    results: state.results.into_iter().map(|id| id.into()).collect(),
+                    task_cache: state.task_cache.into(),
+                    node_table: state.node_table.into(),
                 }
             }
         }
     };
 }
 
-impl_apply_state_conversion!(Bdd16, Bdd32, TaskCache16, NodeTable16, NodeTable32);
-impl_apply_state_conversion!(Bdd32, Bdd64, TaskCache16, NodeTable32, NodeTable64);
-impl_apply_state_conversion!(Bdd32, Bdd64, TaskCache32, NodeTable32, NodeTable64);
-
-/// Like [`apply_any`], but constructs the initial state necessary to start the computation.
-pub(crate) fn apply_any_default_state<
-    TResultBdd: BddAny,
-    TBdd1: AsBdd<TResultBdd>,
-    TBdd2: AsBdd<TResultBdd>,
-    TBooleanOp: BooleanOperator,
-    TTaskCache: TaskCacheAny<ResultId = TResultBdd::Id>,
-    TNodeTable: NodeTableAny<Id = TResultBdd::Id, VarId = TResultBdd::VarId, Node = TResultBdd::Node>,
->(
-    left: &TBdd1,
-    right: &TBdd2,
-    operator: TBooleanOp,
-) -> Result<TResultBdd, ApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TTaskCache, TNodeTable>> {
-    let stack = vec![(left.root(), right.root(), <TResultBdd::VarId>::undefined())];
-    let results: Vec<TResultBdd::Id> = Vec::new();
-    let task_cache = TTaskCache::default();
-    let node_table = TNodeTable::default();
-
-    let data = ApplyState {
-        stack,
-        results,
-        task_cache,
-        node_table,
-    };
-
-    apply_any(left, right, operator, data)
-}
+impl_apply_state_conversion!(ApplyState16, ApplyState32);
+impl_apply_state_conversion!(ApplyState32, ApplyState64);
 
 /// A generic universal function used for implementing logical operators. The function works
 /// for any (reasonable) combination of BDD widths.
@@ -356,7 +352,7 @@ impl BddOverflowError {
 // That is doable by, for example, giving a `Width` associated type to `NodeIdAny`
 // but that seems like overkill for now.
 macro_rules! impl_bdd_operations {
-    ($Bdd:ident, $Cache:ident, $Table:ident) => {
+    ($Bdd:ident, $Cache:ident, $Table:ident, $state_constructor:ident) => {
         impl $Bdd {
             /// Calculate a Bdd representing the boolean formula `self && other` (conjunction).
             pub fn and(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
@@ -388,18 +384,16 @@ macro_rules! impl_bdd_operations {
                 right: &$Bdd,
                 operator: TBooleanOp,
             ) -> Result<$Bdd, BddOverflowError> {
-                apply_any_default_state::<$Bdd, _, _, _, $Cache<NodeId<$Bdd>>, $Table>(
-                    left, right, operator,
-                )
-                .map_err(|_| BddOverflowError::new::<$Bdd>())
+                let state = $state_constructor(left, right);
+                apply_any(left, right, operator, state).map_err(|_| BddOverflowError::new::<$Bdd>())
             }
         }
     };
 }
 
-impl_bdd_operations!(Bdd16, TaskCache16, NodeTable16);
-impl_bdd_operations!(Bdd32, TaskCache32, NodeTable32);
-impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64);
+impl_bdd_operations!(Bdd16, TaskCache16, NodeTable16, default_state_16);
+impl_bdd_operations!(Bdd32, TaskCache32, NodeTable32, default_state_32);
+impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64, default_state_64);
 
 #[cfg(test)]
 pub mod tests {

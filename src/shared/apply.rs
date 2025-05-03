@@ -98,14 +98,36 @@ struct ApplyState<TNodeTable: NodeTableAny, TTaskCache> {
     node_table: TNodeTable,
 }
 
-type NodeTableId<N> = <N as NodeTableAny>::Id;
+macro_rules! impl_apply_state_variant {
+    ($variant_name: ident, $constructor: ident, $task_cache:ident, $node_table:ident) => {
+        type $variant_name<TCache = $task_cache> = ApplyState<$node_table, TCache>;
+
+        fn $constructor(
+            left: <$node_table as NodeTableAny>::Id,
+            right: <$node_table as NodeTableAny>::Id,
+            node_table: $node_table,
+        ) -> $variant_name {
+            let undefined_var = <$node_table as NodeTableAny>::VarId::undefined();
+            ApplyState {
+                stack: vec![(left, right, undefined_var)],
+                results: Vec::new(),
+                task_cache: $task_cache::default(),
+                node_table,
+            }
+        }
+    };
+}
+
+impl_apply_state_variant!(ApplyState16, default_state_16, TaskCache16, NodeTable16);
+impl_apply_state_variant!(ApplyState32, default_state_32, TaskCache32, NodeTable32);
+impl_apply_state_variant!(ApplyState64, default_state_64, TaskCache64, NodeTable64);
 
 macro_rules! impl_apply_state_conversion {
-    ($from_table:ident, $to_table:ident, $cache:ident) => {
-        impl From<ApplyState<$from_table, $cache<NodeTableId<$from_table>>>>
-            for ApplyState<$to_table, $cache<NodeTableId<$to_table>>>
+    ($from_variant:ident, $to_variant:ident) => {
+        impl<TCacheIn, TCacheOut: From<TCacheIn>> From<$from_variant<TCacheIn>>
+            for $to_variant<TCacheOut>
         {
-            fn from(state: ApplyState<$from_table, $cache<NodeTableId<$from_table>>>) -> Self {
+            fn from(state: $from_variant<TCacheIn>) -> Self {
                 Self {
                     stack: state
                         .stack
@@ -121,29 +143,8 @@ macro_rules! impl_apply_state_conversion {
     };
 }
 
-impl_apply_state_conversion!(NodeTable16, NodeTable32, TaskCache16);
-impl_apply_state_conversion!(NodeTable32, NodeTable64, TaskCache16);
-impl_apply_state_conversion!(NodeTable32, NodeTable64, TaskCache32);
-
-fn apply_any_default_state<
-    TNodeTable: NodeTableAny,
-    TBooleanOp: BooleanOperator,
-    TTaskCache: TaskCacheAny<ResultId = TNodeTable::Id>,
->(
-    left: TNodeTable::Id,
-    right: TNodeTable::Id,
-    node_table: TNodeTable,
-    operator: TBooleanOp,
-) -> Result<(TNodeTable::Id, TNodeTable), ApplyState<TNodeTable, TTaskCache>> {
-    let state = ApplyState {
-        stack: vec![(left, right, TNodeTable::VarId::undefined())],
-        results: Vec::new(),
-        task_cache: TTaskCache::default(),
-        node_table,
-    };
-
-    apply_any(operator, state)
-}
+impl_apply_state_conversion!(ApplyState16, ApplyState32);
+impl_apply_state_conversion!(ApplyState32, ApplyState64);
 
 fn apply_any<
     TNodeTable: NodeTableAny,
@@ -247,19 +248,18 @@ fn apply_16_bit<TBooleanOp: BooleanOperator>(
     right: NodeId16,
     operator: TBooleanOp,
 ) -> (NodeId, NodeTable) {
-    let state = match apply_any_default_state::<_, _, TaskCache16<NodeId16>>(
-        left, right, node_table, operator,
-    ) {
+    let state: ApplyState16<TaskCache16> = default_state_16(left, right, node_table);
+    let state: ApplyState32<TaskCache16<NodeId32>> = match apply_any(operator, state) {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size16(table)),
-        Err(state) => state,
+        Err(state) => state.into(),
     };
 
-    let state = match apply_any(operator, state.into()) {
+    let state: ApplyState64<TaskCache16<NodeId64>> = match apply_any(operator, state) {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
-        Err(state) => state,
+        Err(state) => state.into(),
     };
 
-    let (root, table) = apply_any(operator, state.into()).expect("64-bit operation failed");
+    let (root, table) = apply_any(operator, state).expect("64-bit operation failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
@@ -269,14 +269,13 @@ fn apply_32_bit<TBooleanOp: BooleanOperator>(
     right: NodeId32,
     operator: TBooleanOp,
 ) -> (NodeId, NodeTable) {
-    let state = match apply_any_default_state::<_, _, TaskCache32<NodeId32>>(
-        left, right, node_table, operator,
-    ) {
+    let state: ApplyState32<TaskCache32> = default_state_32(left, right, node_table);
+    let state: ApplyState64<TaskCache32<NodeId64>> = match apply_any(operator, state) {
         Ok((root, table)) => return (NodeId::unchecked_from(root), NodeTable::Size32(table)),
-        Err(state) => state,
+        Err(state) => state.into(),
     };
 
-    let (root, table) = apply_any(operator, state.into()).expect("64-bit operation failed");
+    let (root, table) = apply_any(operator, state).expect("64-bit operation failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
@@ -286,9 +285,8 @@ fn apply_64_bit<TBooleanOp: BooleanOperator>(
     right: NodeId64,
     operator: TBooleanOp,
 ) -> (NodeId, NodeTable) {
-    let (root, table) =
-        apply_any_default_state::<_, _, TaskCache64<NodeId64>>(left, right, node_table, operator)
-            .expect("TODO: 64-bit operation failed");
+    let state: ApplyState64<TaskCache64> = default_state_64(left, right, node_table);
+    let (root, table) = apply_any(operator, state).expect("64-bit operation failed");
     (NodeId::unchecked_from(root), NodeTable::Size64(table))
 }
 
