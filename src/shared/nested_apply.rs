@@ -202,8 +202,10 @@ fn nested_apply_any<
     trigger: TTrigger,
     state: NestedApplyState<TOuterCache, TInnerCache, TNodeTable>,
 ) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TOuterCache, TInnerCache, TNodeTable>> {
-    let outer_op = outer_op.for_shared::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
-    let inner_op = inner_op.for_shared::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
+    // The outer operator should only short-circuit due to terminals, otherwise
+    // it messes with algorithms logic.
+    let outer_op = outer_op.for_split::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
+    let inner_op = inner_op.for_shared::<TNodeTable::Id>();
 
     let NestedApplyState {
         mut stack,

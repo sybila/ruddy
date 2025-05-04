@@ -83,9 +83,7 @@ pub trait BooleanOperator: Clone + Copy {
     ) -> impl Fn(TId1, TId2) -> TResultId;
     /// Return a function implementing this boolean operation on [`NodeIdAny`] identifiers,
     /// suitable for shared BDDs.
-    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-        self,
-    ) -> impl Fn(TId1, TId2) -> TResultId;
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId;
 }
 
 /// A type representing a logical conjunction.
@@ -99,11 +97,20 @@ impl BooleanOperator for And {
         lift_operator(TriBool::and)
     }
 
-    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-        self,
-    ) -> impl Fn(TId1, TId2) -> TResultId {
-        // TODO: For now just use the same operator as split.
-        self.for_split()
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+        |left, right| {
+            if left.is_zero() || right.is_zero() {
+                TId::zero()
+            } else if left.is_one() {
+                right
+            } else if right.is_one() {
+                left
+            } else if left == right {
+                right
+            } else {
+                TId::undefined()
+            }
+        }
     }
 }
 
@@ -118,11 +125,20 @@ impl BooleanOperator for Or {
         lift_operator(TriBool::or)
     }
 
-    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-        self,
-    ) -> impl Fn(TId1, TId2) -> TResultId {
-        // TODO: For now just use the same operator as split.
-        self.for_split()
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+        |left, right| {
+            if left.is_one() || right.is_one() {
+                TId::one()
+            } else if left.is_zero() {
+                right
+            } else if right.is_zero() {
+                left
+            } else if left == right {
+                right
+            } else {
+                TId::undefined()
+            }
+        }
     }
 }
 
@@ -137,10 +153,7 @@ impl BooleanOperator for Iff {
         lift_operator(TriBool::iff)
     }
 
-    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-        self,
-    ) -> impl Fn(TId1, TId2) -> TResultId {
-        // TODO: For now just use the same operator as split.
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
         self.for_split()
     }
 }
@@ -156,10 +169,7 @@ impl BooleanOperator for Implies {
         lift_operator(TriBool::implies)
     }
 
-    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-        self,
-    ) -> impl Fn(TId1, TId2) -> TResultId {
-        // TODO: For now just use the same operator as split.
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
         self.for_split()
     }
 }
@@ -175,10 +185,7 @@ impl BooleanOperator for Xor {
         lift_operator(TriBool::xor)
     }
 
-    fn for_shared<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-        self,
-    ) -> impl Fn(TId1, TId2) -> TResultId {
-        // TODO: For now just use the same operator as split.
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
         self.for_split()
     }
 }
