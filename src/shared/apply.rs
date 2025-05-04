@@ -154,7 +154,7 @@ fn apply_any<
     operator: TBooleanOp,
     state: ApplyState<TNodeTable, TTaskCache>,
 ) -> Result<(TNodeTable::Id, TNodeTable), ApplyState<TNodeTable, TTaskCache>> {
-    let operator = operator.for_shared::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
+    let operator = operator.for_shared::<TNodeTable::Id>();
 
     let ApplyState {
         mut stack,
