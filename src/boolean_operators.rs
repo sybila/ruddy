@@ -98,19 +98,12 @@ impl BooleanOperator for And {
     }
 
     fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
-        |left, right| {
-            if left.is_zero() || right.is_zero() {
-                TId::zero()
-            } else if left.is_one() {
-                right
-            } else if right.is_one() {
-                left
-            } else if left == right {
-                right
-            } else {
-                TId::undefined()
-            }
-        }
+        // Although shared BDDs have extra cases where they can short circuit,
+        // the extra branchiness in the operator seems to offset performance gains
+        // from short-circuiting (at least on the majority of instances in
+        // the BDD-10M-pruned dataset).
+        // Hence, we use the same implementation as for split BDDs.
+        self.for_split()
     }
 }
 
@@ -126,19 +119,7 @@ impl BooleanOperator for Or {
     }
 
     fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
-        |left, right| {
-            if left.is_one() || right.is_one() {
-                TId::one()
-            } else if left.is_zero() {
-                right
-            } else if right.is_zero() {
-                left
-            } else if left == right {
-                right
-            } else {
-                TId::undefined()
-            }
-        }
+        self.for_split()
     }
 }
 
@@ -154,17 +135,7 @@ impl BooleanOperator for Iff {
     }
 
     fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
-        |left, right| {
-            if left.is_one() {
-                right
-            } else if right.is_one() {
-                left
-            } else if left == right {
-                TId::one()
-            } else {
-                TId::undefined()
-            }
-        }
+        self.for_split()
     }
 }
 
@@ -180,17 +151,7 @@ impl BooleanOperator for Implies {
     }
 
     fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
-        |left, right| {
-            if left.is_zero() {
-                TId::one()
-            } else if left.is_one() {
-                right
-            } else if right.is_one() || left == right {
-                TId::one()
-            } else {
-                TId::undefined()
-            }
-        }
+        self.for_split()
     }
 }
 
@@ -206,17 +167,7 @@ impl BooleanOperator for Xor {
     }
 
     fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
-        |left, right| {
-            if left.is_zero() {
-                right
-            } else if right.is_zero() {
-                left
-            } else if left == right {
-                TId::zero()
-            } else {
-                TId::undefined()
-            }
-        }
+        self.for_split()
     }
 }
 
@@ -259,148 +210,5 @@ mod tests {
         assert!(iff(NodeId32::zero(), NodeId32::one()).is_zero());
         assert!(iff(NodeId32::zero(), NodeId32::undefined()).is_undefined());
         assert!(iff(NodeId32::one(), NodeId32::undefined()).is_undefined());
-    }
-
-    #[test]
-    fn and_shared() {
-        let and = And.for_shared::<NodeId32>();
-        let zero = NodeId32::zero();
-        let one = NodeId32::one();
-        let n22 = NodeId32::new(22);
-        let n11 = NodeId32::new(11);
-
-        // zero
-        assert!(and(one, zero).is_zero());
-        assert!(and(zero, one).is_zero());
-        assert!(and(zero, n22).is_zero());
-        assert!(and(n11, zero).is_zero());
-
-        // one
-        assert!(and(one, one).is_one());
-        assert_eq!(n11, and(one, n11));
-        assert_eq!(n22, and(n22, one));
-
-        // equal
-        assert_eq!(n11, and(n11, n11));
-        assert_eq!(n22, and(n22, n22));
-
-        // not known
-        assert!(and(n11, n22).is_undefined());
-        assert!(and(n22, n11).is_undefined());
-    }
-
-    #[test]
-    fn or_shared() {
-        let or = Or.for_shared::<NodeId32>();
-        let zero = NodeId32::zero();
-        let one = NodeId32::one();
-        let n22 = NodeId32::new(22);
-        let n11 = NodeId32::new(11);
-
-        // one
-        assert!(or(one, zero).is_one());
-        assert!(or(zero, one).is_one());
-        assert!(or(one, n22).is_one());
-        assert!(or(n11, one).is_one());
-
-        // zero
-        assert!(or(zero, zero).is_zero());
-        assert_eq!(n11, or(zero, n11));
-        assert_eq!(n22, or(n22, zero));
-
-        // equal
-        assert_eq!(n11, or(n11, n11));
-        assert_eq!(n22, or(n22, n22));
-
-        // not known
-        assert!(or(n11, n22).is_undefined());
-        assert!(or(n22, n11).is_undefined());
-    }
-
-    #[test]
-    fn implies_shared() {
-        let implies = Implies.for_shared::<NodeId32>();
-        let zero = NodeId32::zero();
-        let one = NodeId32::one();
-        let n22 = NodeId32::new(22);
-        let n11 = NodeId32::new(11);
-
-        // false (only when true implies false)
-        assert!(implies(one, zero).is_zero());
-
-        // true when antecedent is false (regardless of consequent)
-        assert!(implies(zero, zero).is_one());
-        assert!(implies(zero, one).is_one());
-        assert!(implies(zero, n11).is_one());
-
-        // true when consequent is true (regardless of antecedent)
-        assert!(implies(one, one).is_one());
-        assert!(implies(n22, one).is_one());
-
-        // equal implies equal is true
-        assert!(implies(n11, n11).is_one());
-        assert!(implies(n22, n22).is_one());
-
-        // not known
-        assert!(implies(n11, n22).is_undefined());
-        assert!(implies(n22, n11).is_undefined());
-    }
-
-    #[test]
-    fn xor_shared() {
-        let xor = Xor.for_shared::<NodeId32>();
-        let zero = NodeId32::zero();
-        let one = NodeId32::one();
-        let n22 = NodeId32::new(22);
-        let n11 = NodeId32::new(11);
-
-        // XOR with zero returns the other operand
-        assert_eq!(one, xor(zero, one));
-        assert_eq!(one, xor(one, zero));
-        assert_eq!(n11, xor(zero, n11));
-        assert_eq!(n22, xor(n22, zero));
-
-        // XOR of same values is zero
-        assert!(xor(one, one).is_zero());
-        assert!(xor(zero, zero).is_zero());
-        assert_eq!(zero, xor(n11, n11));
-        assert_eq!(zero, xor(n22, n22));
-
-        // not known
-        assert!(xor(n11, n22).is_undefined());
-        assert!(xor(n22, n11).is_undefined());
-        assert!(xor(one, n11).is_undefined());
-        assert!(xor(n22, one).is_undefined());
-    }
-
-    #[test]
-    fn iff_shared() {
-        let iff = Iff.for_shared::<NodeId32>();
-        let zero = NodeId32::zero();
-        let one = NodeId32::one();
-        let n22 = NodeId32::new(22);
-        let n11 = NodeId32::new(11);
-
-        // true when both inputs are the same constant
-        assert!(iff(zero, zero).is_one());
-        assert!(iff(one, one).is_one());
-
-        // false when constants are different
-        assert!(iff(zero, one).is_zero());
-        assert!(iff(one, zero).is_zero());
-
-        // same node is equivalent to itself
-        assert!(iff(n11, n11).is_one());
-        assert!(iff(n22, n22).is_one());
-
-        // returns other operand when one
-        assert_eq!(n11, iff(one, n11));
-        assert_eq!(n22, iff(n22, one));
-
-        // not known
-        assert!(iff(n11, zero).is_undefined());
-        assert!(iff(zero, n22).is_undefined());
-        assert!(iff(n11, n22).is_undefined());
-        assert!(iff(n22, n11).is_undefined());
     }
 }
