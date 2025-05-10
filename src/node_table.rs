@@ -15,8 +15,9 @@ use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use std::cell::Cell;
 use std::cmp::{max, min};
 use std::collections::HashSet;
-use std::fmt;
+use std::io::Write;
 use std::rc::Weak;
+use std::{fmt, io};
 
 /// The `NodeTableAny` is a data structure that enforces uniqueness of BDD nodes created
 /// during the BDD construction process.
@@ -1634,6 +1635,75 @@ impl GarbageCollector for NodeTable64 {
 
     fn collect_garbage(self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> NodeTable {
         self.collect_garbage(roots)
+    }
+}
+
+impl<TNodeId, TVarId, TNode> NodeTableImpl<TNodeId, TVarId, TNode>
+where
+    TNodeId: NodeIdAny,
+    TVarId: VarIdPackedAny,
+    TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
+{
+    /// Write the BDD rooted in `root` as a DOT graph to the given `output` stream.
+    pub(crate) fn write_bdd_as_dot(&self, root: TNodeId, output: &mut dyn Write) -> io::Result<()> {
+        assert!(self.get_entry(root).is_some());
+
+        let mut seen = FxHashSet::default();
+        seen.insert(root);
+        seen.insert(TNodeId::zero());
+        seen.insert(TNodeId::one());
+        let mut stack = vec![root];
+        writeln!(output, "digraph BDD {{")?;
+        writeln!(
+            output,
+            "  __ruddy_root [label=\"\", style=invis, height=0, width=0];"
+        )?;
+
+        writeln!(output, "  __ruddy_root -> {};", root)?;
+        writeln!(output)?;
+        writeln!(output, "  edge [dir=none];")?;
+        writeln!(output)?;
+
+        writeln!(
+            output,
+            "  0 [label=\"0\", shape=box, width=0.3, height=0.3];"
+        )?;
+        writeln!(
+            output,
+            "  1 [label=\"1\", shape=box, width=0.3, height=0.3];"
+        )?;
+        if root.is_terminal() {
+            writeln!(output, "}}")?;
+            return Ok(());
+        }
+
+        writeln!(output)?;
+
+        while let Some(id) = stack.pop() {
+            let node = unsafe { self.get_node_unchecked(id) };
+
+            let low = node.low();
+            let high = node.high();
+            let variable = node.variable();
+
+            writeln!(output, "  {} [label=\"{}\", shape=circle];", id, variable)?;
+            writeln!(output, "  {} -> {} [style=dashed];", id, low)?;
+            writeln!(output, "  {} -> {};", id, high,)?;
+
+            if !seen.contains(&low) {
+                seen.insert(low);
+                stack.push(low);
+            }
+
+            if !seen.contains(&high) {
+                seen.insert(high);
+                stack.push(high);
+            }
+        }
+
+        writeln!(output, "}}")?;
+
+        Ok(())
     }
 }
 

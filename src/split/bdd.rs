@@ -10,6 +10,7 @@ use crate::variable_id::{
     VariableId,
 };
 use std::fmt::Debug;
+use std::io::{self, Write};
 
 /// A trait implemented by types that can serve as *standalone* BDDs.
 ///
@@ -386,6 +387,48 @@ impl_unchecked_from!(Bdd32 => Bdd16);
 impl_unchecked_from!(Bdd64 => Bdd16);
 impl_unchecked_from!(Bdd64 => Bdd32);
 
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
+    /// Write this BDD as a DOT graph to the given `output` stream.
+    fn write_as_dot(&self, output: &mut dyn Write) -> io::Result<()> {
+        writeln!(output, "digraph BDD {{")?;
+        writeln!(
+            output,
+            "  __ruddy_root [label=\"\", style=invis, height=0, width=0];"
+        )?;
+
+        writeln!(output, "  __ruddy_root -> {};", self.root)?;
+        writeln!(output)?;
+        writeln!(output, "  edge [dir=none];")?;
+        writeln!(output)?;
+
+        writeln!(
+            output,
+            "  0 [label=\"0\", shape=box, width=0.3, height=0.3];"
+        )?;
+        writeln!(
+            output,
+            "  1 [label=\"1\", shape=box, width=0.3, height=0.3];"
+        )?;
+
+        for (id, node) in self.nodes.iter().enumerate().skip(2) {
+            let low = node.low();
+            let high = node.high();
+            writeln!(
+                output,
+                "  {} [label=\"{}\", shape=box, width=0.3, height=0.3];",
+                id,
+                node.variable()
+            )?;
+            writeln!(output, "  {} -> {} [style=dashed];", id, low)?;
+            writeln!(output, "  {} -> {};", id, high)?;
+        }
+
+        writeln!(output, "}}")?;
+
+        Ok(())
+    }
+}
+
 /// A public facade of the existing [`BddAny`] types.
 ///
 /// TODO: Write documentation for this type.
@@ -581,6 +624,22 @@ impl Bdd {
             Bdd::Size32(bdd) => bdd.count_satisfying_paths(),
             Bdd::Size64(bdd) => bdd.count_satisfying_paths(),
         }
+    }
+
+    /// Write this BDD as a DOT graph to the given `output` stream.
+    pub fn write_bdd_as_dot(&self, output: &mut dyn Write) -> io::Result<()> {
+        match self {
+            Bdd::Size16(bdd) => bdd.write_as_dot(output),
+            Bdd::Size32(bdd) => bdd.write_as_dot(output),
+            Bdd::Size64(bdd) => bdd.write_as_dot(output),
+        }
+    }
+
+    /// Convert this BDD into a DOT graph string.
+    pub fn to_dot_string(&self) -> String {
+        let mut output = Vec::new();
+        self.write_bdd_as_dot(&mut output).unwrap();
+        String::from_utf8(output).unwrap()
     }
 }
 
@@ -1112,5 +1171,37 @@ pub(crate) mod tests {
 
         assert_eq!(or3.count_satisfying_paths(), 3.0);
         assert_eq!(and3.count_satisfying_paths(), 1.0);
+    }
+
+    #[test]
+    fn bdd_to_dot() {
+        let v_1 = VariableId::new(1);
+        let v_4 = VariableId::new(4);
+
+        let bdd = Bdd::new_literal(v_1, true).xor(&Bdd::new_literal(v_4, true));
+
+        let result = bdd.to_dot_string();
+
+        let expected = r#"digraph BDD {
+  __ruddy_root [label="", style=invis, height=0, width=0];
+  __ruddy_root -> 4;
+
+  edge [dir=none];
+
+  0 [label="0", shape=box, width=0.3, height=0.3];
+  1 [label="1", shape=box, width=0.3, height=0.3];
+  2 [label="4", shape=box, width=0.3, height=0.3];
+  2 -> 0 [style=dashed];
+  2 -> 1;
+  3 [label="4", shape=box, width=0.3, height=0.3];
+  3 -> 1 [style=dashed];
+  3 -> 0;
+  4 [label="1", shape=box, width=0.3, height=0.3];
+  4 -> 2 [style=dashed];
+  4 -> 3;
+}
+"#;
+
+        assert_eq!(result, expected);
     }
 }

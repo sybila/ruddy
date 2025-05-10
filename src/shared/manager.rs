@@ -8,7 +8,11 @@ use crate::{
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPackedAny, VariableId},
 };
-use std::{cell::Cell, rc::Weak};
+use std::{
+    cell::Cell,
+    io::{self, Write},
+    rc::Weak,
+};
 
 use replace_with::replace_with_or_default;
 use rustc_hash::FxHashMap;
@@ -316,6 +320,28 @@ impl BddManager {
         self.roots.push(bdd.root_weak());
 
         bdd
+    }
+
+    /// Write `bdd` as a DOT graph to the given `output` stream.
+    pub fn write_bdd_as_dot(&self, bdd: &Bdd, output: &mut dyn Write) -> io::Result<()> {
+        match &self.unique_table {
+            NodeTable::Size16(table) => {
+                table.write_bdd_as_dot(bdd.root.get().unchecked_into(), output)
+            }
+            NodeTable::Size32(table) => {
+                table.write_bdd_as_dot(bdd.root.get().unchecked_into(), output)
+            }
+            NodeTable::Size64(table) => {
+                table.write_bdd_as_dot(bdd.root.get().unchecked_into(), output)
+            }
+        }
+    }
+
+    /// Convert `bdd` to a DOT graph string.
+    pub fn bdd_to_dot_string(&self, bdd: &Bdd) -> String {
+        let mut buffer = Vec::new();
+        self.write_bdd_as_dot(bdd, &mut buffer).unwrap();
+        String::from_utf8(buffer).unwrap()
     }
 }
 
@@ -900,5 +926,94 @@ pub mod tests {
 
         let (m, bdd8) = queens(9);
         assert_eq!(m.count_satisfying_paths(&bdd8), 352.0);
+    }
+
+    #[test]
+    fn bdd_to_dot() {
+        let mut manager = BddManager::no_gc();
+
+        let v_1 = VariableId::new(1);
+        let v_2 = VariableId::new(2);
+        let v_3 = VariableId::new(3);
+        let v_4 = VariableId::new(4);
+
+        let x = manager.new_bdd_literal(v_1, true);
+        let y = manager.new_bdd_literal(v_2, true);
+        let z = manager.new_bdd_literal(v_3, false);
+
+        let xy = manager.and(&x, &y);
+
+        let xyz = manager.and(&xy, &z);
+
+        let _n1 = manager.new_bdd_literal(v_3, true);
+        let _n2 = manager.new_bdd_literal(v_4, true);
+
+        let result = manager.bdd_to_dot_string(&xyz);
+
+        let expected = r#"digraph BDD {
+  __ruddy_root [label="", style=invis, height=0, width=0];
+  __ruddy_root -> 7;
+
+  edge [dir=none];
+
+  0 [label="0", shape=box, width=0.3, height=0.3];
+  1 [label="1", shape=box, width=0.3, height=0.3];
+
+  7 [label="1", shape=circle];
+  7 -> 0 [style=dashed];
+  7 -> 6;
+  6 [label="2", shape=circle];
+  6 -> 0 [style=dashed];
+  6 -> 4;
+  4 [label="3", shape=circle];
+  4 -> 1 [style=dashed];
+  4 -> 0;
+}
+"#;
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn constant_bdd_to_dot() {
+        let mut manager = BddManager::no_gc();
+
+        let f = manager.new_bdd_false();
+        let v_1 = VariableId::new(1);
+        let v_2 = VariableId::new(2);
+
+        let _x = manager.new_bdd_literal(v_1, true);
+        let _y = manager.new_bdd_literal(v_2, true);
+
+        let result = manager.bdd_to_dot_string(&f);
+
+        let expected = r#"digraph BDD {
+  __ruddy_root [label="", style=invis, height=0, width=0];
+  __ruddy_root -> 0;
+
+  edge [dir=none];
+
+  0 [label="0", shape=box, width=0.3, height=0.3];
+  1 [label="1", shape=box, width=0.3, height=0.3];
+}
+"#;
+
+        assert_eq!(result, expected);
+
+        let t = manager.new_bdd_true();
+        let result = manager.bdd_to_dot_string(&t);
+
+        let expected = r#"digraph BDD {
+  __ruddy_root [label="", style=invis, height=0, width=0];
+  __ruddy_root -> 1;
+
+  edge [dir=none];
+
+  0 [label="0", shape=box, width=0.3, height=0.3];
+  1 [label="1", shape=box, width=0.3, height=0.3];
+}
+"#;
+
+        assert_eq!(result, expected);
     }
 }

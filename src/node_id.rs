@@ -3,7 +3,7 @@
 
 use crate::boolean_operators::TriBool;
 use crate::conversion::{UncheckedFrom, UncheckedInto};
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 
 /// An internal trait implemented by types that can serve as BDD node identifiers. The core
@@ -17,6 +17,7 @@ pub trait NodeIdAny:
     + Copy
     + Hash
     + Debug
+    + Display
     + TryFrom<usize>
     + UncheckedFrom<usize>
     + UncheckedInto<u16>
