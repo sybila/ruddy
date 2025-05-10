@@ -3,6 +3,7 @@
 pub mod bdd_node;
 pub mod boolean_operators;
 mod conversion;
+mod iterators;
 pub mod node_id;
 pub mod node_table;
 pub mod shared;

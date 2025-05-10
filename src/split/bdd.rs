@@ -125,8 +125,19 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
         self.nodes
     }
 
+    /// Get the largest [`VariableId`] in the BDD, assuming it does not represent
+    /// a constant function.
+    pub(crate) fn get_largest_variable(&self) -> VariableId {
+        self.nodes
+            .iter()
+            .map(|node| node.variable())
+            .reduce(TVarId::max_defined)
+            .expect("BDD is not constant")
+            .unchecked_into()
+    }
+
     /// Approximately counts the number of satisfying paths in the BDD.
-    fn satisfying_paths(&self) -> f64 {
+    fn count_satisfying_paths(&self) -> f64 {
         if self.is_false() {
             return 0.0;
         }
@@ -178,10 +189,10 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
     /// `largest_variable` is [`Option::Some`], then it is assumed to be the largest
     /// variable. Otherwise, the largest variable in the BDD is used.
     ///
-    /// Assumes that the given variable is greater than or equal to than any
+    /// Assumes that the given variable is greater than or equal to any
     /// variable in the BDD. Otherwise, the function may give unexpected results
     /// in release mode or panic in debug mode.
-    fn satisfying_valuations(&self, largest_variable: Option<VariableId>) -> f64 {
+    fn count_satisfying_valuations(&self, largest_variable: Option<VariableId>) -> f64 {
         if self.is_false() {
             return 0.0;
         }
@@ -196,16 +207,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             return 1.0f64;
         }
 
-        let largest_variable = if let Some(largest_variable) = largest_variable {
-            largest_variable
-        } else {
-            self.nodes
-                .iter()
-                .map(|node| node.variable())
-                .reduce(TVarId::max_defined)
-                .expect("BDD is not empty")
-                .unchecked_into()
-        };
+        let largest_variable = largest_variable.unwrap_or_else(|| self.get_largest_variable());
 
         // Use a negative value to indicate that the count is not yet computed.
         let mut counts = vec![-1.0f64; self.node_count()];
@@ -564,26 +566,26 @@ impl Bdd {
     /// Assumes that the given variable is greater than or equal to than any
     /// variable in the BDD. Otherwise, the function may give unexpected results
     /// in release mode or panic in debug mode.
-    pub fn satisfying_valuations(&self, largest_variable: Option<VariableId>) -> f64 {
+    pub fn count_satisfying_valuations(&self, largest_variable: Option<VariableId>) -> f64 {
         match self {
-            Bdd::Size16(bdd) => bdd.satisfying_valuations(largest_variable),
-            Bdd::Size32(bdd) => bdd.satisfying_valuations(largest_variable),
-            Bdd::Size64(bdd) => bdd.satisfying_valuations(largest_variable),
+            Bdd::Size16(bdd) => bdd.count_satisfying_valuations(largest_variable),
+            Bdd::Size32(bdd) => bdd.count_satisfying_valuations(largest_variable),
+            Bdd::Size64(bdd) => bdd.count_satisfying_valuations(largest_variable),
         }
     }
 
     /// Approximately counts the number of satisfying paths.
-    pub fn satisfying_paths(&self) -> f64 {
+    pub fn count_satisfying_paths(&self) -> f64 {
         match self {
-            Bdd::Size16(bdd) => bdd.satisfying_paths(),
-            Bdd::Size32(bdd) => bdd.satisfying_paths(),
-            Bdd::Size64(bdd) => bdd.satisfying_paths(),
+            Bdd::Size16(bdd) => bdd.count_satisfying_paths(),
+            Bdd::Size32(bdd) => bdd.count_satisfying_paths(),
+            Bdd::Size64(bdd) => bdd.count_satisfying_paths(),
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::bdd_node::BddNodeAny;
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeId64, NodeIdAny};
@@ -958,7 +960,7 @@ mod tests {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn queens(n: usize) -> Bdd {
+    pub(crate) fn queens(n: usize) -> Bdd {
         fn mk_negative_literals(n: usize) -> Vec<Bdd> {
             let mut bdd_literals = Vec::with_capacity(n * n);
             for i in 0..n {
@@ -1030,42 +1032,42 @@ mod tests {
 
     #[test]
     fn count_sat_valuations() {
-        assert_eq!(Bdd::new_false().satisfying_valuations(None), 0.0,);
+        assert_eq!(Bdd::new_false().count_satisfying_valuations(None), 0.0,);
 
-        assert_eq!(Bdd::new_true().satisfying_valuations(None), 1.0,);
+        assert_eq!(Bdd::new_true().count_satisfying_valuations(None), 1.0,);
 
         assert_eq!(
-            Bdd::new_true().satisfying_valuations(Some(VariableId::new(0))),
+            Bdd::new_true().count_satisfying_valuations(Some(VariableId::new(0))),
             2.0,
         );
 
         assert_eq!(
             Bdd::new_literal(VariableId::new(0u32), true)
-                .satisfying_valuations(Some(VariableId::new(0u32))),
+                .count_satisfying_valuations(Some(VariableId::new(0u32))),
             1.0,
         );
 
         assert_eq!(
-            Bdd::new_literal(VariableId::new(0u32), true).satisfying_valuations(None),
+            Bdd::new_literal(VariableId::new(0u32), true).count_satisfying_valuations(None),
             1.0,
         );
 
         assert_eq!(
-            Bdd::new_literal(VariableId::new(0u32), false).satisfying_valuations(None),
+            Bdd::new_literal(VariableId::new(0u32), false).count_satisfying_valuations(None),
             1.0,
         );
 
         assert_eq!(
             Bdd::new_literal(VariableId::new(0u32), false)
-                .satisfying_valuations(Some(VariableId::new(2u32))),
+                .count_satisfying_valuations(Some(VariableId::new(2u32))),
             4.0,
         );
 
         let bdd6 = queens(6);
         let bdd8 = queens(9);
 
-        assert_eq!(bdd6.satisfying_valuations(None), 4.0);
-        assert_eq!(bdd8.satisfying_valuations(None), 352.0);
+        assert_eq!(bdd6.count_satisfying_valuations(None), 4.0);
+        assert_eq!(bdd8.count_satisfying_valuations(None), 352.0);
 
         let or3 = Bdd::new_literal(VariableId::new(0u32), true)
             .or(&Bdd::new_literal(VariableId::new(1u32), true))
@@ -1075,30 +1077,30 @@ mod tests {
             .and(&Bdd::new_literal(VariableId::new(1u32), true))
             .and(&Bdd::new_literal(VariableId::new(3u32), true));
 
-        assert_eq!(or3.satisfying_valuations(None), 14.0);
-        assert_eq!(and3.satisfying_valuations(None), 2.0);
+        assert_eq!(or3.count_satisfying_valuations(None), 14.0);
+        assert_eq!(and3.count_satisfying_valuations(None), 2.0);
     }
 
     #[test]
     fn count_sat_paths() {
-        assert_eq!(Bdd::new_false().satisfying_paths(), 0.0,);
-        assert_eq!(Bdd::new_true().satisfying_paths(), 1.0,);
+        assert_eq!(Bdd::new_false().count_satisfying_paths(), 0.0,);
+        assert_eq!(Bdd::new_true().count_satisfying_paths(), 1.0,);
 
         assert_eq!(
-            Bdd::new_literal(VariableId::new(0u32), true).satisfying_paths(),
+            Bdd::new_literal(VariableId::new(0u32), true).count_satisfying_paths(),
             1.0,
         );
 
         assert_eq!(
-            Bdd::new_literal(VariableId::new(0u32), false).satisfying_paths(),
+            Bdd::new_literal(VariableId::new(0u32), false).count_satisfying_paths(),
             1.0,
         );
 
         let bdd4 = queens(6);
         let bdd8 = queens(9);
 
-        assert_eq!(bdd4.satisfying_paths(), 4.0);
-        assert_eq!(bdd8.satisfying_paths(), 352.0);
+        assert_eq!(bdd4.count_satisfying_paths(), 4.0);
+        assert_eq!(bdd8.count_satisfying_paths(), 352.0);
 
         let or3 = Bdd::new_literal(VariableId::new(0u32), true)
             .or(&Bdd::new_literal(VariableId::new(1u32), true))
@@ -1108,7 +1110,7 @@ mod tests {
             .and(&Bdd::new_literal(VariableId::new(1u32), true))
             .and(&Bdd::new_literal(VariableId::new(3u32), true));
 
-        assert_eq!(or3.satisfying_paths(), 3.0);
-        assert_eq!(and3.satisfying_paths(), 1.0);
+        assert_eq!(or3.count_satisfying_paths(), 3.0);
+        assert_eq!(and3.count_satisfying_paths(), 1.0);
     }
 }

@@ -2,6 +2,7 @@
 //! [`VarIdPacked16`], [`VarIdPacked32`], and [`VarIdPacked64`].
 
 use crate::conversion::{UncheckedFrom, UncheckedInto};
+use crate::usize_is_at_least_64_bits;
 use std::fmt::{Display, Formatter};
 use std::{
     convert::TryFrom,
@@ -38,6 +39,7 @@ pub trait VarIdPackedAny:
     + UncheckedFrom<VariableId>
     + Display
     + UncheckedInto<VariableId>
+    + UncheckedInto<usize>
 {
     /// Return an instance of the "undefined" variable ID.
     fn undefined() -> Self;
@@ -102,6 +104,15 @@ pub trait VarIdPackedAny:
     /// Returns the maximum of the two given variable IDs, treating `undefined`
     /// as the smallest possible value.
     fn max_defined(self, other: Self) -> Self;
+
+    /// Convert the variable ID into a value that can be used for indexing. This can truncate
+    /// IDs wider than the index type, but this should never happen on 64-bit systems.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// The result is not defined for [`VarIdPackedAny::undefined`]. In debug mode, the method will
+    /// panic. In release mode, the result is undefined behavior.
+    fn as_usize(self) -> usize;
 }
 
 /// Represents one of two distinct states in a flipping-mark system.
@@ -535,6 +546,10 @@ macro_rules! impl_var_id_packed {
                     _ => self.max(other),
                 }
             }
+
+            fn as_usize(self) -> usize {
+                self.unchecked_into()
+            }
         }
     };
 }
@@ -559,6 +574,20 @@ macro_rules! impl_from {
 impl_from!(VarIdPacked16 => VarIdPacked32);
 impl_from!(VarIdPacked16 => VarIdPacked64);
 impl_from!(VarIdPacked32 => VarIdPacked64);
+
+macro_rules! impl_unchecked_from_variable_to_usize {
+    ($VarId:ident) => {
+        impl UncheckedFrom<$VarId> for usize {
+            fn unchecked_from(id: $VarId) -> Self {
+                id.unpack().unchecked_into()
+            }
+        }
+    };
+}
+
+impl_unchecked_from_variable_to_usize!(VarIdPacked16);
+impl_unchecked_from_variable_to_usize!(VarIdPacked32);
+impl_unchecked_from_variable_to_usize!(VarIdPacked64);
 
 impl UncheckedFrom<VarIdPacked64> for VarIdPacked16 {
     #[allow(clippy::cast_possible_truncation)]
@@ -716,6 +745,10 @@ impl VariableId {
     /// Check that the variable ID fits into a 64-bit packed variable ID.
     pub(crate) fn fits_in_packed64(self) -> bool {
         self.0 <= Self::MAX_64_BIT_ID
+    }
+
+    pub(crate) fn as_usize(self) -> usize {
+        usize_is_at_least_64_bits(self.0)
     }
 }
 

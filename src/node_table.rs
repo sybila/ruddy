@@ -34,7 +34,7 @@ pub trait NodeTableAny: Default {
     /// Get a (checked) reference to a node, or `None` if such node does not exist.
     fn get_node(&self, id: Self::Id) -> Option<&Self::Node>;
 
-    /// An unchecked variant of [`NodeTableAny::get`].
+    /// An unchecked variant of [`NodeTableAny::get_node`].
     ///
     /// # Safety
     ///
@@ -382,6 +382,14 @@ where
         &mut self.get_entry_unchecked_mut(id).node
     }
 
+    /// Get an iterator over nodes in the table.
+    pub(crate) fn iter_nodes(&self) -> impl Iterator<Item = &TNode> {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.is_deleted())
+            .map(|entry| &entry.node)
+    }
+
     /// Find the parent of `node` in the tree rooted in `start` by following the `hash`.
     ///
     /// Returns the parent node and a boolean indicating whether the node is the
@@ -585,9 +593,24 @@ where
         visited.len() + 2 // plus two terminal nodes...
     }
 
+    /// Get the largest [`VariableId`] in the table. Returns [`Option::None`] if
+    /// the table contains only terminal nodes.
+    pub(crate) fn get_largest_variable(&self) -> Option<VariableId> {
+        let variable = self
+            .iter_nodes()
+            .map(|node| node.variable())
+            .reduce(TVarId::max_defined)
+            .expect("node table is not empty");
+        if variable.is_undefined() {
+            None
+        } else {
+            Some(variable.unchecked_into())
+        }
+    }
+
     /// Approximately counts the number of satisfying paths in the BDD rooted
     /// in `root`.
-    pub(crate) fn satisfying_paths(&self, root: TNodeId) -> f64 {
+    pub(crate) fn count_satisfying_paths(&self, root: TNodeId) -> f64 {
         debug_assert!(!root.is_undefined());
         assert!(self.get_entry(root).is_some());
 
@@ -640,7 +663,7 @@ where
     /// Assumes that the given variable is greater than or equal to than any
     /// variable in the BDD. Otherwise, the function may give unexpected results
     /// in release mode or panic in debug mode.
-    pub(crate) fn satisfying_valuations(
+    pub(crate) fn count_satisfying_valuations(
         &self,
         root: TNodeId,
         largest_variable: Option<VariableId>,
@@ -650,23 +673,19 @@ where
             return 0.0;
         }
 
-        let largest_variable = if let Some(largest_variable) = largest_variable {
-            largest_variable
-        } else {
-            self.entries
-                .iter()
-                .map(|entry| entry.node.variable())
-                .reduce(TVarId::max_defined)
-                .expect("node table is not empty")
-                .unchecked_into()
-        };
+        let largest_variable = largest_variable.or_else(|| self.get_largest_variable());
 
         if root.is_one() {
-            let exponent = (Into::<u64>::into(largest_variable) + 1)
-                .try_into()
-                .unwrap_or(f64::MAX_EXP);
-            return 2.0f64.powi(exponent);
+            if let Some(largest_variable) = largest_variable {
+                let exponent = (Into::<u64>::into(largest_variable) + 1)
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP);
+                return 2.0f64.powi(exponent);
+            }
+            return 1.0f64;
         }
+
+        let largest_variable = largest_variable.expect("node table contains non-terminal node");
 
         let root_variable = match self.get_node(root) {
             Some(node) => node.variable(),
