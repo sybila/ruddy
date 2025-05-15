@@ -11,6 +11,8 @@ pub mod split;
 pub mod task_cache;
 pub mod variable_id;
 
+pub use node_id::DeserializeIdError;
+
 // TODO:
 //     These functions are only valid on 32-bit and/or 64-bit systems. We can hopefully assume that
 //     this library will only be used on 64-bit computers, but we should probably add some safety

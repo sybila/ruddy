@@ -26,12 +26,21 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     ///
     /// The flags in the variable ID are *not* reset.
     ///
-    /// ## Undefined behavior
+    /// # Undefined behavior
     ///
     /// When creating a new [`BddNodeAny`], no argument is allowed to be "undefined". If this happens,
     /// the implementation will panic in debug mode, but these checks do not run in release mode
     /// for performance reasons. Hence, using an undefined value can result in undefined behavior.
     fn new(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self;
+
+    /// An unchecked variant of [`BddNodeAny::new`], which does not check whether
+    /// the arguments are not undefined.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the arguments are not undefined. If this is not the case,
+    /// the behavior is undefined.
+    unsafe fn new_unchecked(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self;
 
     /// Return an instance of the terminal `0` node.
     fn zero() -> Self;
@@ -105,6 +114,14 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddNodeAny for BddNodeImpl<TNod
         debug_assert!(!variable.is_undefined());
         debug_assert!(!low.is_undefined());
         debug_assert!(!high.is_undefined());
+        Self {
+            variable,
+            low,
+            high,
+        }
+    }
+
+    unsafe fn new_unchecked(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self {
         Self {
             variable,
             low,

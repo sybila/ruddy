@@ -2,7 +2,7 @@
 //! [`VarIdPacked16`], [`VarIdPacked32`], and [`VarIdPacked64`].
 
 use crate::conversion::{UncheckedFrom, UncheckedInto};
-use crate::usize_is_at_least_64_bits;
+use crate::{usize_is_at_least_64_bits, DeserializeIdError};
 use std::fmt::{Display, Formatter};
 use std::{
     convert::TryFrom,
@@ -110,9 +110,15 @@ pub trait VarIdPackedAny:
     ///
     /// ## Undefined behavior
     ///
-    /// The result is not defined for [`VarIdPackedAny::undefined`]. In debug mode, the method will
-    /// panic. In release mode, the result is undefined behavior.
+    /// The result is not defined for [`VarIdPackedAny::undefined`]. In debug mode,
+    /// the method will panic. In release mode, this can result is undefined behavior.
     fn as_usize(self) -> usize;
+
+    /// Converts the variable ID (with packed information) to a `String`.
+    fn to_string_packed(self) -> String;
+
+    /// Parses a variable ID from a string.
+    fn from_string_packed(s: &str) -> Result<Self, DeserializeIdError>;
 }
 
 /// Represents one of two distinct states in a flipping-mark system.
@@ -229,6 +235,16 @@ impl VarIdPacked16 {
         );
         self.0 >> 3
     }
+
+    /// Convert the ID to a 2-byte array (for serialization).
+    pub(crate) fn to_le_bytes(self) -> [u8; 2] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`VarIdPacked16`] from a 2-byte array (for serialization).
+    pub(crate) fn from_le_bytes(bytes: [u8; 2]) -> Self {
+        Self(u16::from_le_bytes(bytes))
+    }
 }
 
 /// A 32-bit implementation of the [`VarIdPackedAny`] trait that packs additional
@@ -327,6 +343,16 @@ impl VarIdPacked32 {
     /// Check if the variable ID is representable by `VarIdPacked16`.
     pub(crate) fn fits_in_packed16(self) -> bool {
         self.is_undefined() || self.unpack() <= u32::from(VarIdPacked16::MAX_ID)
+    }
+
+    /// Convert the ID to a 4-byte array (for serialization).
+    pub(crate) fn to_le_bytes(self) -> [u8; 4] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`VarIdPacked64`] from a 4-byte array (for serialization).
+    pub(crate) fn from_le_bytes(bytes: [u8; 4]) -> Self {
+        Self(u32::from_le_bytes(bytes))
     }
 }
 
@@ -431,6 +457,16 @@ impl VarIdPacked64 {
     /// Check if the variable ID is representable by `VarIdPacked32`.
     pub(crate) fn fits_in_packed32(self) -> bool {
         self.is_undefined() || self.unpack() <= u64::from(VarIdPacked32::MAX_ID)
+    }
+
+    /// Convert the ID to an 8-byte array (for serialization).
+    pub(crate) fn to_le_bytes(self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`VarIdPacked64`] from an 8-byte array (for serialization).
+    pub(crate) fn from_le_bytes(bytes: [u8; 8]) -> Self {
+        Self(u64::from_le_bytes(bytes))
     }
 }
 
@@ -550,8 +586,23 @@ macro_rules! impl_var_id_packed {
             fn as_usize(self) -> usize {
                 self.unchecked_into()
             }
+
+            fn to_string_packed(self) -> String {
+                self.0.to_string()
+            }
+
+            fn from_string_packed(s: &str) -> Result<Self, DeserializeIdError> {
+                let id: $width = s.parse()?;
+                Ok(Self(id))
+            }
         }
     };
+}
+
+pub enum ParseVarIdPackedError {
+    Empty,
+    InvalidId,
+    InvalidDigit,
 }
 
 impl_var_id_packed!(VarIdPacked16, u16);
@@ -1327,4 +1378,43 @@ mod tests {
     test_packed_id_max_defined!(var_packed_16_max_defined, VarIdPacked16);
     test_packed_id_max_defined!(var_packed_32_max_defined, VarIdPacked32);
     test_packed_id_max_defined!(var_packed_64_max_defined, VarIdPacked64);
+
+    macro_rules! test_packed_id_byte_conversions {
+        ($VarId:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let id = $VarId::new(1234);
+                let id_bytes = id.to_le_bytes();
+                let id2 = $VarId::from_le_bytes(id_bytes);
+                assert_eq!(id, id2);
+                let id = $VarId::undefined();
+                let id_bytes = id.to_le_bytes();
+                let id2 = $VarId::from_le_bytes(id_bytes);
+                assert_eq!(id, id2);
+            }
+        };
+    }
+
+    test_packed_id_byte_conversions!(VarIdPacked16, var_packed_16_byte_conversions);
+    test_packed_id_byte_conversions!(VarIdPacked32, var_packed_32_byte_conversions);
+    test_packed_id_byte_conversions!(VarIdPacked64, var_packed_64_byte_conversions);
+
+    macro_rules! test_packed_id_string_conversions {
+        ($VarId:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let id = $VarId::new(1234);
+                let id_str = id.to_string_packed();
+                let id2 = $VarId::from_string_packed(&id_str).unwrap();
+                assert_eq!(id, id2);
+                let id = $VarId::undefined();
+                let id_str = id.to_string_packed();
+                let id2 = $VarId::from_string_packed(&id_str).unwrap();
+                assert_eq!(id, id2);
+            }
+        };
+    }
+    test_packed_id_string_conversions!(VarIdPacked16, var_packed_16_string_conversions);
+    test_packed_id_string_conversions!(VarIdPacked32, var_packed_32_string_conversions);
+    test_packed_id_string_conversions!(VarIdPacked64, var_packed_64_string_conversions);
 }

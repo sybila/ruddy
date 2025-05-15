@@ -80,8 +80,8 @@ pub trait BddAny: Debug + Clone {
 /// be ordered and reduced.
 #[derive(Debug, Clone)]
 pub struct BddImpl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> {
-    root: TNodeId,
-    nodes: Vec<BddNodeImpl<TNodeId, TVarId>>,
+    pub(crate) root: TNodeId,
+    pub(crate) nodes: Vec<BddNodeImpl<TNodeId, TVarId>>,
 }
 
 impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
