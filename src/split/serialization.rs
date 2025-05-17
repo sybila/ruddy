@@ -410,7 +410,7 @@ mod tests {
         assert!(bdd.structural_eq(&bdd_from_s));
     }
 
-    macro_rules! test_constant_bdd_byte_conversion {
+    macro_rules! test_constant_bdd_string_conversion {
         ($bdd:ident, $func:ident) => {
             let bdd = $bdd::$func();
             let s = bdd.to_serialized_string();
@@ -421,20 +421,20 @@ mod tests {
 
     #[test]
     fn bdd16_constant_string_conversions() {
-        test_constant_bdd_byte_conversion!(Bdd16, new_true);
-        test_constant_bdd_byte_conversion!(Bdd16, new_false);
+        test_constant_bdd_string_conversion!(Bdd16, new_true);
+        test_constant_bdd_string_conversion!(Bdd16, new_false);
     }
 
     #[test]
     fn bdd32_constant_string_conversions() {
-        test_constant_bdd_byte_conversion!(Bdd32, new_true);
-        test_constant_bdd_byte_conversion!(Bdd32, new_false);
+        test_constant_bdd_string_conversion!(Bdd32, new_true);
+        test_constant_bdd_string_conversion!(Bdd32, new_false);
     }
 
     #[test]
     fn bdd64_constant_string_conversions() {
-        test_constant_bdd_byte_conversion!(Bdd64, new_true);
-        test_constant_bdd_byte_conversion!(Bdd64, new_false);
+        test_constant_bdd_string_conversion!(Bdd64, new_true);
+        test_constant_bdd_string_conversion!(Bdd64, new_false);
     }
 
     #[test]
