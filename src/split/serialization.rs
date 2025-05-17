@@ -7,7 +7,7 @@ use crate::bdd_node::BddNodeAny;
 use crate::DeserializeIdError;
 use crate::{node_id::NodeIdAny, variable_id::VarIdPackedAny};
 
-/// An error than can occur during while deserializing a BDD.
+/// An error than can occur while deserializing a BDD.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum BddDeserializationError {
