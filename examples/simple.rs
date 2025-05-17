@@ -16,13 +16,13 @@ fn main() {
     let bdd_v1_true = manager.new_bdd_literal(v1, true);
     let bdd_v2_true = manager.new_bdd_literal(v2, true);
 
-    // Construct Term 1: `(v0 AND v1)``
+    // Construct Term 1: `(v0 AND v1)`
     let term1 = manager.and(&bdd_v0_true, &bdd_v1_true);
 
     // Construct Term 2: `(!v0 AND v2)`
     let term2 = manager.and(&bdd_v0_false, &bdd_v2_true);
 
-    // Combine terms to form `(v0 AND v1) OR (!v0 AND v2)`.
+    // Combine terms to form `f(v0, v1, v2) = (v0 AND v1) OR (!v0 AND v2)`.
     let bdd = manager.or(&term1, &term2);
 
     // Export `bdd` to a .dot file for visualization
@@ -30,8 +30,8 @@ fn main() {
     let mut buffer = BufWriter::new(file);
     manager.write_bdd_as_dot(&bdd, &mut buffer).unwrap();
 
-    // Perform existential quantification: `exists v0 . bdd``
-    // This should yield a BDD equivalent to `(v1 OR v2)``
+    // Perform existential quantification: `\exists v0 . f`.
+    // This should yield a BDD equivalent to `(v1 OR v2)`
     let bdd_after_exists = manager.exists(&bdd, &[v0]);
 
     // Print out the satisfying paths in the resulting BDD.
