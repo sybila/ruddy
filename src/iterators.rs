@@ -79,10 +79,7 @@ impl<'a, TNodeSource: NodeAccess> Iterator for SatisfyingValuationsImpl<'a, TNod
         }
         // The final valuation had all of the variables assigned to `true`, so the
         // loop exited without returning a value. Move to next path.
-        let new_path = match self.sat_paths.next() {
-            Some(path) => path,
-            None => return None,
-        };
+        let new_path = self.sat_paths.next()?;
 
         // Start with all of the variables not on the path assigned to `false`.
         self.valuation = new_path
