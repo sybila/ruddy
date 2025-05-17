@@ -432,7 +432,19 @@ pub(crate) enum BddInner {
     Size64(Bdd64),
 }
 
-/// TODO: Write documentation for this type.
+/// A type representing a binary decision diagram, that is split, i.e., owns all
+/// of its nodes in a vector and is immutable.
+///
+/// Consequently, each operation produces a new BDD, which is independent of its
+/// operands.
+///
+/// This allows the BDD to be easily copied and even shared between threads. Moreover,
+/// there is no need to perform explicit garbage collection --- once the `Bdd` is dropped,
+/// so are all of its nodes.
+///
+/// However, being self-contained, if multiple BDDs share the same subgraph,
+/// each needs to store a copy of it. Furthermore, supporting data structures like the
+/// unique node table and computed cache are rebuilt for each operation, not shared or reused.
 #[derive(Clone, Debug)]
 pub struct Bdd(pub(crate) BddInner);
 
@@ -455,24 +467,17 @@ impl From<Bdd64> for Bdd {
 }
 
 impl Bdd {
-    /// Create a new BDD representing the constant boolean function `true`.
+    /// Creates a new BDD representing the constant boolean function `true`.
     pub fn new_true() -> Self {
         Bdd16::new_true().into()
     }
 
-    /// Create a new BDD representing the constant boolean function `false`.
+    /// Creates a new BDD representing the constant boolean function `false`.
     pub fn new_false() -> Self {
         Bdd16::new_false().into()
     }
 
-    /// Create a new BDD representing the boolean function `var=value`.
-    ///
-    /// # Memory
-    /// In order to optimize memory usage and performance, please use the
-    /// smallest possible variable identifiers. This will allow the BDD to
-    /// shrink to a smaller width if possible. See [`VariableId::MAX_16_BIT_ID`],
-    /// [`VariableId::MAX_32_BIT_ID`] and [`VariableId::MAX_64_BIT_ID`] for the
-    /// maximum values that can be used for each width.
+    /// Creates a new BDD representing the boolean function `var=value`.
     pub fn new_literal(var: VariableId, value: bool) -> Self {
         if var.fits_in_packed16() {
             Bdd16::new_literal(var.unchecked_into(), value).into()
@@ -485,7 +490,7 @@ impl Bdd {
         }
     }
 
-    /// Returns the number of nodes in the BDD, including the terminal nodes.
+    /// Returns the number of nodes in the `Bdd`, including the terminal nodes.
     pub fn node_count(&self) -> usize {
         match &self.0 {
             BddInner::Size16(bdd) => bdd.node_count(),
@@ -494,7 +499,7 @@ impl Bdd {
         }
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `!self` (negation).
+    /// Calculate a `Bdd` representing the boolean formula `!self` (negation).
     pub fn not(&self) -> Self {
         match &self.0 {
             BddInner::Size16(bdd) => bdd.not().into(),
@@ -566,7 +571,7 @@ impl Bdd {
         }
     }
 
-    /// Compares the two BDDs structurally, i.e. by comparing their roots and the
+    /// Compares the two `Bdd`s structurally, i.e. by comparing their roots and the
     /// underlying lists of nodes.
     ///
     /// Note that this does not guarantee that the two BDDs represent the same boolean function,
@@ -581,6 +586,7 @@ impl Bdd {
         }
     }
 
+    /// Returns the identifier of the root node of the `Bdd`.
     pub fn root(&self) -> NodeId {
         match &self.0 {
             BddInner::Size16(bdd) => bdd.root().unchecked_into(),
@@ -589,6 +595,7 @@ impl Bdd {
         }
     }
 
+    /// Returns the variable identifier of the given `node`.
     pub fn get_variable(&self, node: NodeId) -> VariableId {
         let index: usize = node.unchecked_into();
         match &self.0 {
@@ -601,6 +608,7 @@ impl Bdd {
         }
     }
 
+    /// Returns the `low` and `high` children of the given `node`.
     pub fn get_links(&self, node: NodeId) -> (NodeId, NodeId) {
         // The unchecked casts are necessary to ensure we are not using any undefined values.
         let index: usize = node.unchecked_into();
@@ -620,9 +628,11 @@ impl Bdd {
         }
     }
 
-    /// Approximately counts the number of satisfying valuations in the BDD. If
+    /// Approximately counts the number of satisfying valuations of the `Bdd`. If
     /// `largest_variable` is [`Option::Some`], then it is assumed to be the largest
     /// variable. Otherwise, the largest variable in the BDD is used.
+    ///
+    /// # Panics
     ///
     /// Assumes that the given variable is greater than or equal to than any
     /// variable in the BDD. Otherwise, the function may give unexpected results
@@ -635,7 +645,7 @@ impl Bdd {
         }
     }
 
-    /// Approximately counts the number of satisfying paths.
+    /// Approximately counts the number of satisfying paths in the `Bdd`.
     pub fn count_satisfying_paths(&self) -> f64 {
         match &self.0 {
             BddInner::Size16(bdd) => bdd.count_satisfying_paths(),
@@ -644,7 +654,7 @@ impl Bdd {
         }
     }
 
-    /// Write this BDD as a DOT graph to the given `output` stream.
+    /// Writes this `Bdd` as a DOT graph to the given `output` stream.
     pub fn write_bdd_as_dot(&self, output: &mut dyn Write) -> io::Result<()> {
         match &self.0 {
             BddInner::Size16(bdd) => bdd.write_as_dot(output),
@@ -653,7 +663,7 @@ impl Bdd {
         }
     }
 
-    /// Convert this BDD into a DOT graph string.
+    /// Converts this `Bdd` into a DOT graph string.
     pub fn to_dot_string(&self) -> String {
         let mut output = Vec::new();
         self.write_bdd_as_dot(&mut output).unwrap();

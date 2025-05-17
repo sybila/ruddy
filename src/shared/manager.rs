@@ -11,21 +11,81 @@ use crate::{
 use std::{
     cell::Cell,
     io::{self, Write},
-    rc::Weak,
+    rc::{Rc, Weak},
 };
 
 use replace_with::replace_with_or_default;
 use rustc_hash::FxHashMap;
 
-use super::bdd::Bdd;
-
+/// The garbage collection strategy of the [`BddManager`].
 #[derive(Debug, Clone, Copy, Default)]
 pub enum GarbageCollection {
+    /// Garbage collection is only performed when invoked explicitly.
     Manual,
+    /// Garbage collection is performed automatically.
     #[default]
     Automatic,
 }
 
+/// A type representing a shared binary decision diagram. See [`BddManager`] for more details.
+///
+/// A shared `Bdd` is effectively just an index to the root node in the `BddManager`'s
+/// unique node table. However, it is also reference counted to ensure that, as
+/// long as the `Bdd` is alive, its nodes will not be garbage collected. As such,
+/// cloning a `Bdd` increments this reference counter.
+#[derive(Debug, Clone)]
+pub struct Bdd {
+    pub(crate) root: Rc<Cell<NodeId>>,
+}
+
+impl Bdd {
+    pub(crate) fn new(root: NodeId) -> Self {
+        Self {
+            root: Rc::new(Cell::new(root)),
+        }
+    }
+
+    pub(crate) fn root_weak(&self) -> Weak<Cell<NodeId>> {
+        Rc::downgrade(&self.root)
+    }
+
+    /// Returns `true` if the `Bdd` represents the constant boolean function `true`.
+    pub fn is_true(&self) -> bool {
+        self.root.get().is_one()
+    }
+
+    /// Returns `true` if the `Bdd` represents the constant boolean function `false`.
+    pub fn is_false(&self) -> bool {
+        self.root.get().is_zero()
+    }
+}
+
+impl PartialEq for Bdd {
+    fn eq(&self, other: &Self) -> bool {
+        self.root.get() == other.root.get()
+    }
+}
+
+impl Eq for Bdd {}
+
+/// The main structure for managing *shared* binary decision diagrams.
+///
+/// In the shared representation, the nodes of shared [`Bdd`]s are all stored in the
+/// `BddManager`'s internal unique table. The table ensures that no duplicate
+/// nodes are created. This means that if two or more BDDs share a subgraph,
+/// that subgraph is stored only once in memory. Consequently, a `Bdd` object
+/// is just an index to the root node in the unique table.
+///
+/// As BDDs are created and dropped, some nodes in the `BddManager`'s unique
+/// table may no longer be referenced by any BDD and are considered "dead."
+/// To remove these nodes, the manager automatically performs garbage collection by
+/// default (configurable via [`BddManager::set_gc`]). This process marks all nodes
+/// reachable from currently "live" `Bdd` handles; unmarked nodes are then
+/// invalidated, so that their memory can be reused, or completely removed.
+///
+/// Note that, unlike most other implementations of (shared) BDDs, the `BddManager`
+/// currently does not hold a computed cache that is reused between operations.
+/// Instead, a new one is created for each operation.
 #[derive(Debug)]
 pub struct BddManager {
     pub(crate) unique_table: NodeTable,
@@ -46,18 +106,22 @@ impl Default for BddManager {
 }
 
 impl BddManager {
+    /// Creates a new [`BddManager`].
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the [`GarbageCollection`] strategy of the `BddManager`.
     pub fn set_gc(&mut self, garbage_collection: GarbageCollection) {
         self.gc = garbage_collection;
     }
 
+    /// Returns the [`Bdd`] representing the boolean constant `false`.
     pub fn new_bdd_false(&self) -> Bdd {
         Bdd::new(NodeId::zero())
     }
 
+    /// Returns the [`Bdd`] representing the boolean constant `true`.
     pub fn new_bdd_true(&self) -> Bdd {
         Bdd::new(NodeId::one())
     }
@@ -78,7 +142,7 @@ impl BddManager {
         });
     }
 
-    /// The total number of *used* nodes stored in the [`BddManager`].
+    /// Returns the total number of *used* nodes stored in the `BddManager`.
     pub fn total_node_count(&self) -> usize {
         match &self.unique_table {
             NodeTable::Size16(table) => table.node_count(),
@@ -87,7 +151,7 @@ impl BddManager {
         }
     }
 
-    /// The total number of node slots available in the [`BddManager`], including
+    /// Returns the total number of node slots available in the `BddManager`, including
     /// free and full slots.
     pub fn total_capacity(&self) -> usize {
         match &self.unique_table {
@@ -97,6 +161,7 @@ impl BddManager {
         }
     }
 
+    /// Returns the number of nodes in the `bdd`.
     pub fn node_count(&self, bdd: &Bdd) -> usize {
         let root = bdd.root.get();
         // TODO: Maybe this should not use unchecked into?
@@ -107,7 +172,8 @@ impl BddManager {
         }
     }
 
-    pub fn import_standalone(&mut self, bdd: &crate::split::bdd::Bdd) -> Bdd {
+    /// Imports a [`crate::split::bdd::Bdd`], recreating its nodes in the `BddManager`.
+    pub fn import_split(&mut self, bdd: &crate::split::bdd::Bdd) -> Bdd {
         let mut equivalent: FxHashMap<NodeId, Bdd> = FxHashMap::default();
         equivalent.insert(NodeId::zero(), self.new_bdd_false());
         equivalent.insert(NodeId::one(), self.new_bdd_true());
@@ -142,6 +208,7 @@ impl BddManager {
         equivalent.get(&root).unwrap().clone()
     }
 
+    /// Calculates a [`Bdd`] representing the boolean function `if 'condition' then 'then' else 'else_'`.
     pub fn if_then_else(&mut self, condition: VariableId, then: &Bdd, else_: &Bdd) -> Bdd {
         self.if_then_else_internal(condition, then, else_, true)
     }
@@ -218,6 +285,7 @@ impl BddManager {
         bdd
     }
 
+    /// Returns the [`Bdd`] representing the boolean function `variable=value`.
     pub fn new_bdd_literal(&mut self, variable: VariableId, value: bool) -> Bdd {
         if value {
             self.if_then_else(variable, &self.new_bdd_true(), &self.new_bdd_false())
@@ -240,6 +308,8 @@ impl BddManager {
         }
     }
 
+    /// Removes all nodes from the `BddManager`'s pool that are not reachable from any
+    /// [`Bdd`] created by this `BddManager`.
     pub fn collect_garbage(&mut self) {
         replace_with_or_default(&mut self.unique_table, |table| match table {
             NodeTable::Size16(table) => table.collect_garbage(&mut self.roots),
@@ -249,7 +319,7 @@ impl BddManager {
         self.nodes_after_last_gc = self.unique_table.node_count();
     }
 
-    /// Approximately counts the number of satisfying paths in the BDD.
+    /// Approximately counts the number of satisfying paths in the `bdd`.
     pub fn count_satisfying_paths(&self, bdd: &Bdd) -> f64 {
         match &self.unique_table {
             NodeTable::Size16(table) => {
@@ -264,13 +334,15 @@ impl BddManager {
         }
     }
 
-    /// Approximately counts the number of satisfying valuations in the BDD
-    /// rooted in `root`. If `largest_variable` is [`Option::Some`], then it is
-    /// assumed to be the largest variable. Otherwise, the largest variable in the
-    /// table is used.
+    /// Approximately counts the number of satisfying valuations in the `bdd`.
+    /// If `largest_variable` is [`Option::Some`], then it is
+    /// assumed to be the largest variable. Otherwise, the largest variable residing
+    /// in the manager is used.
+    ///
+    /// # Panics
     ///
     /// Assumes that the given variable is greater than or equal to any
-    /// variable in the BDD. Otherwise, the function may give unexpected results
+    /// variable in the `bdd`. Otherwise, the function may give unexpected results
     /// in release mode or panic in debug mode.
     pub fn count_satisfying_valuations(
         &self,
@@ -290,7 +362,7 @@ impl BddManager {
         }
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `!bdd` (negation).
+    /// Calculates a [`Bdd`] representing the boolean formula `!bdd` (negation).
     pub fn not(&mut self, bdd: &Bdd) -> Bdd {
         self.maybe_collect_garbage();
 
@@ -322,7 +394,7 @@ impl BddManager {
         bdd
     }
 
-    /// Write `bdd` as a DOT graph to the given `output` stream.
+    /// Writes `bdd` as a DOT graph to the given `output` stream.
     pub fn write_bdd_as_dot(&self, bdd: &Bdd, output: &mut dyn Write) -> io::Result<()> {
         match &self.unique_table {
             NodeTable::Size16(table) => {
@@ -337,7 +409,7 @@ impl BddManager {
         }
     }
 
-    /// Convert `bdd` to a DOT graph string.
+    /// Converts `bdd` to a DOT graph string.
     pub fn bdd_to_dot_string(&self, bdd: &Bdd) -> String {
         let mut buffer = Vec::new();
         self.write_bdd_as_dot(bdd, &mut buffer).unwrap();
@@ -767,7 +839,7 @@ pub mod tests {
         let bdd_a = bdd_a.into();
 
         let mut manager = BddManager::no_gc();
-        let imported = manager.import_standalone(&bdd_a);
+        let imported = manager.import_split(&bdd_a);
         // First, check that the created BDD will survive GC (i.e., the root is correctly set).
         manager.collect_garbage();
         let op_test = manager.and(&imported, &imported);

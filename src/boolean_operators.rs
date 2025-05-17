@@ -1,3 +1,7 @@
+//! Defines binary boolean operators [`And`], [`Or`], [`Xor`], and others,
+//! used in [`crate::split::Bdd::apply`], [`crate::shared::BddManager::apply`], and
+//! [`crate::split::Bdd::nested_apply`], [`crate::shared::BddManager::nested_apply`] plus its variants.
+
 use std::cmp::{max, min};
 
 use crate::node_id::NodeIdAny;
@@ -96,6 +100,49 @@ impl std::ops::Not for TriBool {
     }
 }
 
+/// A trait representing a binary boolean operator.
+///
+/// It is expected to be defined mainly for terminal [`NodeIdAny`] arguments. However,
+/// since some logical operators can return the result even if only one of the arguments
+/// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
+/// yet known, the function should return [`NodeIdAny::undefined`]. For example, the logical
+/// operator implementing disjunction (for split BDDs) could be defined as:
+/// ```ignore
+/// fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+///     self,
+/// ) -> impl Fn(TId1, TId2) -> TResultId {
+///     move |left, right| {
+///         if left.is_one() || right.is_one() {
+///             TResultId::one()
+///         } else if left.is_zero() && right.is_zero() {
+///             TResultId::zero()
+///         } else {
+///             TResultId::undefined()
+///         }
+///     }
+/// }
+/// ```
+///
+/// For shared BDDs, there are more cases where the result can be immediately known.
+/// For example, the logical operator implementing disjunction for shared BDDs
+/// could be defined as:
+/// ```ignore
+/// fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+///     |left, right| {
+///         if left.is_one() || right.is_one() {
+///             TId::one()
+///         } else if left.is_zero() {
+///             right
+///         } else if right.is_zero() {
+///             left
+///         } else if left == right {
+///             right
+///         } else {
+///             TId::undefined()
+///         }
+///     }
+/// }
+/// ```
 pub trait BooleanOperator: Clone + Copy {
     /// Return a function implementing this boolean operation on [`NodeIdAny`] identifiers,
     /// suitable for split BDDs.
@@ -215,7 +262,7 @@ impl BooleanOperator for Implies {
     }
 }
 
-/// A type representing a logical xor.
+/// A type representing a logical xor (exclusive or; non-equivalence).
 #[derive(Clone, Copy)]
 pub struct Xor;
 

@@ -138,7 +138,7 @@ pub(crate) mod split {
         }
     }
 
-    /// An iterator over the satisfying paths in a BDD.
+    /// An iterator over the satisfying paths in a split [`Bdd`].
     pub struct SatisfyingPaths<'a>(
         SatisfyingPathsInner<
             SatisfyingPathsImpl<'a, Bdd16>,
@@ -159,7 +159,7 @@ pub(crate) mod split {
         }
     }
 
-    /// An iterator over the satisfying valuations of a BDD.
+    /// An iterator over the satisfying valuations of a split [`Bdd`].
     pub struct SatisfyingValuations<'a>(
         SatisfyingValuationsInner<
             SatisfyingValuationsImpl<'a, Bdd16>,
@@ -181,7 +181,7 @@ pub(crate) mod split {
     }
 
     impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
-        /// Gets an iterator over the satisfying paths in the BDD.
+        /// Gets an iterator over the satisfying paths in this BDD.
         fn satisfying_paths(
             &self,
             largest_variable: Option<VariableId>,
@@ -209,7 +209,7 @@ pub(crate) mod split {
             }
         }
 
-        /// Gets an iterator over the satisfying valuations of the BDD.
+        /// Gets an iterator over the satisfying valuations of this BDD.
         fn satisfying_valuations(
             &self,
             largest_variable: Option<VariableId>,
@@ -222,7 +222,7 @@ pub(crate) mod split {
     }
 
     impl Bdd {
-        /// Gets an iterator over the satisfying paths in the BDD. If `largest_variable`
+        /// Gets an iterator over the satisfying paths in this `Bdd`. If `largest_variable`
         /// is [`Option::Some`], then it is assumed to be the largest variable.
         /// Otherwise, the largest variable in the BDD is used.
         ///
@@ -243,7 +243,7 @@ pub(crate) mod split {
             }
         }
 
-        /// Gets an iterator over the satisfying valuations of the BDD. If `largest_variable`
+        /// Gets an iterator over the satisfying valuations of this `Bdd`. If `largest_variable`
         /// is [`Option::Some`], then it is assumed to be the largest variable.
         /// Otherwise, the largest variable in the BDD is used.
         ///
@@ -404,7 +404,7 @@ pub(crate) mod shared {
         }
     }
 
-    /// An iterator over the satisfying paths in a BDD.
+    /// An iterator over the satisfying paths in a shared [`Bdd`].
     pub struct SatisfyingPaths<'a>(
         SatisfyingPathsInner<
             SatisfyingPathsImpl<'a, NodeTable16>,
@@ -425,7 +425,7 @@ pub(crate) mod shared {
         }
     }
 
-    /// An iterator over the satisfying valuations of a BDD.
+    /// An iterator over the satisfying valuations of a shared [`Bdd`].
     pub struct SatisfyingValuations<'a>(
         SatisfyingValuationsInner<
             SatisfyingValuationsImpl<'a, NodeTable16>,
@@ -452,7 +452,7 @@ pub(crate) mod shared {
             TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
         > NodeTableImpl<TNodeId, TVarId, TNode>
     {
-        /// Gets an iterator over the satisfying paths in the BDD.
+        /// Gets an iterator over the satisfying paths in the BDD rooted in `root`.
         fn satisfying_paths(
             &self,
             root: TNodeId,
@@ -478,7 +478,7 @@ pub(crate) mod shared {
             }
         }
 
-        /// Gets an iterator over the satisfying valuations of the BDD.
+        /// Gets an iterator over the satisfying valuations of the BDD rooted in `root`.
         fn satisfying_valuations(
             &self,
             root: TNodeId,
@@ -492,9 +492,9 @@ pub(crate) mod shared {
     }
 
     impl BddManager {
-        /// Gets an iterator over the satisfying paths in the BDD `bdd`. If `largest_variable`
+        /// Gets an iterator over the satisfying paths in the `bdd`. If `largest_variable`
         /// is [`Option::Some`], then it is assumed to be the largest variable.
-        /// Otherwise, the largest variable in the node table is used.
+        /// Otherwise, the largest variable residing in the manager is used.
         ///
         /// # Panics
         ///
@@ -517,9 +517,9 @@ pub(crate) mod shared {
             }
         }
 
-        /// Gets an iterator over the satisfying valuations in the BDD `bdd`. If `largest_variable`
+        /// Gets an iterator over the satisfying valuations in the `bdd`. If `largest_variable`
         /// is [`Option::Some`], then it is assumed to be the largest variable.
-        /// Otherwise, the largest variable in the node table is used.
+        /// Otherwise, the largest variable residing in the manager is used.
         ///
         /// # Panics
         ///

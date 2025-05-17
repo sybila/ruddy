@@ -10,10 +10,11 @@ use crate::{
     variable_id::VarIdPackedAny,
 };
 
-use super::{bdd::Bdd, manager::BddManager};
+use super::{manager::BddManager, Bdd};
 
 impl BddManager {
-    fn apply<TBooleanOp: BooleanOperator>(
+    /// Calculates a [`Bdd`] representing the boolean formula `left 'operator' right`.
+    pub fn apply<TBooleanOp: BooleanOperator>(
         &mut self,
         left: &Bdd,
         right: &Bdd,
@@ -64,27 +65,27 @@ impl BddManager {
         bdd
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `left && right` (conjunction).
+    /// Calculates a [`Bdd`] representing the boolean formula `left && right` (conjunction).
     pub fn and(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
         self.apply(left, right, boolean_operators::And)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `left || right` (disjunction).
+    /// Calculates a [`Bdd`] representing the boolean formula `left || right` (disjunction).
     pub fn or(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
         self.apply(left, right, boolean_operators::Or)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `left ^ right` (xor; non-equivalence).
+    /// Calculates a [`Bdd`] representing the boolean formula `left ^ right` (xor; non-equivalence).
     pub fn xor(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
         self.apply(left, right, boolean_operators::Xor)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `left => right` (implication).
+    /// Calculates a [`Bdd`] representing the boolean formula `left => right` (implication).
     pub fn implies(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
         self.apply(left, right, boolean_operators::Implies)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `left <=> right` (equivalence).
+    /// Calculates a [`Bdd`] representing the boolean formula `left <=> right` (equivalence).
     pub fn iff(&mut self, left: &Bdd, right: &Bdd) -> Bdd {
         self.apply(left, right, boolean_operators::Iff)
     }

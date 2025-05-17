@@ -7,7 +7,7 @@ use crate::bdd_node::BddNodeAny;
 use crate::DeserializeIdError;
 use crate::{node_id::NodeIdAny, variable_id::VarIdPackedAny};
 
-/// An error than can occur during BDD deserialization.
+/// An error than can occur during while deserializing a BDD.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum BddDeserializationError {
@@ -282,7 +282,9 @@ impl Bdd {
     }
 
     /// Deserializes a `Bdd` from a string from the `input` stream.
-    pub fn read_from_string(input: &mut dyn Read) -> Result<Self, BddDeserializationError> {
+    pub fn read_as_serialized_string(
+        input: &mut dyn Read,
+    ) -> Result<Self, BddDeserializationError> {
         let mut buffer = String::new();
         input.read_to_string(&mut buffer)?;
         buffer.retain(|c| !c.is_whitespace());

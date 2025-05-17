@@ -17,7 +17,7 @@ use crate::{
 
 use super::bdd::BddInner;
 
-/// Like [`apply_any_default_state`], but specifically for 16-bit BDDs.
+/// Like [`apply_any`], but specifically for 16-bit BDDs.
 ///
 /// The function automatically grows the BDD to 32, or 64 bits if the result does not fit.
 pub(crate) fn apply_16_bit_input<TBooleanOp: BooleanOperator>(
@@ -44,7 +44,7 @@ pub(crate) fn apply_16_bit_input<TBooleanOp: BooleanOperator>(
         .into()
 }
 
-/// Like [`apply_any_default_state`], but specifically for at most 32-bit wide BDDs.
+/// Like [`apply_any`], but specifically for at most 32-bit wide BDDs.
 ///
 /// The function automatically grows the BDD to 64 bits if the result does not fit.
 pub(crate) fn apply_32_bit_input<
@@ -70,7 +70,7 @@ pub(crate) fn apply_32_bit_input<
         .into()
 }
 
-/// Like [`apply_any_default_state`], but specifically for at most 64-bit wide BDDs.
+/// Like [`apply_any`], but specifically for at most 64-bit wide BDDs.
 pub(crate) fn apply_64_bit_input<
     TBdd1: AsBdd<Bdd64>,
     TBdd2: AsBdd<Bdd64>,
@@ -170,18 +170,6 @@ impl_apply_state_conversion!(ApplyState32, ApplyState64);
 /// A generic universal function used for implementing logical operators. The function works
 /// for any (reasonable) combination of BDD widths.
 ///
-/// The `operator` function is the logical operator to be applied to the BDDs.
-/// It is expected to be defined mainly for terminal [`NodeIdAny`] arguments. However,
-/// since some logical operators can return the result even if only one of the arguments
-/// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
-/// yet known, the function should return [`NodeIdAny::undefined`]. For example, the logical
-/// operator implementing disjunction would be defined as:
-/// ```text
-/// or(NodeIdAny(1), NodeIdAny(_)) -> NodeIdAny(1)
-/// or(NodeIdAny(_), NodeIdAny(1)) -> NodeIdAny(1)
-/// or(NodeIdAny(0), NodeIdAny(0)) -> NodeIdAny(0)
-/// or(NodeIdAny(_), NodeIdAny(_)) -> NodeIdAny::undefined(),
-/// ```
 /// The function returns [`Result::Ok`] with the computed BDD or [`Result::Err`]
 /// with the state of the computation if the BDD could not fit into the target width.
 fn apply_any<
@@ -286,36 +274,33 @@ fn apply_any<
 }
 
 impl Bdd {
-    /// Calculate a [`Bdd`] representing the boolean formula `self && other` (conjunction).
+    /// Calculates a `Bdd` representing the boolean formula `self && other` (conjunction).
     pub fn and(&self, other: &Bdd) -> Bdd {
         self.apply(other, boolean_operators::And)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `self || other` (disjunction).
+    /// Calculates a `Bdd` representing the boolean formula `self || other` (disjunction).
     pub fn or(&self, other: &Bdd) -> Bdd {
         self.apply(other, boolean_operators::Or)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `self ^ other` (xor; non-equivalence).
+    /// Calculates a `Bdd` representing the boolean formula `self ^ other` (xor; non-equivalence).
     pub fn xor(&self, other: &Bdd) -> Bdd {
         self.apply(other, boolean_operators::Xor)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `self => other` (implication).
+    /// Calculates a `Bdd` representing the boolean formula `self => other` (implication).
     pub fn implies(&self, other: &Bdd) -> Bdd {
         self.apply(other, boolean_operators::Implies)
     }
 
-    /// Calculate a [`Bdd`] representing the boolean formula `self <=> other` (equivalence).
+    /// Calculates a `Bdd` representing the boolean formula `self <=> other` (equivalence).
     pub fn iff(&self, other: &Bdd) -> Bdd {
         self.apply(other, boolean_operators::Iff)
     }
 
-    pub(crate) fn apply<TBooleanOp: BooleanOperator>(
-        &self,
-        other: &Bdd,
-        operator: TBooleanOp,
-    ) -> Bdd {
+    /// Calculates a `Bdd` representing the boolean formula `self 'operator' other`.
+    pub fn apply<TBooleanOp: BooleanOperator>(&self, other: &Bdd, operator: TBooleanOp) -> Bdd {
         match (&self.0, &other.0) {
             (BddInner::Size16(left), BddInner::Size16(right)) => {
                 apply_16_bit_input(left, right, operator)

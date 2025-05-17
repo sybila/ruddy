@@ -473,7 +473,7 @@ impl_unchecked_from_usize!(NodeId64, u64);
 pub(crate) trait AsNodeId<TNodeId: NodeIdAny>: NodeIdAny + Into<TNodeId> {}
 impl<A: NodeIdAny, B: NodeIdAny + Into<A>> AsNodeId<A> for B {}
 
-/// An error which can be returned when parsing a node identifier.
+/// An error which can be returned when deserializing a variable or node identifier.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum DeserializeIdError {
     /// Identifier is invalid.

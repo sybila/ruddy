@@ -19,17 +19,17 @@ use crate::{
 use super::bdd::BddInner;
 
 impl Bdd {
-    /// Eliminates the given `variables` using existential quantification.
+    /// Calculates a `Bdd` with the given `variables` eliminated using existential quantification.
     pub fn exists(&self, variables: &[VariableId]) -> Bdd {
         self.binary_op_with_exists(self, boolean_operators::And, variables)
     }
 
-    /// Eliminates the given `variables` using universal quantification.
+    /// Calculates a `Bdd` with the given `variables` eliminated using universal quantification.
     pub fn for_all(&self, variables: &[VariableId]) -> Bdd {
         self.binary_op_with_for_all(self, boolean_operators::And, variables)
     }
 
-    /// Applies a binary operator to the BDDs and eliminates the given `variables` using existential
+    /// Applies the `operator` to the `Bdd`s and eliminates the given `variables` using existential
     /// quantification from the result.
     pub fn binary_op_with_exists<TBooleanOp: BooleanOperator>(
         &self,
@@ -40,7 +40,7 @@ impl Bdd {
         self.nested_apply(other, operator, boolean_operators::Or, variables)
     }
 
-    /// Applies a binary operator to the BDDs and eliminates the given `variables` using universal
+    /// Applies the `operator` to the `Bdd`s and eliminates the given `variables` using universal
     /// quantification from the result.
     pub fn binary_op_with_for_all<TBooleanOp: BooleanOperator>(
         &self,
@@ -51,7 +51,15 @@ impl Bdd {
         self.nested_apply(other, operator, boolean_operators::And, variables)
     }
 
-    pub(crate) fn nested_apply<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
+    /// Applies the `outer_op` to the `Bdd`s. On each node of the resulting `Bdd`,
+    /// if its variable is in `variables`, the node is replaced with the result
+    /// of applying `inner_op` to its low and high children.
+    ///
+    /// This function is useful for implementing combinations of applying binary
+    /// operators and quantification. For example, if `outer_op` is [`boolean_operators::And`]
+    /// and `inner_op` is [`boolean_operators::Or`], this combination corresponds to the
+    /// "relational product" operation.
+    pub fn nested_apply<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
         &self,
         other: &Bdd,
         outer_op: TOuterOp,

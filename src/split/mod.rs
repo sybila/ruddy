@@ -1,3 +1,6 @@
+//! Provides the structures for working with split binary decision diagrams, mainly
+//! [`Bdd`].
+
 pub(crate) mod apply;
 pub(crate) mod bdd;
 pub(crate) mod nested_apply;
