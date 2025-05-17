@@ -703,9 +703,9 @@ impl<A: VarIdPackedAny, B: VarIdPackedAny + Into<A>> AsVarId<A> for B {}
 pub struct VariableId(u64);
 
 impl VariableId {
-    pub const MAX_16_BIT_ID: u64 = VarIdPacked16::MAX_ID as u64;
-    pub const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
-    pub const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
+    pub(crate) const MAX_16_BIT_ID: u64 = VarIdPacked16::MAX_ID as u64;
+    pub(crate) const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
+    pub(crate) const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
 
     /// Create a new variable ID.
     ///
