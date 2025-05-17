@@ -1,6 +1,3 @@
-//! Defines the representation of variable identifiers. Includes: [`VarIdPackedAny`],
-//! [`VarIdPacked16`], [`VarIdPacked32`], and [`VarIdPacked64`].
-
 use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::{usize_is_at_least_64_bits, DeserializeIdError};
 use std::fmt::{Display, Formatter};
@@ -27,7 +24,7 @@ use std::{
 ///
 /// Note that the last two features are primarily used to speed up the `apply` algorithm and
 /// have no meaning outside of it.
-pub trait VarIdPackedAny:
+pub(crate) trait VarIdPackedAny:
     Copy
     + Clone
     + PartialEq
@@ -76,11 +73,6 @@ pub trait VarIdPackedAny:
     /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
     fn increment_parents(&mut self);
 
-    /// Return the mark of this variable ID.
-    ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
-    fn mark(self) -> Mark;
-
     /// Set the mark of the variable ID to `mark`.
     ///
     /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
@@ -89,11 +81,6 @@ pub trait VarIdPackedAny:
     /// Check if the variable ID is marked as `mark`. For [`VarIdPackedAny::undefined`],
     /// the function returns `true` regardless of `mark`.
     fn has_same_mark(self, mark: Mark) -> bool;
-
-    /// Flip the mark of this variable ID.
-    ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
-    fn flip_mark(&mut self);
 
     /// Returns the same variable ID, but with the internal flags reset to their default state.
     fn reset(self) -> Self;
@@ -127,20 +114,12 @@ pub trait VarIdPackedAny:
 /// '0' or '1') used in garbage collection. Instead of resetting marks, the
 /// "active" mark value flips between passes.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Mark(u8);
+pub(crate) struct Mark(u8);
 
 impl Mark {
     /// Returns the flipped mark value.
     pub(crate) fn flipped(self) -> Self {
         Self(!self.0)
-    }
-
-    fn zero() -> Self {
-        Self(0)
-    }
-
-    fn one() -> Self {
-        Self(u8::MAX)
     }
 }
 
@@ -165,7 +144,7 @@ impl Mark {
 /// `Ord` or `Hash`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct VarIdPacked16(u16);
+pub(crate) struct VarIdPacked16(u16);
 
 impl Debug for VarIdPacked16 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -269,7 +248,7 @@ impl VarIdPacked16 {
 /// `Ord` or `Hash`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct VarIdPacked32(u32);
+pub(crate) struct VarIdPacked32(u32);
 
 impl Debug for VarIdPacked32 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -378,7 +357,7 @@ impl VarIdPacked32 {
 /// `Ord` or `Hash`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct VarIdPacked64(u64);
+pub(crate) struct VarIdPacked64(u64);
 
 impl Debug for VarIdPacked64 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -551,20 +530,6 @@ macro_rules! impl_var_id_packed {
                 }
             }
 
-            fn mark(self) -> Mark {
-                debug_assert!(!self.is_undefined());
-                match (self.0 & Self::USE_CACHE_AND_MARK_MASK) {
-                    Self::USE_CACHE_AND_MARK_MASK => Mark::one(),
-                    0 => Mark::zero(),
-                    _ => unreachable!(),
-                }
-            }
-
-            fn flip_mark(&mut self) {
-                debug_assert!(!self.is_undefined());
-                self.0 ^= Self::USE_CACHE_AND_MARK_MASK;
-            }
-
             fn reset(self) -> Self {
                 debug_assert!(!self.is_undefined());
                 Self(self.0 & Self::RESET_MASK)
@@ -597,12 +562,6 @@ macro_rules! impl_var_id_packed {
             }
         }
     };
-}
-
-pub enum ParseVarIdPackedError {
-    Empty,
-    InvalidId,
-    InvalidDigit,
 }
 
 impl_var_id_packed!(VarIdPacked16, u16);
@@ -682,7 +641,7 @@ impl UncheckedFrom<VarIdPacked32> for VarIdPacked16 {
 /// An implementation of [`std::error::Error`] that is reported when checked conversion
 /// between instances of [`VarIdPackedAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct TryFromVarIdPackedError {
+pub(crate) struct TryFromVarIdPackedError {
     id: u64,
     from_width: usize,
     to_width: usize,
@@ -736,7 +695,7 @@ impl_try_from!(VarIdPacked64 => VarIdPacked32);
 ///
 /// This mainly allows us to write `AsVarId<T>` instead of needing to write
 /// `VarIdPackedAny + Into<T>` everywhere.
-pub trait AsVarId<TVarId: VarIdPackedAny>: VarIdPackedAny + Into<TVarId> {}
+pub(crate) trait AsVarId<TVarId: VarIdPackedAny>: VarIdPackedAny + Into<TVarId> {}
 impl<A: VarIdPackedAny, B: VarIdPackedAny + Into<A>> AsVarId<A> for B {}
 
 /// A type for identifying variables in BDDs.
@@ -908,7 +867,7 @@ pub(crate) fn variables_between<TVarId: VarIdPackedAny>(
 mod tests {
     use crate::conversion::{UncheckedFrom, UncheckedInto};
     use crate::variable_id::{
-        VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
+        Mark, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     };
 
     macro_rules! test_var_packed_undefined {
@@ -1332,7 +1291,7 @@ mod tests {
             #[test]
             fn $func() {
                 let mut id = $VarId::new(0);
-                let mark = id.mark();
+                let mark = Mark::default();
 
                 assert!(id.has_same_mark(mark));
                 let flipped = mark.flipped();
@@ -1342,13 +1301,6 @@ mod tests {
 
                 let flipped_twice = flipped.flipped().flipped();
                 assert!(id.has_same_mark(flipped_twice));
-
-                let mark = id.mark();
-                let flipped = mark.flipped();
-                id.flip_mark();
-                assert_eq!(id.mark(), flipped);
-                id.flip_mark();
-                assert_eq!(id.mark(), mark);
             }
         };
     }

@@ -3,7 +3,7 @@
 
 #![allow(clippy::type_complexity)]
 
-use std::{fmt::Display, vec};
+use std::vec;
 
 use crate::{
     bdd_node::BddNodeAny,
@@ -14,6 +14,8 @@ use crate::{
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::VarIdPackedAny,
 };
+
+use super::bdd::BddInner;
 
 /// Like [`apply_any_default_state`], but specifically for 16-bit BDDs.
 ///
@@ -27,17 +29,19 @@ pub(crate) fn apply_16_bit_input<TBooleanOp: BooleanOperator>(
 
     let state: ApplyState32<NodeId16, NodeId16, TaskCache16<NodeId32>> =
         match apply_any(left, right, operator, state) {
-            Ok(bdd) => return Bdd::Size16(bdd),
+            Ok(bdd) => return bdd.into(),
             Err(state) => state.into(),
         };
 
     let state: ApplyState64<NodeId16, NodeId16, TaskCache16<NodeId64>> =
         match apply_any(left, right, operator, state) {
-            Ok(bdd) => return Bdd::Size32(bdd),
+            Ok(bdd) => return bdd.into(),
             Err(state) => state.into(),
         };
 
-    Bdd::Size64(apply_any(left, right, operator, state).expect("64 bit operation failed"))
+    apply_any(left, right, operator, state)
+        .expect("64 bit operation failed")
+        .into()
 }
 
 /// Like [`apply_any_default_state`], but specifically for at most 32-bit wide BDDs.
@@ -57,11 +61,13 @@ pub(crate) fn apply_32_bit_input<
 
     let state: ApplyState64<NodeId<TBdd1>, NodeId<TBdd2>, TaskCache32<NodeId64>> =
         match apply_any(left, right, operator, state) {
-            Ok(bdd) => return Bdd::Size32(bdd),
+            Ok(bdd) => return bdd.into(),
             Err(state) => state.into(),
         };
 
-    Bdd::Size64(apply_any(left, right, operator, state).expect("64 bit operation failed"))
+    apply_any(left, right, operator, state)
+        .expect("64 bit operation failed")
+        .into()
 }
 
 /// Like [`apply_any_default_state`], but specifically for at most 64-bit wide BDDs.
@@ -76,7 +82,9 @@ pub(crate) fn apply_64_bit_input<
 ) -> Bdd {
     let state: ApplyState64<NodeId<TBdd1>, NodeId<TBdd2>, TaskCache64> =
         default_state_64(left, right);
-    Bdd::Size64(apply_any(left, right, operator, state).expect("64-bit operation failed"))
+    apply_any(left, right, operator, state)
+        .expect("64-bit operation failed")
+        .into()
 }
 
 /// Data used to store the state of the apply algorithm.
@@ -308,99 +316,124 @@ impl Bdd {
         other: &Bdd,
         operator: TBooleanOp,
     ) -> Bdd {
-        match (self, other) {
-            (Bdd::Size16(left), Bdd::Size16(right)) => apply_16_bit_input(left, right, operator),
-            (Bdd::Size16(left), Bdd::Size32(right)) => apply_32_bit_input(left, right, operator),
-            (Bdd::Size16(left), Bdd::Size64(right)) => apply_64_bit_input(left, right, operator),
-            (Bdd::Size32(left), Bdd::Size16(right)) => apply_32_bit_input(left, right, operator),
-            (Bdd::Size32(left), Bdd::Size32(right)) => apply_32_bit_input(left, right, operator),
-            (Bdd::Size32(left), Bdd::Size64(right)) => apply_64_bit_input(left, right, operator),
-            (Bdd::Size64(left), Bdd::Size16(right)) => apply_64_bit_input(left, right, operator),
-            (Bdd::Size64(left), Bdd::Size32(right)) => apply_64_bit_input(left, right, operator),
-            (Bdd::Size64(left), Bdd::Size64(right)) => apply_64_bit_input(left, right, operator),
+        match (&self.0, &other.0) {
+            (BddInner::Size16(left), BddInner::Size16(right)) => {
+                apply_16_bit_input(left, right, operator)
+            }
+            (BddInner::Size16(left), BddInner::Size32(right)) => {
+                apply_32_bit_input(left, right, operator)
+            }
+            (BddInner::Size16(left), BddInner::Size64(right)) => {
+                apply_64_bit_input(left, right, operator)
+            }
+            (BddInner::Size32(left), BddInner::Size16(right)) => {
+                apply_32_bit_input(left, right, operator)
+            }
+            (BddInner::Size32(left), BddInner::Size32(right)) => {
+                apply_32_bit_input(left, right, operator)
+            }
+            (BddInner::Size32(left), BddInner::Size64(right)) => {
+                apply_64_bit_input(left, right, operator)
+            }
+            (BddInner::Size64(left), BddInner::Size16(right)) => {
+                apply_64_bit_input(left, right, operator)
+            }
+            (BddInner::Size64(left), BddInner::Size32(right)) => {
+                apply_64_bit_input(left, right, operator)
+            }
+            (BddInner::Size64(left), BddInner::Size64(right)) => {
+                apply_64_bit_input(left, right, operator)
+            }
         }
         .shrink()
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-/// Error returned when the BDD operation overflows the target width.
-pub struct BddOverflowError {
-    width: usize,
-}
-
-impl Display for BddOverflowError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "BDD operation overflowed the target width of {} bits",
-            self.width
-        )
-    }
-}
-
-impl BddOverflowError {
-    pub fn new<T: BddAny>() -> BddOverflowError {
-        BddOverflowError {
-            width: std::mem::size_of::<NodeId<T>>() * 8,
-        }
-    }
-}
-
-// We use a macro here because it is hard to give a concrete `Cache` type here
-// (as that would require specifying the `THashSize` generic parameter).
-// That is doable by, for example, giving a `Width` associated type to `NodeIdAny`
-// but that seems like overkill for now.
-macro_rules! impl_bdd_operations {
-    ($Bdd:ident, $Cache:ident, $Table:ident, $state_constructor:ident) => {
-        impl $Bdd {
-            /// Calculate a Bdd representing the boolean formula `self && other` (conjunction).
-            pub fn and(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::And)
-            }
-
-            /// Calculate a Bdd representing the boolean formula `self || other` (disjunction).
-            pub fn or(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::Or)
-            }
-
-            /// Calculate a Bdd representing the boolean formula `self ^ other` (xor; non-equivalence).
-            pub fn xor(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::Xor)
-            }
-
-            /// Calculate a Bdd representing the boolean formula `self => other` (implication).
-            pub fn implies(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::Implies)
-            }
-
-            /// Calculate a Bdd representing the boolean formula `self <=> other` (equivalence).
-            pub fn iff(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
-                Self::apply(self, other, boolean_operators::Iff)
-            }
-
-            pub fn apply<TBooleanOp: BooleanOperator>(
-                left: &$Bdd,
-                right: &$Bdd,
-                operator: TBooleanOp,
-            ) -> Result<$Bdd, BddOverflowError> {
-                let state = $state_constructor(left, right);
-                apply_any(left, right, operator, state).map_err(|_| BddOverflowError::new::<$Bdd>())
-            }
-        }
-    };
-}
-
-impl_bdd_operations!(Bdd16, TaskCache16, NodeTable16, default_state_16);
-impl_bdd_operations!(Bdd32, TaskCache32, NodeTable32, default_state_32);
-impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64, default_state_64);
-
 #[cfg(test)]
 pub mod tests {
-    use crate::split::apply::BddOverflowError;
+    use std::fmt::Display;
+
+    use crate::boolean_operators::{self, BooleanOperator};
     use crate::split::bdd::{Bdd16, Bdd32, Bdd64, BddAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64};
     use crate::{split::bdd::Bdd, variable_id::VariableId};
+
+    use super::{apply_any, default_state_16, default_state_32, default_state_64};
+
+    type NodeId<B> = <B as BddAny>::Id;
+
+    #[derive(PartialEq, Eq, Clone, Debug)]
+    /// Error returned when the BDD operation overflows the target width.
+    pub(crate) struct BddOverflowError {
+        width: usize,
+    }
+
+    impl Display for BddOverflowError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "BDD operation overflowed the target width of {} bits",
+                self.width
+            )
+        }
+    }
+
+    impl BddOverflowError {
+        pub fn new<T: BddAny>() -> BddOverflowError {
+            BddOverflowError {
+                width: std::mem::size_of::<NodeId<T>>() * 8,
+            }
+        }
+    }
+
+    // We use a macro here because it is hard to give a concrete `Cache` type here
+    // (as that would require specifying the `THashSize` generic parameter).
+    // That is doable by, for example, giving a `Width` associated type to `NodeIdAny`
+    // but that seems like overkill for now.
+    macro_rules! impl_bdd_operations {
+        ($Bdd:ident, $Cache:ident, $Table:ident, $state_constructor:ident) => {
+            impl $Bdd {
+                /// Calculate a Bdd representing the boolean formula `self && other` (conjunction).
+                pub fn and(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                    Self::apply(self, other, boolean_operators::And)
+                }
+
+                /// Calculate a Bdd representing the boolean formula `self || other` (disjunction).
+                pub fn or(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                    Self::apply(self, other, boolean_operators::Or)
+                }
+
+                /// Calculate a Bdd representing the boolean formula `self ^ other` (xor; non-equivalence).
+                pub fn xor(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                    Self::apply(self, other, boolean_operators::Xor)
+                }
+
+                /// Calculate a Bdd representing the boolean formula `self => other` (implication).
+                pub fn implies(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                    Self::apply(self, other, boolean_operators::Implies)
+                }
+
+                /// Calculate a Bdd representing the boolean formula `self <=> other` (equivalence).
+                pub fn iff(&self, other: &$Bdd) -> Result<$Bdd, BddOverflowError> {
+                    Self::apply(self, other, boolean_operators::Iff)
+                }
+
+                pub fn apply<TBooleanOp: BooleanOperator>(
+                    left: &$Bdd,
+                    right: &$Bdd,
+                    operator: TBooleanOp,
+                ) -> Result<$Bdd, BddOverflowError> {
+                    let state = $state_constructor(left, right);
+                    apply_any(left, right, operator, state)
+                        .map_err(|_| BddOverflowError::new::<$Bdd>())
+                }
+            }
+        };
+    }
+
+    impl_bdd_operations!(Bdd16, TaskCache16, NodeTable16, default_state_16);
+    impl_bdd_operations!(Bdd32, TaskCache32, NodeTable32, default_state_32);
+    impl_bdd_operations!(Bdd64, TaskCache64, NodeTable64, default_state_64);
 
     #[test]
     pub fn basic_apply_invariants() {

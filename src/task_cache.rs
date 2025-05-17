@@ -1,6 +1,3 @@
-//! Defines the representation of task caches (used in `apply` algorithms). Includes: [`TaskCacheAny`]
-//! [`TaskCache`], [`TaskCache16`], [`TaskCache32`], and [`TaskCache64`].
-
 use std::fmt::Debug;
 
 use crate::{
@@ -19,7 +16,7 @@ use crate::{
 /// 16-bit identifiers, but the result is a 32-bit identifier. Importantly, the hash function
 /// only depends on the bit-width of the keys, meaning that increasing the bit-width of
 /// [`Self::ResultId`] can be done without recomputing the hashes.
-pub trait TaskCacheAny: Default {
+pub(crate) trait TaskCacheAny: Default {
     type ResultId: NodeIdAny;
 
     /// Retrieve the result value that is stored for the given `task`, or [`NodeIdAny::undefined`]
@@ -46,7 +43,7 @@ pub trait TaskCacheAny: Default {
 
 /// A trait for types that can be used as a hash (based on knuth multiplicative hashing)
 /// in the `TaskCache`. The hash must be able to be computed from a pair of [`NodeIdAny`] instances.
-pub trait KnuthHash: Clone + Copy + PartialEq + Eq + Debug {
+pub(crate) trait KnuthHash: Clone + Copy + PartialEq + Eq + Debug {
     const PRIME: Self;
     const PRIME_INVERSE: Self;
 
@@ -160,7 +157,7 @@ fn high_u32(val: u64) -> u32 {
 /// Used to convert the hash to a wider type.
 ///
 /// Ensures that for two IDs `x, y`, `Self::knuth_hash(x,y).extend() == Self::Wider::knuth_hash(x,y)`.
-pub trait ExtendKnuthHash: KnuthHash {
+trait ExtendKnuthHash: KnuthHash {
     type Wider: KnuthHash;
 
     /// Extend the hash to a wider type, such that for two IDs `x, y`,
@@ -209,7 +206,7 @@ impl ExtendKnuthHash for u64 {
 /// `(undefined, undefined)` for the same purpose, but this is slightly less efficient because
 /// initializing memory to zero often has special system-level optimizations.
 #[derive(Debug)]
-pub struct TaskCache<THashSize, TResultId> {
+pub(crate) struct TaskCache<THashSize, TResultId> {
     table: Vec<(THashSize, TResultId)>,
     log_size: u32,
     collisions: usize,
@@ -234,6 +231,7 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCache<THashSize, TResultId>
     /// Create a new instance of [`TaskCache`] with the reserved capacity of at
     /// least `2**max(log_capacity, log_size)`, but only initialize the first `2**log_size`
     /// entries. The `log_size` must be at least `1` (otherwise it will be set to `1`).
+    #[allow(dead_code)]
     pub fn with_log_size_and_log_capacity(log_size: u32, log_capacity: u32) -> Self {
         let log_size = log_size.max(1);
         let capacity = 1 << log_capacity.max(log_size);
@@ -263,6 +261,7 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCache<THashSize, TResultId>
 
     /// Clears all stored values in the cache.
     /// This method keeps the allocated memory for reuse.
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.log_size = 1;
         self.collisions = 0;
@@ -372,9 +371,9 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCacheAny for TaskCache<THas
     }
 }
 
-pub type TaskCache16<TResultId = NodeId16> = TaskCache<u32, TResultId>;
-pub type TaskCache32<TResultId = NodeId32> = TaskCache<u64, TResultId>;
-pub type TaskCache64<TResultId = NodeId64> = TaskCache<u128, TResultId>;
+pub(crate) type TaskCache16<TResultId = NodeId16> = TaskCache<u32, TResultId>;
+pub(crate) type TaskCache32<TResultId = NodeId32> = TaskCache<u64, TResultId>;
+pub(crate) type TaskCache64<TResultId = NodeId64> = TaskCache<u128, TResultId>;
 
 macro_rules! impl_from_task_cache_no_extension {
     ($from_id:ident, $to_id:ident) => {

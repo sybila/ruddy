@@ -1,6 +1,6 @@
 mod apply;
-pub mod bdd;
-pub mod manager;
+mod bdd;
+pub(crate) mod manager;
 mod nested_apply;
 
 pub use crate::iterators::shared::SatisfyingPaths;

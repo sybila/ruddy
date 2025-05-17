@@ -764,7 +764,7 @@ pub mod tests {
     #[test]
     fn standalone_import() {
         let bdd_a = crate::split::apply::tests::ripple_carry_adder(24).unwrap();
-        let bdd_a = crate::split::bdd::Bdd::Size16(bdd_a);
+        let bdd_a = bdd_a.into();
 
         let mut manager = BddManager::no_gc();
         let imported = manager.import_standalone(&bdd_a);

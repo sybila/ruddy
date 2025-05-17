@@ -1,6 +1,3 @@
-//! Defines the representation of node tables (used to represent BDDs). Includes: [`NodeTableAny`],
-//! [`NodeTableImpl`], [`NodeTable16`], [`NodeTable32`], and [`NodeTable64`].
-//!
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
 use crate::variable_id::{variables_between, Mark, VariableId};
@@ -21,7 +18,7 @@ use std::{fmt, io};
 
 /// The `NodeTableAny` is a data structure that enforces uniqueness of BDD nodes created
 /// during the BDD construction process.
-pub trait NodeTableAny: Default {
+pub(crate) trait NodeTableAny: Default {
     type Id: NodeIdAny;
     type VarId: VarIdPackedAny;
     type Node: BddNodeAny<Id = Self::Id, VarId = Self::VarId>;
@@ -100,7 +97,7 @@ pub trait NodeTableAny: Default {
 ///
 /// It carries the bit-width of the current node ID type for which the error was raised.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct NodeTableFullError {
+pub(crate) struct NodeTableFullError {
     width: usize,
 }
 
@@ -116,7 +113,7 @@ impl std::error::Error for NodeTableFullError {}
 /// referencing the `parent` tree that is rooted in this entry, plus two `next_parent` pointers
 /// that define the parent tree which contains the entry itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeEntry<
+pub(crate) struct NodeEntry<
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
@@ -253,7 +250,7 @@ fn top_bit_is_one(hash: u64) -> bool {
 /// The `NodeTableImpl` also supports deletion of nodes. When a node is deleted,
 /// it is not actually removed from the table, but only marked as deleted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeTableImpl<
+pub(crate) struct NodeTableImpl<
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
@@ -547,7 +544,7 @@ where
     /// `variable != VarId::undefined`.
     // This method is currently not used, but could be useful in
     // the future, so let's not remove it.
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub(crate) fn ensure_literal(
         &mut self,
         variable: TVarId,
@@ -1188,9 +1185,9 @@ impl<
     }
 }
 
-pub type NodeTable16 = NodeTableImpl<NodeId16, VarIdPacked16, BddNode16>;
-pub type NodeTable32 = NodeTableImpl<NodeId32, VarIdPacked32, BddNode32>;
-pub type NodeTable64 = NodeTableImpl<NodeId64, VarIdPacked64, BddNode64>;
+pub(crate) type NodeTable16 = NodeTableImpl<NodeId16, VarIdPacked16, BddNode16>;
+pub(crate) type NodeTable32 = NodeTableImpl<NodeId32, VarIdPacked32, BddNode32>;
+pub(crate) type NodeTable64 = NodeTableImpl<NodeId64, VarIdPacked64, BddNode64>;
 
 macro_rules! impl_from_node_table {
     ($from:ident, $to:ident) => {
@@ -1263,7 +1260,7 @@ impl NodeTable64 {
 }
 
 #[derive(Debug)]
-pub enum NodeTable {
+pub(crate) enum NodeTable {
     Size16(NodeTable16),
     Size32(NodeTable32),
     Size64(NodeTable64),

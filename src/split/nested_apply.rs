@@ -16,6 +16,8 @@ use crate::{
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId},
 };
 
+use super::bdd::BddInner;
+
 impl Bdd {
     /// Eliminates the given `variables` using existential quantification.
     pub fn exists(&self, variables: &[VariableId]) -> Bdd {
@@ -56,32 +58,32 @@ impl Bdd {
         inner_op: TInnerOp,
         variables: &[VariableId],
     ) -> Bdd {
-        match (self, other) {
-            (Bdd::Size16(left), Bdd::Size16(right)) => {
+        match (&self.0, &other.0) {
+            (BddInner::Size16(left), BddInner::Size16(right)) => {
                 nested_apply_16_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size16(left), Bdd::Size32(right)) => {
+            (BddInner::Size16(left), BddInner::Size32(right)) => {
                 nested_apply_32_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size16(left), Bdd::Size64(right)) => {
+            (BddInner::Size16(left), BddInner::Size64(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size32(left), Bdd::Size16(right)) => {
+            (BddInner::Size32(left), BddInner::Size16(right)) => {
                 nested_apply_32_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size32(left), Bdd::Size32(right)) => {
+            (BddInner::Size32(left), BddInner::Size32(right)) => {
                 nested_apply_32_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size32(left), Bdd::Size64(right)) => {
+            (BddInner::Size32(left), BddInner::Size64(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size64(left), Bdd::Size16(right)) => {
+            (BddInner::Size64(left), BddInner::Size16(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size64(left), Bdd::Size32(right)) => {
+            (BddInner::Size64(left), BddInner::Size32(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size64(left), Bdd::Size64(right)) => {
+            (BddInner::Size64(left), BddInner::Size64(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
         }
@@ -497,7 +499,7 @@ fn nested_apply_16_bit_input<TOuterOp: BooleanOperator, TInnerOp: BooleanOperato
     let state = default_state_16(left, right);
     let result_16 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     let state = match result_16 {
-        Ok(bdd) => return Bdd::Size16(bdd),
+        Ok(bdd) => return bdd.into(),
         Err(state) => state,
     };
 
@@ -505,7 +507,7 @@ fn nested_apply_16_bit_input<TOuterOp: BooleanOperator, TInnerOp: BooleanOperato
     let state: NestedApplyState32<NodeId16, NodeId16, TaskCache16<NodeId32>> = state.into();
     let result_32 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     let state = match result_32 {
-        Ok(bdd) => return Bdd::Size32(bdd),
+        Ok(bdd) => return bdd.into(),
         Err(state) => state,
     };
 
@@ -513,7 +515,7 @@ fn nested_apply_16_bit_input<TOuterOp: BooleanOperator, TInnerOp: BooleanOperato
     let state: NestedApplyState64<NodeId16, NodeId16, TaskCache16<NodeId64>> = state.into();
     let result_64 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     match result_64 {
-        Ok(bdd) => Bdd::Size64(bdd),
+        Ok(bdd) => bdd.into(),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
@@ -540,7 +542,7 @@ fn nested_apply_32_bit_input<
     let state = default_state_32(left, right);
     let result_32 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     let state = match result_32 {
-        Ok(bdd) => return Bdd::Size32(bdd),
+        Ok(bdd) => return bdd.into(),
         Err(state) => state,
     };
 
@@ -549,7 +551,7 @@ fn nested_apply_32_bit_input<
         state.into();
     let result_64 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     match result_64 {
-        Ok(bdd) => Bdd::Size64(bdd),
+        Ok(bdd) => bdd.into(),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
@@ -574,7 +576,7 @@ fn nested_apply_64_bit_input<
     let state = default_state_64(left, right);
     let result_64 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     match result_64 {
-        Ok(bdd) => Bdd::Size64(bdd),
+        Ok(bdd) => bdd.into(),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
@@ -715,7 +717,7 @@ mod tests {
         let low = bdd.get(root).unwrap().low();
         let high = bdd.get(root).unwrap().high();
 
-        for node in bdd.into_nodes().iter().skip(2) {
+        for node in bdd.nodes.iter().skip(2) {
             table
                 .ensure_node(node.variable(), node.low(), node.high())
                 .unwrap();

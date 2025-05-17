@@ -1,7 +1,3 @@
-//! Defines the representation of node identifiers. Includes: [`NodeIdAny`], [`NodeId16`],
-//! [`NodeId32`] and [`NodeId64`].
-
-use crate::boolean_operators::TriBool;
 use crate::conversion::{UncheckedFrom, UncheckedInto};
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
@@ -58,30 +54,6 @@ pub trait NodeIdAny:
         }
     }
 
-    /// Convert the ID into a [`TriBool`], where the terminal node 0 is mapped to `False`,
-    /// the terminal node 1 is mapped to `True`, and all other nodes are mapped to `Indeterminate`.
-    fn to_three_valued(self) -> TriBool {
-        // Decompiles to branch-less, nice code
-        // 0 -> -1, 1 -> 1, _ -> 0
-        match -i8::from(self.is_zero()) + i8::from(self.is_one()) {
-            1 => TriBool::True,
-            0 => TriBool::Indeterminate,
-            -1 => TriBool::False,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Convert a [`TriBool`] to a node ID, if possible. The value
-    /// `True` is mapped to the terminal node 1, `False` is mapped to the terminal node 0, and
-    /// `Indeterminate` is mapped to the ID with the undefined value.
-    fn from_three_valued(value: TriBool) -> Self {
-        match value {
-            TriBool::True => Self::one(),
-            TriBool::False => Self::zero(),
-            TriBool::Indeterminate => Self::undefined(),
-        }
-    }
-
     /// Convert the ID into a value that can be used for indexing. This can truncate IDs wider
     /// than the index type, but this should never happen on 64-bit systems.
     ///
@@ -97,17 +69,17 @@ pub trait NodeIdAny:
 /// Implementation of [`NodeIdAny`] backed by `u16`. The maximal ID is `2**16 - 1`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NodeId16(u16);
+pub(crate) struct NodeId16(u16);
 
 /// Implementation of [`NodeIdAny`] backed by `u32`. The maximal ID is `2**32 - 1`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NodeId32(u32);
+pub(crate) struct NodeId32(u32);
 
 /// Implementation of [`NodeIdAny`] backed by `u64`. The maximal ID is `2**64 - 1`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NodeId64(u64);
+pub(crate) struct NodeId64(u64);
 
 impl NodeId16 {
     /// The largest ID representable by [`NodeId16`].
@@ -387,7 +359,7 @@ impl UncheckedFrom<NodeId64> for NodeId32 {
 /// An implementation of [`std::error::Error`] that is reported when conversion
 /// between instances of [`NodeIdAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct TryFromNodeIdError {
+pub(crate) struct TryFromNodeIdError {
     id: u64,
     from_width: usize,
     to_width: usize,
@@ -436,7 +408,7 @@ impl_try_from!(NodeId32 => NodeId16);
 /// An implementation of [`std::error::Error`] that is reported when an instance of
 /// [`NodeIdAny`] cannot be created from a value of type `usize`.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct TryFromUsizeError {
+pub(crate) struct TryFromUsizeError {
     id: usize,
     to_width: usize,
 }
@@ -498,7 +470,7 @@ impl_unchecked_from_usize!(NodeId64, u64);
 ///
 /// This mainly allows us to write `AsNodeId<T>` instead of needing to write
 /// `NodeIdAny + Into<T>` everywhere.
-pub trait AsNodeId<TNodeId: NodeIdAny>: NodeIdAny + Into<TNodeId> {}
+pub(crate) trait AsNodeId<TNodeId: NodeIdAny>: NodeIdAny + Into<TNodeId> {}
 impl<A: NodeIdAny, B: NodeIdAny + Into<A>> AsNodeId<A> for B {}
 
 /// An error which can be returned when parsing a node identifier.
@@ -692,7 +664,6 @@ impl UncheckedFrom<NodeId64> for NodeId {
 
 #[cfg(test)]
 mod tests {
-    use crate::boolean_operators::TriBool;
     use crate::conversion::{UncheckedFrom, UncheckedInto};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
@@ -719,14 +690,6 @@ mod tests {
 
         assert_ne!(Node::undefined(), Node::one());
         assert_ne!(Node::undefined(), Node::zero());
-
-        assert!(Node::from_three_valued(TriBool::True).is_one());
-        assert!(Node::from_three_valued(TriBool::False).is_zero());
-        assert!(Node::from_three_valued(TriBool::Indeterminate).is_undefined());
-
-        assert_eq!(Node::undefined().to_three_valued(), TriBool::Indeterminate);
-        assert_eq!(Node::one().to_three_valued(), TriBool::True);
-        assert_eq!(Node::zero().to_three_valued(), TriBool::False);
     }
 
     fn node_invalid_as_usize<Node: NodeIdAny>() {

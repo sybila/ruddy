@@ -118,7 +118,7 @@ pub(crate) mod split {
     use crate::{
         node_id::NodeIdAny,
         split::{
-            bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl},
+            bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl, BddInner},
             Bdd,
         },
         variable_id::{VarIdPackedAny, VariableId},
@@ -230,14 +230,14 @@ pub(crate) mod split {
         ///
         /// Panics if the given variable is smaller than any variable in the BDD.
         pub fn satisfying_paths(&self, largest_variable: Option<VariableId>) -> SatisfyingPaths {
-            match self {
-                Bdd::Size16(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size16(
+            match &self.0 {
+                BddInner::Size16(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size16(
                     bdd.satisfying_paths(largest_variable),
                 )),
-                Bdd::Size32(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size32(
+                BddInner::Size32(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size32(
                     bdd.satisfying_paths(largest_variable),
                 )),
-                Bdd::Size64(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size64(
+                BddInner::Size64(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size64(
                     bdd.satisfying_paths(largest_variable),
                 )),
             }
@@ -254,14 +254,14 @@ pub(crate) mod split {
             &self,
             largest_variable: Option<VariableId>,
         ) -> SatisfyingValuations {
-            match self {
-                Bdd::Size16(bdd) => SatisfyingValuations(SatisfyingValuationsInner::Size16(
+            match &self.0 {
+                BddInner::Size16(bdd) => SatisfyingValuations(SatisfyingValuationsInner::Size16(
                     bdd.satisfying_valuations(largest_variable),
                 )),
-                Bdd::Size32(bdd) => SatisfyingValuations(SatisfyingValuationsInner::Size32(
+                BddInner::Size32(bdd) => SatisfyingValuations(SatisfyingValuationsInner::Size32(
                     bdd.satisfying_valuations(largest_variable),
                 )),
-                Bdd::Size64(bdd) => SatisfyingValuations(SatisfyingValuationsInner::Size64(
+                BddInner::Size64(bdd) => SatisfyingValuations(SatisfyingValuationsInner::Size64(
                     bdd.satisfying_valuations(largest_variable),
                 )),
             }

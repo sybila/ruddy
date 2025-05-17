@@ -1,6 +1,3 @@
-//! Defines the representation of (standalone) binary decision diagrams. Includes: [`BddAny`]
-//! and [`Bdd32`].
-
 use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, BddNodeImpl};
 use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId, NodeId16, NodeId64};
@@ -31,7 +28,7 @@ use std::io::{self, Write};
 /// situations where mutability makes sense (for example to allow chaining of multiple smaller
 /// structural changes without unnecessary copying), but this is mostly an exception to the rule.
 /// In particular, no method in the actual trait allows mutability.
-pub trait BddAny: Debug + Clone {
+pub(crate) trait BddAny: Debug + Clone {
     /// The type of node ID used by [`BddAny::Node`].
     type Id: NodeIdAny;
     /// The type of variable ID used by [`BddAny::Node`].
@@ -65,6 +62,7 @@ pub trait BddAny: Debug + Clone {
     /// ID of the BDD root node.
     fn root(&self) -> Self::Id;
     /// Get a (checked) reference to a node, or `None` if such node does not exist.
+    #[allow(dead_code)]
     fn get(&self, id: Self::Id) -> Option<&Self::Node>;
 
     /// An unchecked variant of [`BddAny::get`].
@@ -79,7 +77,7 @@ pub trait BddAny: Debug + Clone {
 /// the requirements of the [`BddAny`] trait, this struct also expects the BDD to
 /// be ordered and reduced.
 #[derive(Debug, Clone)]
-pub struct BddImpl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> {
+pub(crate) struct BddImpl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> {
     pub(crate) root: TNodeId,
     pub(crate) nodes: Vec<BddNodeImpl<TNodeId, TVarId>>,
 }
@@ -119,11 +117,6 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
     /// created using the same `apply` algorithm).
     pub fn structural_eq(&self, other: &Self) -> bool {
         self.root == other.root && self.nodes == other.nodes
-    }
-
-    /// Convert the BDD into a raw list of nodes.
-    pub fn into_nodes(self) -> Vec<BddNodeImpl<TNodeId, TVarId>> {
-        self.nodes
     }
 
     /// Get the largest [`VariableId`] in the BDD, assuming it does not represent
@@ -345,19 +338,22 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddAny for BddImpl<TNodeId, TVa
 
 /// An implementation of [`BddAny`] using [`BddNode16`]. In addition to the requirements of the
 /// [`BddAny`] trait, this type also expects the BDD to be ordered and reduced.
-pub type Bdd16 = BddImpl<NodeId16, VarIdPacked16>;
+pub(crate) type Bdd16 = BddImpl<NodeId16, VarIdPacked16>;
 
 /// An implementation of [`BddAny`] using [`BddNode32`]. In addition to the requirements of the
 /// [`BddAny`] trait, this type also expects the BDD to be ordered and reduced.
-pub type Bdd32 = BddImpl<NodeId32, VarIdPacked32>;
+pub(crate) type Bdd32 = BddImpl<NodeId32, VarIdPacked32>;
 
 /// An implementation of [`BddAny`] using [`BddNode64`]. In addition to the requirements of the
 /// [`BddAny`] trait, this type also expects the BDD to be ordered and reduced.
-pub type Bdd64 = BddImpl<NodeId64, VarIdPacked64>;
+pub(crate) type Bdd64 = BddImpl<NodeId64, VarIdPacked64>;
 
 /// A trait indicating that the node and variable IDs of the BDD can be upcast
 /// to the node and variable IDs of the BDD specified by the generic type.
-pub trait AsBdd<TBdd: BddAny>: BddAny<Id: AsNodeId<TBdd::Id>, VarId: AsVarId<TBdd::VarId>> {}
+pub(crate) trait AsBdd<TBdd: BddAny>:
+    BddAny<Id: AsNodeId<TBdd::Id>, VarId: AsVarId<TBdd::VarId>>
+{
+}
 
 impl AsBdd<Bdd16> for Bdd16 {}
 impl AsBdd<Bdd32> for Bdd16 {}
@@ -429,25 +425,44 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
     }
 }
 
-/// A public facade of the existing [`BddAny`] types.
-///
-/// TODO: Write documentation for this type.
 #[derive(Clone, Debug)]
-pub enum Bdd {
+pub(crate) enum BddInner {
     Size16(Bdd16),
     Size32(Bdd32),
     Size64(Bdd64),
 }
 
+/// TODO: Write documentation for this type.
+#[derive(Clone, Debug)]
+pub struct Bdd(pub(crate) BddInner);
+
+impl From<Bdd16> for Bdd {
+    fn from(bdd: Bdd16) -> Self {
+        Self(BddInner::Size16(bdd))
+    }
+}
+
+impl From<Bdd32> for Bdd {
+    fn from(bdd: Bdd32) -> Self {
+        Self(BddInner::Size32(bdd))
+    }
+}
+
+impl From<Bdd64> for Bdd {
+    fn from(bdd: Bdd64) -> Self {
+        Self(BddInner::Size64(bdd))
+    }
+}
+
 impl Bdd {
     /// Create a new BDD representing the constant boolean function `true`.
     pub fn new_true() -> Self {
-        Self::Size16(Bdd16::new_true())
+        Bdd16::new_true().into()
     }
 
     /// Create a new BDD representing the constant boolean function `false`.
     pub fn new_false() -> Self {
-        Self::Size16(Bdd16::new_false())
+        Bdd16::new_false().into()
     }
 
     /// Create a new BDD representing the boolean function `var=value`.
@@ -460,11 +475,11 @@ impl Bdd {
     /// maximum values that can be used for each width.
     pub fn new_literal(var: VariableId, value: bool) -> Self {
         if var.fits_in_packed16() {
-            Self::Size16(Bdd16::new_literal(var.unchecked_into(), value))
+            Bdd16::new_literal(var.unchecked_into(), value).into()
         } else if var.fits_in_packed32() {
-            Self::Size32(Bdd32::new_literal(var.unchecked_into(), value))
+            Bdd32::new_literal(var.unchecked_into(), value).into()
         } else if var.fits_in_packed64() {
-            Self::Size64(Bdd64::new_literal(var.unchecked_into(), value))
+            Bdd64::new_literal(var.unchecked_into(), value).into()
         } else {
             unreachable!("Maximum representable variable identifier exceeded.");
         }
@@ -472,37 +487,37 @@ impl Bdd {
 
     /// Returns the number of nodes in the BDD, including the terminal nodes.
     pub fn node_count(&self) -> usize {
-        match self {
-            Bdd::Size16(bdd) => bdd.node_count(),
-            Bdd::Size32(bdd) => bdd.node_count(),
-            Bdd::Size64(bdd) => bdd.node_count(),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.node_count(),
+            BddInner::Size32(bdd) => bdd.node_count(),
+            BddInner::Size64(bdd) => bdd.node_count(),
         }
     }
 
     /// Calculate a [`Bdd`] representing the boolean formula `!self` (negation).
     pub fn not(&self) -> Self {
-        match self {
-            Bdd::Size16(bdd) => Bdd::Size16(bdd.not()),
-            Bdd::Size32(bdd) => Bdd::Size32(bdd.not()),
-            Bdd::Size64(bdd) => Bdd::Size64(bdd.not()),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.not().into(),
+            BddInner::Size32(bdd) => bdd.not().into(),
+            BddInner::Size64(bdd) => bdd.not().into(),
         }
     }
 
     /// Returns `true` if the BDD represents the constant boolean function `true`.
     pub fn is_true(&self) -> bool {
-        match self {
-            Bdd::Size16(bdd) => bdd.is_true(),
-            Bdd::Size32(bdd) => bdd.is_true(),
-            Bdd::Size64(bdd) => bdd.is_true(),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.is_true(),
+            BddInner::Size32(bdd) => bdd.is_true(),
+            BddInner::Size64(bdd) => bdd.is_true(),
         }
     }
 
     /// Returns `true` if the BDD represents the constant boolean function `false`.
     pub fn is_false(&self) -> bool {
-        match self {
-            Bdd::Size16(bdd) => bdd.is_false(),
-            Bdd::Size32(bdd) => bdd.is_false(),
-            Bdd::Size64(bdd) => bdd.is_false(),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.is_false(),
+            BddInner::Size32(bdd) => bdd.is_false(),
+            BddInner::Size64(bdd) => bdd.is_false(),
         }
     }
 
@@ -514,8 +529,8 @@ impl Bdd {
     ///   shrunk to a 32-bit BDD.
     /// - Otherwise, the BDD will remain the same bit-width.
     pub(crate) fn shrink(self) -> Self {
-        match self {
-            Bdd::Size64(bdd) if bdd.node_count() < 1 << 32 => {
+        match self.0 {
+            BddInner::Size64(bdd) if bdd.node_count() < 1 << 32 => {
                 let (mut vars_fit_in_16, mut vars_fit_in_32) = (true, true);
                 for node in bdd.nodes.iter() {
                     vars_fit_in_16 &= node.variable().fits_in_packed16();
@@ -527,22 +542,25 @@ impl Bdd {
                 }
 
                 if (bdd.node_count() < 1 << 16) && vars_fit_in_16 {
-                    return Bdd::Size16(bdd.unchecked_into());
+                    let bdd16: Bdd16 = bdd.unchecked_into();
+                    return bdd16.into();
                 }
 
                 if vars_fit_in_32 {
-                    return Bdd::Size32(bdd.unchecked_into());
+                    let bdd32: Bdd32 = bdd.unchecked_into();
+                    return bdd32.into();
                 }
-                Bdd::Size64(bdd)
+                bdd.into()
             }
-            Bdd::Size32(bdd)
+            BddInner::Size32(bdd)
                 if (bdd.node_count() < 1 << 16)
                     && bdd
                         .nodes
                         .iter()
                         .all(|node| node.variable().fits_in_packed16()) =>
             {
-                Bdd::Size16(bdd.unchecked_into())
+                let bdd16: Bdd16 = bdd.unchecked_into();
+                bdd16.into()
             }
             _ => self,
         }
@@ -555,28 +573,28 @@ impl Bdd {
     /// unless their nodes are also ordered the same way (which they are, assuming the BDDs were
     /// created using the same `apply` algorithm).
     pub fn structural_eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Bdd::Size16(a), Bdd::Size16(b)) => a.structural_eq(b),
-            (Bdd::Size32(a), Bdd::Size32(b)) => a.structural_eq(b),
-            (Bdd::Size64(a), Bdd::Size64(b)) => a.structural_eq(b),
+        match (&self.0, &other.0) {
+            (BddInner::Size16(a), BddInner::Size16(b)) => a.structural_eq(b),
+            (BddInner::Size32(a), BddInner::Size32(b)) => a.structural_eq(b),
+            (BddInner::Size64(a), BddInner::Size64(b)) => a.structural_eq(b),
             _ => false,
         }
     }
 
     pub fn root(&self) -> NodeId {
-        match self {
-            Bdd::Size16(bdd) => bdd.root().unchecked_into(),
-            Bdd::Size32(bdd) => bdd.root().unchecked_into(),
-            Bdd::Size64(bdd) => bdd.root().unchecked_into(),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.root().unchecked_into(),
+            BddInner::Size32(bdd) => bdd.root().unchecked_into(),
+            BddInner::Size64(bdd) => bdd.root().unchecked_into(),
         }
     }
 
     pub fn get_variable(&self, node: NodeId) -> VariableId {
         let index: usize = node.unchecked_into();
-        match self {
-            Bdd::Size16(bdd) => bdd.nodes[index].variable.unpack().into(),
-            Bdd::Size32(bdd) => bdd.nodes[index].variable.unpack().into(),
-            Bdd::Size64(bdd) => VariableId::new_long(bdd.nodes[index].variable.unpack())
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.nodes[index].variable.unpack().into(),
+            BddInner::Size32(bdd) => bdd.nodes[index].variable.unpack().into(),
+            BddInner::Size64(bdd) => VariableId::new_long(bdd.nodes[index].variable.unpack())
                 .unwrap_or_else(|| {
                     unreachable!("Variable stored in BDD table does not fit into standard range.")
                 }),
@@ -586,16 +604,16 @@ impl Bdd {
     pub fn get_links(&self, node: NodeId) -> (NodeId, NodeId) {
         // The unchecked casts are necessary to ensure we are not using any undefined values.
         let index: usize = node.unchecked_into();
-        match self {
-            Bdd::Size16(bdd) => {
+        match &self.0 {
+            BddInner::Size16(bdd) => {
                 let BddNode16 { low, high, .. } = bdd.nodes[index];
                 (low.unchecked_into(), high.unchecked_into())
             }
-            Bdd::Size32(bdd) => {
+            BddInner::Size32(bdd) => {
                 let BddNode32 { low, high, .. } = bdd.nodes[index];
                 (low.unchecked_into(), high.unchecked_into())
             }
-            Bdd::Size64(bdd) => {
+            BddInner::Size64(bdd) => {
                 let BddNode64 { low, high, .. } = bdd.nodes[index];
                 (low.unchecked_into(), high.unchecked_into())
             }
@@ -610,28 +628,28 @@ impl Bdd {
     /// variable in the BDD. Otherwise, the function may give unexpected results
     /// in release mode or panic in debug mode.
     pub fn count_satisfying_valuations(&self, largest_variable: Option<VariableId>) -> f64 {
-        match self {
-            Bdd::Size16(bdd) => bdd.count_satisfying_valuations(largest_variable),
-            Bdd::Size32(bdd) => bdd.count_satisfying_valuations(largest_variable),
-            Bdd::Size64(bdd) => bdd.count_satisfying_valuations(largest_variable),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.count_satisfying_valuations(largest_variable),
+            BddInner::Size32(bdd) => bdd.count_satisfying_valuations(largest_variable),
+            BddInner::Size64(bdd) => bdd.count_satisfying_valuations(largest_variable),
         }
     }
 
     /// Approximately counts the number of satisfying paths.
     pub fn count_satisfying_paths(&self) -> f64 {
-        match self {
-            Bdd::Size16(bdd) => bdd.count_satisfying_paths(),
-            Bdd::Size32(bdd) => bdd.count_satisfying_paths(),
-            Bdd::Size64(bdd) => bdd.count_satisfying_paths(),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.count_satisfying_paths(),
+            BddInner::Size32(bdd) => bdd.count_satisfying_paths(),
+            BddInner::Size64(bdd) => bdd.count_satisfying_paths(),
         }
     }
 
     /// Write this BDD as a DOT graph to the given `output` stream.
     pub fn write_bdd_as_dot(&self, output: &mut dyn Write) -> io::Result<()> {
-        match self {
-            Bdd::Size16(bdd) => bdd.write_as_dot(output),
-            Bdd::Size32(bdd) => bdd.write_as_dot(output),
-            Bdd::Size64(bdd) => bdd.write_as_dot(output),
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.write_as_dot(output),
+            BddInner::Size32(bdd) => bdd.write_as_dot(output),
+            BddInner::Size64(bdd) => bdd.write_as_dot(output),
         }
     }
 
@@ -650,6 +668,8 @@ pub(crate) mod tests {
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::split::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId};
+
+    use super::BddInner;
 
     macro_rules! test_bdd_not_invariants {
         ($func:ident, $Bdd:ident, $VarId:ident) => {
@@ -686,7 +706,7 @@ pub(crate) mod tests {
                 assert_eq!(x.node_count(), 3);
                 unsafe {
                     assert_eq!(v, x.get_node_unchecked(x.root()).variable());
-                    let x_p = $Bdd::new_unchecked(x.root(), x.clone().into_nodes());
+                    let x_p = $Bdd::new_unchecked(x.root(), x.nodes.clone());
                     assert!(x.structural_eq(&x_p));
                 }
             }
@@ -726,11 +746,11 @@ pub(crate) mod tests {
         assert_eq!(bdd32.node_count(), 1 << n);
 
         // Check that the BDD grew correctly.
-        match &bdd {
-            Bdd::Size32(bdd_inner) => {
+        match &bdd.0 {
+            BddInner::Size32(b) => {
                 // both checks should not be necessary, but they are here as a sanity check
-                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd32));
+                assert!(b.iff(&bdd32).unwrap().is_true());
+                assert!(b.structural_eq(&bdd32));
             }
             _ => panic!("expected 32-bit BDD"),
         }
@@ -756,10 +776,10 @@ pub(crate) mod tests {
         assert_eq!(bdd.node_count(), usize::from(2 * n));
 
         // Check that the BDD shrank correctly.
-        match &bdd {
-            Bdd::Size16(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd16_ands).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd16_ands));
+        match &bdd.0 {
+            BddInner::Size16(b) => {
+                assert!(b.iff(&bdd16_ands).unwrap().is_true());
+                assert!(b.structural_eq(&bdd16_ands));
             }
             _ => panic!("expected 16-bit BDD"),
         }
@@ -793,14 +813,14 @@ pub(crate) mod tests {
 
         assert_eq!(bdd64.node_count(), 1 << n);
 
-        let bdd = Bdd::Size64(bdd64).shrink();
+        let bdd = Into::<Bdd>::into(bdd64).shrink();
 
         assert_eq!(bdd.node_count(), 1 << n);
 
-        match bdd {
-            Bdd::Size32(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd32));
+        match &bdd.0 {
+            BddInner::Size32(b) => {
+                assert!(b.iff(&bdd32).unwrap().is_true());
+                assert!(b.structural_eq(&bdd32));
             }
             _ => panic!("expected 32-bit BDD"),
         }
@@ -833,14 +853,14 @@ pub(crate) mod tests {
 
         assert_eq!(bdd64.node_count(), 1 << n);
 
-        let bdd = Bdd::Size64(bdd64).shrink();
+        let bdd = Into::<Bdd>::into(bdd64).shrink();
 
         assert_eq!(bdd.node_count(), 1 << n);
 
-        match bdd {
-            Bdd::Size16(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd16));
+        match &bdd.0 {
+            BddInner::Size16(b) => {
+                assert!(b.iff(&bdd16).unwrap().is_true());
+                assert!(b.structural_eq(&bdd16));
             }
             _ => panic!("expected 16-bit BDD"),
         }
@@ -852,10 +872,10 @@ pub(crate) mod tests {
         let bdd = Bdd::new_literal(var, true);
         let bdd16 = Bdd16::new_literal(var.unchecked_into(), true);
 
-        match bdd {
-            Bdd::Size16(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd16));
+        match &bdd.0 {
+            BddInner::Size16(b) => {
+                assert!(b.iff(&bdd16).unwrap().is_true());
+                assert!(b.structural_eq(&bdd16));
             }
             _ => panic!("expected 16-bit BDD"),
         }
@@ -868,10 +888,10 @@ pub(crate) mod tests {
         let bdd = Bdd::new_literal(var, true);
         let bdd32 = Bdd32::new_literal(var.unchecked_into(), true);
 
-        match bdd {
-            Bdd::Size32(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd32));
+        match &bdd.0 {
+            BddInner::Size32(b) => {
+                assert!(b.iff(&bdd32).unwrap().is_true());
+                assert!(b.structural_eq(&bdd32));
             }
             _ => panic!("expected 32-bit BDD"),
         }
@@ -883,10 +903,10 @@ pub(crate) mod tests {
         let bdd = Bdd::new_literal(var, true);
         let bdd64 = Bdd64::new_literal(var.unchecked_into(), true);
 
-        match bdd {
-            Bdd::Size64(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd64).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd64));
+        match &bdd.0 {
+            BddInner::Size64(b) => {
+                assert!(b.iff(&bdd64).unwrap().is_true());
+                assert!(b.structural_eq(&bdd64));
             }
             _ => panic!("expected 64-bit BDD"),
         }
@@ -898,10 +918,10 @@ pub(crate) mod tests {
         let bdd = Bdd::new_literal(var, true);
         let bdd16 = Bdd16::new_literal(var.unchecked_into(), true);
 
-        match bdd {
-            Bdd::Size16(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd16));
+        match &bdd.0 {
+            BddInner::Size16(b) => {
+                assert!(b.iff(&bdd16).unwrap().is_true());
+                assert!(b.structural_eq(&bdd16));
             }
             _ => panic!("expected 16-bit BDD"),
         }
@@ -913,10 +933,10 @@ pub(crate) mod tests {
         let bdd = Bdd::new_literal(var, true);
         let bdd16 = Bdd16::new_literal(var.unchecked_into(), true);
 
-        match bdd {
-            Bdd::Size16(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd16).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd16));
+        match &bdd.0 {
+            BddInner::Size16(b) => {
+                assert!(b.iff(&bdd16).unwrap().is_true());
+                assert!(b.structural_eq(&bdd16));
             }
             _ => panic!("expected 16-bit BDD"),
         }
@@ -928,10 +948,10 @@ pub(crate) mod tests {
         let bdd = Bdd::new_literal(var, true);
         let bdd32 = Bdd32::new_literal(var.unchecked_into(), true);
 
-        match bdd {
-            Bdd::Size32(bdd_inner) => {
-                assert!(bdd_inner.iff(&bdd32).unwrap().is_true());
-                assert!(bdd_inner.structural_eq(&bdd32));
+        match &bdd.0 {
+            BddInner::Size32(b) => {
+                assert!(b.iff(&bdd32).unwrap().is_true());
+                assert!(b.structural_eq(&bdd32));
             }
             _ => panic!("expected 32-bit BDD"),
         }
@@ -966,8 +986,8 @@ pub(crate) mod tests {
     #[test]
     fn bdd_structural_eq() {
         // Test that BDDs of different sizes are not equal even if they have "the same" nodes.
-        let bdd16 = Bdd::Size16(Bdd16::new_literal(VarIdPacked16::new(1234), true));
-        let bdd32 = Bdd::Size32(Bdd32::new_literal(VarIdPacked32::new(1234), true));
+        let bdd16: Bdd = Bdd16::new_literal(VarIdPacked16::new(1234), true).into();
+        let bdd32: Bdd = Bdd32::new_literal(VarIdPacked32::new(1234), true).into();
         assert!(!bdd16.structural_eq(&bdd32));
     }
 
@@ -987,13 +1007,13 @@ pub(crate) mod tests {
         // There is no "normal" way to build 32-bit and 64-bit constant BDD,
         // but in theory they are valid BDDs, they are just not "reduced" properly.
 
-        let true_32 = Bdd::Size32(Bdd32::new_true());
-        let false_32 = Bdd::Size32(Bdd32::new_false());
+        let true_32: Bdd = Bdd32::new_true().into();
+        let false_32: Bdd = Bdd32::new_false().into();
         assert!(true_32.is_true() && !true_32.is_false());
         assert!(false_32.is_false() && !false_32.is_true());
 
-        let true_64 = Bdd::Size64(Bdd64::new_true());
-        let false_64 = Bdd::Size64(Bdd64::new_false());
+        let true_64: Bdd = Bdd64::new_true().into();
+        let false_64: Bdd = Bdd64::new_false().into();
         assert!(true_64.is_true() && !true_64.is_false());
         assert!(false_64.is_false() && !false_64.is_true());
     }

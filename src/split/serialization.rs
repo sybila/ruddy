@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::io::{self, ErrorKind, Read, Write};
 
-use super::bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl};
+use super::bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl, BddInner};
 use super::Bdd;
 use crate::bdd_node::BddNodeAny;
 use crate::DeserializeIdError;
@@ -133,6 +133,7 @@ macro_rules! impl_byte_conversions {
                 }
             }
 
+            #[allow(dead_code)]
             /// Serializes the BDD to a byte vector.
             pub fn to_bytes(&self) -> Vec<u8> {
                 let mut bytes = Vec::new();
@@ -140,6 +141,7 @@ macro_rules! impl_byte_conversions {
                 bytes
             }
 
+            #[allow(dead_code)]
             /// Deserializes a BDD from a byte slice.
             pub fn from_bytes(bytes: &mut &[u8]) -> Result<Self, BddDeserializationError> {
                 $Bdd::read_as_bytes(bytes)
@@ -214,6 +216,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
     }
 
     /// Deserializes a BDD from a string from the `input` stream.
+    #[allow(dead_code)]
     pub fn read_as_serialized_string(
         input: &mut dyn Read,
     ) -> Result<Self, BddDeserializationError> {
@@ -224,6 +227,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
     }
 
     /// Serializes the BDD to a string.
+    #[allow(dead_code)]
     pub fn to_serialized_string(&self) -> String {
         let mut bytes = Vec::new();
         self.write_as_serialized_string(&mut bytes).unwrap();
@@ -236,16 +240,16 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
 impl Bdd {
     /// Serializes the `Bdd` to a string to the `output` stream.
     pub fn write_as_serialized_string(&self, output: &mut dyn Write) -> io::Result<()> {
-        match self {
-            Bdd::Size16(bdd) => {
+        match &self.0 {
+            BddInner::Size16(bdd) => {
                 write!(output, "16|")?;
                 bdd.write_as_serialized_string(output)
             }
-            Bdd::Size32(bdd) => {
+            BddInner::Size32(bdd) => {
                 write!(output, "32|")?;
                 bdd.write_as_serialized_string(output)
             }
-            Bdd::Size64(bdd) => {
+            BddInner::Size64(bdd) => {
                 write!(output, "64|")?;
                 bdd.write_as_serialized_string(output)
             }
@@ -270,9 +274,9 @@ impl Bdd {
             .map_err(|_| io::Error::new(ErrorKind::InvalidData, "invalid width"))?;
 
         match width {
-            16 => Ok(Bdd::Size16(Bdd16::from_serialized_string(rest)?)),
-            32 => Ok(Bdd::Size32(Bdd32::from_serialized_string(rest)?)),
-            64 => Ok(Bdd::Size64(Bdd64::from_serialized_string(rest)?)),
+            16 => Ok(Bdd16::from_serialized_string(rest)?.into()),
+            32 => Ok(Bdd32::from_serialized_string(rest)?.into()),
+            64 => Ok(Bdd64::from_serialized_string(rest)?.into()),
             _ => Err(BddDeserializationError::InvalidWidth(width)),
         }
     }
@@ -287,16 +291,16 @@ impl Bdd {
 
     /// Serializes a `Bdd` to the `output` byte stream.
     pub fn write_as_bytes(&self, output: &mut dyn Write) -> io::Result<()> {
-        match self {
-            Bdd::Size16(bdd) => {
+        match &self.0 {
+            BddInner::Size16(bdd) => {
                 output.write_all(&[16])?;
                 bdd.write_as_bytes(output)
             }
-            Bdd::Size32(bdd) => {
+            BddInner::Size32(bdd) => {
                 output.write_all(&[32])?;
                 bdd.write_as_bytes(output)
             }
-            Bdd::Size64(bdd) => {
+            BddInner::Size64(bdd) => {
                 output.write_all(&[64])?;
                 bdd.write_as_bytes(output)
             }
@@ -309,9 +313,9 @@ impl Bdd {
         input.read_exact(&mut width)?;
 
         match width[0] {
-            16 => Ok(Bdd::Size16(Bdd16::read_as_bytes(input)?)),
-            32 => Ok(Bdd::Size32(Bdd32::read_as_bytes(input)?)),
-            64 => Ok(Bdd::Size64(Bdd64::read_as_bytes(input)?)),
+            16 => Ok(Bdd16::read_as_bytes(input)?.into()),
+            32 => Ok(Bdd32::read_as_bytes(input)?.into()),
+            64 => Ok(Bdd64::read_as_bytes(input)?.into()),
             _ => Err(BddDeserializationError::InvalidWidth(width[0])),
         }
     }

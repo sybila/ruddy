@@ -1,12 +1,33 @@
-//! Defines three-valued logic operators based on [`TriBool`]. These are used to implement
-//! Boolean operators in the `apply` algorithms.
-//!
 use std::cmp::{max, min};
 
 use crate::node_id::NodeIdAny;
 
+/// Convert an ID into a [`TriBool`], where the terminal node 0 is mapped to `False`,
+/// the terminal node 1 is mapped to `True`, and all other IDs are mapped to `Indeterminate`.
+fn to_three_valued<T: NodeIdAny>(id: T) -> TriBool {
+    // Decompiles to branch-less, nice code
+    // 0 -> -1, 1 -> 1, _ -> 0
+    match -i8::from(id.is_zero()) + i8::from(id.is_one()) {
+        1 => TriBool::True,
+        0 => TriBool::Indeterminate,
+        -1 => TriBool::False,
+        _ => unreachable!(),
+    }
+}
+
+/// Convert a [`TriBool`] to a node ID. The value
+/// `True` is mapped to the terminal node 1, `False` is mapped to the terminal node 0, and
+/// `Indeterminate` is mapped to the ID with the undefined value.
+fn from_three_valued<T: NodeIdAny>(value: TriBool) -> T {
+    match value {
+        TriBool::True => T::one(),
+        TriBool::False => T::zero(),
+        TriBool::Indeterminate => T::undefined(),
+    }
+}
+
 /// Lifts a three-valued logic operator to operate on [`NodeIdAny`] identifiers.
-pub fn lift_operator<
+fn lift_operator<
     TId1: NodeIdAny,
     TId2: NodeIdAny,
     TResultId: NodeIdAny,
@@ -15,16 +36,16 @@ pub fn lift_operator<
     operator: TTriBoolOperator,
 ) -> impl Fn(TId1, TId2) -> TResultId {
     move |left, right| {
-        let left = left.to_three_valued();
-        let right = right.to_three_valued();
-        TResultId::from_three_valued(operator(left, right))
+        let left = to_three_valued(left);
+        let right = to_three_valued(right);
+        from_three_valued(operator(left, right))
     }
 }
 
 /// A type representing a three-valued logic value.
 #[derive(PartialOrd, Ord, PartialEq, Eq, Debug)]
 #[repr(i8)]
-pub enum TriBool {
+enum TriBool {
     True = 1,
     Indeterminate = 0,
     False = -1,
@@ -32,17 +53,17 @@ pub enum TriBool {
 
 impl TriBool {
     /// Logical disjunction.
-    pub(crate) fn or(self, other: Self) -> Self {
+    fn or(self, other: Self) -> Self {
         max(self, other)
     }
 
     /// Logical conjunction.
-    pub(crate) fn and(self, other: Self) -> Self {
+    fn and(self, other: Self) -> Self {
         min(self, other)
     }
 
     /// Exclusive or (non-equivalence).
-    pub(crate) fn xor(self, other: Self) -> Self {
+    fn xor(self, other: Self) -> Self {
         // min(max(a,b), neg(min(a,b)))
         let [smaller, greater] = if self < other {
             [self, other]
@@ -53,12 +74,12 @@ impl TriBool {
     }
 
     /// Implication.
-    pub(crate) fn implies(self, other: Self) -> Self {
+    fn implies(self, other: Self) -> Self {
         (!self).or(other)
     }
 
     /// Equivalence.
-    pub(crate) fn iff(self, other: Self) -> Self {
+    fn iff(self, other: Self) -> Self {
         !self.xor(other)
     }
 }
@@ -224,6 +245,20 @@ impl BooleanOperator for Xor {
 mod tests {
     use super::*;
     use crate::node_id::NodeId32;
+
+    #[test]
+    fn id_tribool_conversion() {
+        assert!(from_three_valued::<NodeId32>(TriBool::True).is_one());
+        assert!(from_three_valued::<NodeId32>(TriBool::False).is_zero());
+        assert!(from_three_valued::<NodeId32>(TriBool::Indeterminate).is_undefined());
+
+        assert_eq!(
+            to_three_valued(NodeId32::undefined()),
+            TriBool::Indeterminate
+        );
+        assert_eq!(to_three_valued(NodeId32::one()), TriBool::True);
+        assert_eq!(to_three_valued(NodeId32::zero()), TriBool::False);
+    }
 
     #[test]
     pub fn operators_for_split() {

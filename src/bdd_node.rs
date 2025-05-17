@@ -16,7 +16,7 @@ use crate::{
 /// a *terminal node* (`0` or `1`) or a *decision node*. A decision node consists of the decision
 /// variable (of type [`VarIdPackedAny`]) and two child references, *low* and *high*
 /// (of type [`NodeIdAny`]).
-pub trait BddNodeAny: Clone + Eq + Debug {
+pub(crate) trait BddNodeAny: Clone + Eq + Debug {
     /// Node ID type used by this [`BddNodeAny`].
     type Id: NodeIdAny;
     /// Variable ID type used by this [`BddNodeAny`].
@@ -48,8 +48,10 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     fn one() -> Self;
 
     /// Checks if this node is [`BddNodeAny::zero`].
+    #[allow(dead_code)]
     fn is_zero(&self) -> bool;
     /// Checks if this node is [`BddNodeAny::one`].
+    #[allow(dead_code)]
     fn is_one(&self) -> bool;
     /// Checks if this node is [`BddNodeAny::zero`] or [`BddNodeAny::one`].
     fn is_terminal(&self) -> bool;
@@ -82,16 +84,8 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     /// Reset the parent counter of the node.
     fn reset_parent_counter(&mut self);
 
-    /// Return the mark of this node.
-    fn mark(&self) -> Mark {
-        self.variable().mark()
-    }
-
     /// Set the node's mark to `mark`.
     fn set_mark(&mut self, mark: Mark);
-
-    /// Flip the mark of this node.
-    fn flip_mark(&mut self);
 
     /// Returns `true` if the node has the mark `mark`.
     fn has_same_mark(&self, mark: Mark) -> bool {
@@ -100,7 +94,7 @@ pub trait BddNodeAny: Clone + Eq + Debug {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BddNodeImpl<TNodeId, TVarId> {
+pub(crate) struct BddNodeImpl<TNodeId, TVarId> {
     pub variable: TVarId,
     pub low: TNodeId,
     pub high: TNodeId,
@@ -188,29 +182,25 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddNodeAny for BddNodeImpl<TNod
     fn set_mark(&mut self, mark: Mark) {
         self.variable.set_mark(mark);
     }
-
-    fn flip_mark(&mut self) {
-        self.variable.flip_mark();
-    }
 }
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId16`] and [`VarIdPacked16`].
 ///
 /// Note that [`VarIdPacked16`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-pub type BddNode16 = BddNodeImpl<NodeId16, VarIdPacked16>;
+pub(crate) type BddNode16 = BddNodeImpl<NodeId16, VarIdPacked16>;
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId32`] and [`VarIdPacked32`].
 ///
 /// Note that [`VarIdPacked32`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-pub type BddNode32 = BddNodeImpl<NodeId32, VarIdPacked32>;
+pub(crate) type BddNode32 = BddNodeImpl<NodeId32, VarIdPacked32>;
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId64`] and [`VarIdPacked64`].
 ///
 /// Note that [`VarIdPacked64`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-pub type BddNode64 = BddNodeImpl<NodeId64, VarIdPacked64>;
+pub(crate) type BddNode64 = BddNodeImpl<NodeId64, VarIdPacked64>;
 
 macro_rules! impl_from {
     ($Small:ident => $Large:ident) => {
@@ -251,7 +241,7 @@ impl_unchecked_from!(BddNode64 => BddNode32);
 /// An implementation of [`std::error::Error`] that is reported when conversion
 /// between instances of [`BddNodeAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum TryFromBddNodeError {
+pub(crate) enum TryFromBddNodeError {
     Variable(TryFromVarIdPackedError),
     Low(TryFromNodeIdError),
     High(TryFromNodeIdError),
@@ -297,7 +287,7 @@ impl_try_from!(BddNode64 => BddNode32);
 mod tests {
     use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, TryFromBddNodeError};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
-    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
+    use crate::variable_id::{Mark, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
 
     macro_rules! test_bdd_node_invariants {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
@@ -389,15 +379,14 @@ mod tests {
             #[test]
             pub fn $func() {
                 let mut n = $BddNode::new($VarId::new(1), $NodeId::zero(), $NodeId::one());
-                let mark = n.mark();
+                let mark = Mark::default();
                 n.has_same_mark(mark);
                 let flipped = mark.flipped();
                 assert!(!n.has_same_mark(flipped));
-                n.flip_mark();
+                n.set_mark(flipped);
                 assert!(n.has_same_mark(flipped));
-                n.flip_mark();
-                assert!(!n.has_same_mark(flipped));
-                assert!(n.has_same_mark(mark));
+                assert!(!n.has_same_mark(mark));
+                n.set_mark(mark);
                 assert!(n.has_same_mark(mark.flipped().flipped()));
 
                 assert_ne!(mark, flipped);

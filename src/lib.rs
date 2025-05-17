@@ -1,17 +1,18 @@
-// A lot of these things would eventually go into some kind of "internal" module, since
-// we don't actually want to expose them in the public API?
-pub mod bdd_node;
+mod bdd_node;
 pub mod boolean_operators;
 mod conversion;
 mod iterators;
-pub mod node_id;
-pub mod node_table;
+mod node_id;
+mod node_table;
 pub mod shared;
 pub mod split;
-pub mod task_cache;
-pub mod variable_id;
+mod task_cache;
+mod variable_id;
 
 pub use node_id::DeserializeIdError;
+pub use node_id::NodeId;
+pub use node_id::NodeIdAny;
+pub use variable_id::VariableId;
 
 // TODO:
 //     These functions are only valid on 32-bit and/or 64-bit systems. We can hopefully assume that
@@ -24,13 +25,13 @@ pub use node_id::DeserializeIdError;
 /// A conversion function asserting that we are running on (at least) a 32-bit platform.
 #[inline(always)]
 #[allow(clippy::cast_possible_truncation)]
-pub const fn usize_is_at_least_32_bits(x: u32) -> usize {
+pub(crate) const fn usize_is_at_least_32_bits(x: u32) -> usize {
     x as usize
 }
 
 /// A conversion function asserting that we are running on (at least) a 64-bit platform.
 #[inline(always)]
 #[allow(clippy::cast_possible_truncation)]
-pub const fn usize_is_at_least_64_bits(x: u64) -> usize {
+pub(crate) const fn usize_is_at_least_64_bits(x: u64) -> usize {
     x as usize
 }
