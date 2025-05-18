@@ -699,6 +699,8 @@ pub(crate) trait AsVarId<TVarId: VarIdPackedAny>: VarIdPackedAny + Into<TVarId> 
 impl<A: VarIdPackedAny, B: VarIdPackedAny + Into<A>> AsVarId<A> for B {}
 
 /// A type for identifying variables in BDDs.
+///
+/// `VariableId` 0 is the highest one in the BDD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VariableId(u64);
 
