@@ -77,7 +77,7 @@ impl Eq for Bdd {}
 /// is just an index to the root node in the unique table.
 ///
 /// As BDDs are created and dropped, some nodes in the `BddManager`'s unique
-/// table may no longer be referenced by any BDD and are considered "dead."
+/// table may no longer be referenced by any BDD and are considered "dead".
 /// To remove these nodes, the manager automatically performs garbage collection by
 /// default (configurable via [`BddManager::set_gc`]). This process marks all nodes
 /// reachable from currently "live" `Bdd` handles; unmarked nodes are then
