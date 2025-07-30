@@ -283,26 +283,28 @@ where
     /// table. This requirement is not checked in release mode and if broken results
     /// in undefined behavior.
     unsafe fn push_node(&mut self, variable: TVarId, low: TNodeId, high: TNodeId) {
-        debug_assert!(!variable.is_undefined());
-        self.get_node_unchecked_mut(low).increment_parent_counter();
+        unsafe {
+            debug_assert!(!variable.is_undefined());
+            self.get_node_unchecked_mut(low).increment_parent_counter();
 
-        self.get_node_unchecked_mut(high).increment_parent_counter();
+            self.get_node_unchecked_mut(high).increment_parent_counter();
 
-        // Reset the parent counter of the new node.
-        let mut variable = variable.reset_parents();
-        // We want the new node to have the same mark as the rest of the nodes.
-        variable.set_mark(self.current_mark);
+            // Reset the parent counter of the new node.
+            let mut variable = variable.reset_parents();
+            // We want the new node to have the same mark as the rest of the nodes.
+            variable.set_mark(self.current_mark);
 
-        let new_entry = TNode::new(variable, low, high).into();
+            let new_entry = TNode::new(variable, low, high).into();
 
-        if self.first_free.is_undefined() {
-            self.entries.push(new_entry);
-        } else {
-            let free_entry = self.get_deleted_entry_unchecked_mut(self.first_free);
-            let new_first_free = free_entry.next_free();
-            free_entry.insert(new_entry);
-            self.first_free = new_first_free;
-            self.deleted -= 1;
+            if self.first_free.is_undefined() {
+                self.entries.push(new_entry);
+            } else {
+                let free_entry = self.get_deleted_entry_unchecked_mut(self.first_free);
+                let new_first_free = free_entry.next_free();
+                free_entry.insert(new_entry);
+                self.first_free = new_first_free;
+                self.deleted -= 1;
+            }
         }
     }
 
@@ -326,10 +328,12 @@ where
     ///
     /// Calling this method with an `id` that is not in the table is undefined behavior.
     unsafe fn get_entry_unchecked(&self, id: TNodeId) -> &NodeEntry<TNodeId, TVarId, TNode> {
-        debug_assert!(id.as_usize() < self.size());
-        let entry = self.entries.get_unchecked(id.as_usize());
-        debug_assert!(!entry.is_deleted());
-        entry
+        unsafe {
+            debug_assert!(id.as_usize() < self.size());
+            let entry = self.entries.get_unchecked(id.as_usize());
+            debug_assert!(!entry.is_deleted());
+            entry
+        }
     }
 
     /// An unchecked variant of [`NodeTableImpl::get_entry_mut`].
@@ -341,10 +345,12 @@ where
         &mut self,
         id: TNodeId,
     ) -> &mut NodeEntry<TNodeId, TVarId, TNode> {
-        debug_assert!(id.as_usize() < self.size());
-        let entry = self.entries.get_unchecked_mut(id.as_usize());
-        debug_assert!(!entry.is_deleted());
-        entry
+        unsafe {
+            debug_assert!(id.as_usize() < self.size());
+            let entry = self.entries.get_unchecked_mut(id.as_usize());
+            debug_assert!(!entry.is_deleted());
+            entry
+        }
     }
 
     /// Get an unchecked mutable reference to the deleted entry with the given `id`.
@@ -356,10 +362,12 @@ where
         &mut self,
         id: TNodeId,
     ) -> DeletedEntryMut<TNodeId, TVarId, TNode> {
-        debug_assert!(id.as_usize() < self.size());
-        let entry = self.entries.get_unchecked_mut(id.as_usize());
-        debug_assert!(entry.is_deleted());
-        DeletedEntryMut(entry)
+        unsafe {
+            debug_assert!(id.as_usize() < self.size());
+            let entry = self.entries.get_unchecked_mut(id.as_usize());
+            debug_assert!(entry.is_deleted());
+            DeletedEntryMut(entry)
+        }
     }
 
     /// Get an unchecked mutable reference to the node with the given `id`.
@@ -368,7 +376,7 @@ where
     ///
     /// Calling this method with an `id` that is not in the table is undefined behavior.
     pub(crate) unsafe fn get_node_unchecked_mut(&mut self, id: TNodeId) -> &mut TNode {
-        &mut self.get_entry_unchecked_mut(id).node
+        unsafe { &mut self.get_entry_unchecked_mut(id).node }
     }
 
     /// Get an iterator over nodes in the table.
@@ -787,7 +795,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId,
     }
 
     unsafe fn get_node_unchecked(&self, id: TNodeId) -> &TNode {
-        &self.get_entry_unchecked(id).node
+        unsafe { &self.get_entry_unchecked(id).node }
     }
 
     fn ensure_node(

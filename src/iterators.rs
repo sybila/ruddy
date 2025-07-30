@@ -131,7 +131,7 @@ pub(crate) mod split {
         type Node = <Self as BddAny>::Node;
 
         unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node {
-            BddAny::get_node_unchecked(self, id)
+            unsafe { BddAny::get_node_unchecked(self, id) }
         }
     }
 
@@ -398,7 +398,7 @@ pub(crate) mod shared {
         type Node = TNode;
 
         unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node {
-            NodeTableAny::get_node_unchecked(self, id)
+            unsafe { NodeTableAny::get_node_unchecked(self, id) }
         }
     }
 
