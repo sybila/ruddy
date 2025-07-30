@@ -211,7 +211,7 @@ fn nested_apply_any<
     state: NestedApplyState<TOuterCache, TInnerCache, TNodeTable>,
 ) -> Result<(TNodeTable::Id, TNodeTable), NestedApplyState<TOuterCache, TInnerCache, TNodeTable>> {
     // The outer operator should only short-circuit due to terminals, otherwise
-    // it messes with algorithms logic.
+    // it messes with algorithm logic.
     let outer_op = outer_op.for_split::<TNodeTable::Id, TNodeTable::Id, TNodeTable::Id>();
     let inner_op = inner_op.for_shared::<TNodeTable::Id>();
 
@@ -279,7 +279,7 @@ fn nested_apply_any<
 
         let node_id = if trigger(variable) {
             if inner_state.is_empty() {
-                // Construct the starting state for inner apply
+                // Construct the starting state for inner `apply`.
                 inner_state = InnerApplyState {
                     stack: vec![(low_result, high_result, TNodeTable::VarId::undefined())],
                     results: Vec::new(),
@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(m.exists(&a, &[v_b]), a);
         assert_eq!(m.for_all(&a, &[v_b]), a);
 
-        // Quantifying over empty set of variables
+        // Quantifying over an empty set of variables
         let a_and_b = m.and(&a, &b);
         assert_eq!(m.exists(&a_and_b, &[]), a_and_b);
         assert_eq!(m.for_all(&a_and_b, &[]), a_and_b);
@@ -524,7 +524,7 @@ mod tests {
         let xor = m.xor(&y, &z);
         let formula = m.and(&left, &xor);
 
-        // Test that the order of quantification doesn't matter for same quantifier
+        // Test that the order of quantification doesn't matter for the same quantifier
         let exists_x = m.exists(&formula, &[v_x]);
         let exists_y = m.exists(&formula, &[v_y]);
         let exists_x_then_y = m.exists(&exists_x, &[v_y]);
@@ -591,12 +591,12 @@ mod tests {
         let iff_part = manager.iff(&implies_or_x5, &x1_or_x2);
         let e3 = manager.and(&iff_part, &high32);
 
-        // Test nested_apply vs regular apply for AND operation
+        // Test nested_apply vs. regular apply for AND operation
         let result1 = manager.binary_op_with_exists(&e1, &e2, boolean_operators::And, &[]);
         let result2 = manager.and(&e1, &e2);
         assert_eq!(result1, result2);
 
-        // Test nested_apply vs regular apply for IFF operation
+        // Test nested_apply vs. regular apply for IFF operation
         let result3 = manager.binary_op_with_for_all(&e1, &e3, boolean_operators::Iff, &[]);
         let result4 = manager.iff(&e1, &e3);
         assert_eq!(result3, result4);
@@ -657,9 +657,9 @@ mod tests {
             for x in 0..(num_vars / 2) {
                 let x1 = manager.new_bdd_literal(VariableId::new(x), true);
                 let x2 = manager.new_bdd_literal(VariableId::new(x + num_vars / 2), true);
-                // To make it a bit more fun, we always erase some previously used variable.
+                // To make it a bit interesting, we always erase some previously used variable.
                 // This means we are not computing ripple carry adder after all, but at least
-                // it tests the nested apply operator.
+                // it tests the nested `apply` operator.
                 let and = manager.binary_op_with_exists(&x1, &x2, boolean_operators::And, &[]);
                 result = manager.binary_op_with_exists(
                     &result,

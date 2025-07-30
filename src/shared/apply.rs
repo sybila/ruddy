@@ -299,7 +299,7 @@ mod tests {
     };
 
     fn test_basic_apply_invariants(var1: VariableId, var2: VariableId) {
-        // These are obviously not all invariants/equalities, but at least something to
+        // These are not all invariants/equalities, but at least something to
         // check that we have the major corner cases covered.
         let mut m = BddManager::no_gc();
 

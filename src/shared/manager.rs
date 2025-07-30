@@ -80,8 +80,8 @@ impl Eq for Bdd {}
 /// table may no longer be referenced by any BDD and are considered "dead".
 /// To remove these nodes, the manager automatically performs garbage collection by
 /// default (configurable via [`BddManager::set_gc`]). This process marks all nodes
-/// reachable from currently "live" `Bdd` handles; unmarked nodes are then
-/// invalidated, so that their memory can be reused, or completely removed.
+/// as reachable from currently "live" `Bdd` handles; unmarked nodes are then
+/// invalidated, so that their memory can be reused or completely removed.
 ///
 /// Note that, unlike most other implementations of (shared) BDDs, the `BddManager`
 /// currently does not hold a computed cache that is reused between operations.
@@ -335,7 +335,7 @@ impl BddManager {
     }
 
     /// Approximately counts the number of satisfying valuations in the `bdd`.
-    /// If `largest_variable` is [`Option::Some`], then it is
+    /// If `largest_variable` is [`Some`], then it is
     /// assumed to be the largest variable. Otherwise, the largest variable residing
     /// in the manager is used.
     ///
