@@ -6,8 +6,8 @@ use std::cmp::{max, min};
 
 use crate::node_id::NodeIdAny;
 
-/// Convert an ID into a [`TriBool`], where the terminal node 0 is mapped to `False`,
-/// the terminal node 1 is mapped to `True`, and all other IDs are mapped to `Indeterminate`.
+/// Convert an ID into a [`TriBool`], where terminal node `0` is mapped to `False`,
+/// terminal node `1` is mapped to `True`, and all other IDs are mapped to `Indeterminate`.
 fn to_three_valued<T: NodeIdAny>(id: T) -> TriBool {
     // Decompiles to branch-less, nice code
     // 0 -> -1, 1 -> 1, _ -> 0
@@ -20,7 +20,7 @@ fn to_three_valued<T: NodeIdAny>(id: T) -> TriBool {
 }
 
 /// Convert a [`TriBool`] to a node ID. The value
-/// `True` is mapped to the terminal node 1, `False` is mapped to the terminal node 0, and
+/// `True` is mapped to terminal node `1`, `False` is mapped to terminal node `0`, and
 /// `Indeterminate` is mapped to the ID with the undefined value.
 fn from_three_valued<T: NodeIdAny>(value: TriBool) -> T {
     match value {
@@ -103,14 +103,14 @@ impl std::ops::Not for TriBool {
 /// A trait representing a binary boolean operator.
 ///
 /// It is expected to be defined mainly for terminal [`NodeIdAny`] arguments. However,
-/// since some logical operators can return the result even if only one of the arguments
+/// since some logical operators can return the result, even if only one of the arguments
 /// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
 /// yet known, the function should return [`NodeIdAny::undefined`]. For example, the logical
 /// operator implementing disjunction (for split BDDs) could be defined as:
-/// ```ignore
-/// fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-///     self,
-/// ) -> impl Fn(TId1, TId2) -> TResultId {
+/// ```
+/// use ruddy::NodeIdAny;
+///
+/// fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>() -> impl Fn(TId1, TId2) -> TResultId {
 ///     move |left, right| {
 ///         if left.is_one() || right.is_one() {
 ///             TResultId::one()
@@ -126,8 +126,10 @@ impl std::ops::Not for TriBool {
 /// For shared BDDs, there are more cases where the result can be immediately known.
 /// For example, the logical operator implementing disjunction for shared BDDs
 /// could be defined as:
-/// ```ignore
-/// fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+/// ```
+/// use ruddy::NodeIdAny;
+///
+/// fn for_shared<TId: NodeIdAny>() -> impl Fn(TId, TId) -> TId {
 ///     |left, right| {
 ///         if left.is_one() || right.is_one() {
 ///             TId::one()
@@ -471,11 +473,11 @@ mod tests {
         assert!(iff(zero, one).is_zero());
         assert!(iff(one, zero).is_zero());
 
-        // same node is equivalent to itself
+        // the same node is equivalent to itself
         assert!(iff(n11, n11).is_one());
         assert!(iff(n22, n22).is_one());
 
-        // returns other operand when one
+        // returns another operand when one
         assert_eq!(n11, iff(one, n11));
         assert_eq!(n22, iff(n22, one));
 
