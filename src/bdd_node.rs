@@ -1,6 +1,7 @@
 //! Defines the representation of BDD nodes. Includes: [`BddNodeAny`], [`BddNode16`],
 //! [`BddNode32`], and [`BddNode64`].
 
+use fmt::{Display, Formatter};
 use std::fmt::Debug;
 use std::{convert::TryFrom, fmt};
 
@@ -14,7 +15,7 @@ use crate::{
 
 /// An internal trait implemented by types that can serve as BDD nodes. Each BDD node is either
 /// a *terminal node* (`0` or `1`) or a *decision node*. A decision node consists of the decision
-/// variable (of type [`VarIdPackedAny`]) and two child references, *low* and *high*
+/// variable (of the type [`VarIdPackedAny`]) and two child references, *low* and *high*
 /// (of type [`NodeIdAny`]).
 pub(crate) trait BddNodeAny: Clone + Eq + Debug {
     /// Node ID type used by this [`BddNodeAny`].
@@ -48,9 +49,15 @@ pub(crate) trait BddNodeAny: Clone + Eq + Debug {
     fn one() -> Self;
 
     /// Checks if this node is [`BddNodeAny::zero`].
+    ///
+    /// **This is currently unused (we usually check the node ID instead), but can be useful in
+    /// some algorithms.**
     #[allow(dead_code)]
     fn is_zero(&self) -> bool;
     /// Checks if this node is [`BddNodeAny::one`].
+    ///
+    /// **This is currently unused (we usually check the node ID instead), but can be useful in
+    /// some algorithms.**
     #[allow(dead_code)]
     fn is_one(&self) -> bool;
     /// Checks if this node is [`BddNodeAny::zero`] or [`BddNodeAny::one`].
@@ -247,8 +254,8 @@ pub(crate) enum TryFromBddNodeError {
     High(TryFromNodeIdError),
 }
 
-impl fmt::Display for TryFromBddNodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromBddNodeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "bdd node cannot be converted: ")?;
         match self {
             Self::Variable(e) => write!(f, "{e}"),
