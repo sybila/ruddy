@@ -5,15 +5,16 @@ use ruddy::{split::Bdd, VariableId};
 ///
 /// More precisely, the `Bdd` at `(i, j)` is true if and only if there is a queen
 /// placed on the square at row `i` and column `j`.
-#[allow(clippy::cast_possible_truncation)]
-fn bdds_squares(n: usize) -> Vec<Vec<Bdd>> {
+fn queen_at_position_bdd_list(n: usize) -> Vec<Vec<Bdd>> {
     let mut squares = Vec::new();
+    let n = u32::try_from(n).unwrap();
     for i in 0..n {
-        squares.push(Vec::new());
+        let mut row = Vec::new();
         for j in 0..n {
-            let var = VariableId::new((i * n + j) as u32);
-            squares[i].push(Bdd::new_literal(var, true));
+            let var = VariableId::new(i * n + j);
+            row.push(Bdd::new_literal(var, true));
         }
+        squares.push(row);
     }
     squares
 }
@@ -78,7 +79,7 @@ fn queen_in_row(n: usize, row: usize, squares: &[Vec<Bdd>]) -> Bdd {
 
 /// Construct the `Bdd` for the whole n-queens problem.
 fn queens(n: usize) -> Bdd {
-    let squares = bdds_squares(n);
+    let squares = queen_at_position_bdd_list(n);
     let mut result = Bdd::new_true();
     // iterate over all rows
     for row in 0..n {
