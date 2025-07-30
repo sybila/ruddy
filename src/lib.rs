@@ -6,15 +6,16 @@ Ruddy is a minimalistic, high-performance Rust library for [(reduced and ordered
 
 ## Features
 
-Most popular BDD implementations use a *shared* representation, where all BDD nodes are stored in a single pool managed by a manager. This allows subgraphs shared between BDDs to be stored only once in memory. An alternative is the *split* representation, where each BDD owns its nodes (e.g., as an array).
+Most popular BDD implementations use a *shared* representation, where all BDD nodes are stored in a single pool managed by a manager. This allows graphs shared between BDDs to be stored only once in memory. An alternative is the *split* representation, where each BDD owns its nodes (e.g., as an array).
 
 When BDDs do not meaningfully share nodes, split representations can be faster and more memory-efficient. Ruddy implements both representations, letting users choose what works best for their use case.
 
 Currently, Ruddy supports the following features:
 - Binary logical operators (conjunction, xor, ...) and negation.
-- Existential and universal quantification, also combined with a binary operator.
+- Existential and universal quantification, also combined with a binary operator (also called *relational product*).
 - Satisfying valuations and paths iterators along with methods to count them.
 - Export to DOT.
+- Conversion between split and shared BDDs.
 - Binary and text (de)serialization of split BDDs.
 
 ## Usage
@@ -65,7 +66,7 @@ let not_a = manager.not(&a);
 let equiv_imp = manager.or(&not_a, &b);
 
 // Check that they are equivalent.
-assert!(imp == equiv_imp);
+assert_eq!(imp, equiv_imp);
 ```
 More complex examples can be found in the `examples` folder.
 */
