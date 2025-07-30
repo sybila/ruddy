@@ -915,13 +915,13 @@ mod tests {
     fn node_id_try_from_conversion() {
         let id = NodeId32::new((u16::MAX as u32) + 1);
         let err = NodeId16::try_from(id).unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.from_width, 32);
         assert_eq!(err.to_width, 16);
 
         let size_id = (u16::MAX as usize) + 1;
         let err = NodeId16::try_from(size_id).unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.id, size_id);
         assert_eq!(err.to_width, 16);
     }

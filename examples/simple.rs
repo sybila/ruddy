@@ -37,7 +37,7 @@ fn main() {
     // Print out the satisfying paths in the resulting BDD.
     // These valuations should only involve v1 and v2.
     for sat_path in manager.satisfying_paths(&bdd_after_exists, None) {
-        println!("Satisfying path: {:?}", sat_path);
+        println!("Satisfying path: {sat_path:?}");
     }
 
     // For verification, let's directly construct the BDD for 'v1 OR v2'.

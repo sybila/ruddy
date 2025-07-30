@@ -251,9 +251,9 @@ impl fmt::Display for TryFromBddNodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "bdd node cannot be converted: ")?;
         match self {
-            Self::Variable(e) => write!(f, "{}", e),
-            Self::Low(e) => write!(f, "low child {}", e),
-            Self::High(e) => write!(f, "high child {}", e),
+            Self::Variable(e) => write!(f, "{e}"),
+            Self::Low(e) => write!(f, "low child {e}"),
+            Self::High(e) => write!(f, "high child {e}"),
         }
     }
 }
@@ -464,9 +464,9 @@ mod tests {
         let err_low = BddNode16::try_from(invalid_low.clone()).unwrap_err();
         let err_high = BddNode16::try_from(invalid_high.clone()).unwrap_err();
 
-        println!("{}", err_var);
-        println!("{}", err_low);
-        println!("{}", err_high);
+        println!("{err_var}");
+        println!("{err_low}");
+        println!("{err_high}");
 
         assert!(matches!(err_var, TryFromBddNodeError::Variable(_)));
         assert!(matches!(err_low, TryFromBddNodeError::Low(_)));

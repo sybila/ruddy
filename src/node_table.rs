@@ -1656,7 +1656,7 @@ where
             "  __ruddy_root [label=\"\", style=invis, height=0, width=0];"
         )?;
 
-        writeln!(output, "  __ruddy_root -> {};", root)?;
+        writeln!(output, "  __ruddy_root -> {root};")?;
         writeln!(output)?;
         writeln!(output, "  edge [dir=none];")?;
         writeln!(output)?;
@@ -1683,9 +1683,9 @@ where
             let high = node.high();
             let variable = node.variable();
 
-            writeln!(output, "  {} [label=\"{}\", shape=circle];", id, variable)?;
-            writeln!(output, "  {} -> {} [style=dashed];", id, low)?;
-            writeln!(output, "  {} -> {};", id, high,)?;
+            writeln!(output, "  {id} [label=\"{variable}\", shape=circle];")?;
+            writeln!(output, "  {id} -> {low} [style=dashed];")?;
+            writeln!(output, "  {id} -> {high};",)?;
 
             if !seen.contains(&low) {
                 seen.insert(low);
@@ -1785,7 +1785,7 @@ mod tests {
         let err = table
             .ensure_node(v, NodeId16::zero(), NodeId16::one())
             .unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.width, 16);
 
         table.delete(NodeId16::new(2));

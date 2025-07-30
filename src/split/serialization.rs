@@ -33,23 +33,23 @@ impl Display for BddDeserializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BddDeserializationError::InvalidLowChild(err) => {
-                write!(f, "Low child id: {}", err)
+                write!(f, "Low child id: {err}")
             }
             BddDeserializationError::InvalidHighChild(err) => {
-                write!(f, "High child id: {}", err)
+                write!(f, "High child id: {err}")
             }
             BddDeserializationError::InvalidVariable(err) => {
-                write!(f, "Variable id: {}", err)
+                write!(f, "Variable id: {err}")
             }
-            BddDeserializationError::InvalidRoot(err) => write!(f, "Invalid root id: {}", err),
+            BddDeserializationError::InvalidRoot(err) => write!(f, "Invalid root id: {err}"),
             BddDeserializationError::InvalidWidth(width) => {
-                write!(f, "Invalid width: {}. Expected 16, 32 or 64.", width)
+                write!(f, "Invalid width: {width}. Expected 16, 32 or 64.")
             }
             BddDeserializationError::MissingDelimeter => {
                 write!(f, "Missing delimiter in serialized string.")
             }
             BddDeserializationError::EmptyBdd => write!(f, "The BDD does not contain any nodes."),
-            BddDeserializationError::IoError(err) => write!(f, "IO error: {}", err),
+            BddDeserializationError::IoError(err) => write!(f, "IO error: {err}"),
         }
     }
 }
@@ -411,7 +411,7 @@ mod tests {
 
     fn test_bdd_string_conversion(bdd: Bdd) {
         let s = bdd.to_serialized_string();
-        println!("Serialized string: {}", s);
+        println!("Serialized string: {s}");
         let bdd_from_s = Bdd::from_serialized_string(&s).unwrap();
         assert!(bdd.structural_eq(&bdd_from_s));
     }

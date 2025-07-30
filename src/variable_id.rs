@@ -1225,7 +1225,7 @@ mod tests {
     fn packed_id_unsuccessful_conversion() {
         let id = VarIdPacked32::new((u16::MAX as u32) + 1);
         let err = VarIdPacked16::try_from(id).unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.from_width, 32);
         assert_eq!(err.to_width, 16);
     }
@@ -1258,7 +1258,7 @@ mod tests {
         id.increment_parents();
         id.increment_parents();
         assert_eq!(
-            format!("{:?}", id),
+            format!("{id:?}"),
             "VarIdPacked16(id=10,cache=true,parents=11)"
         );
         let mut id = VarIdPacked32::new(10);
@@ -1266,7 +1266,7 @@ mod tests {
         id.increment_parents();
         id.increment_parents();
         assert_eq!(
-            format!("{:?}", id),
+            format!("{id:?}"),
             "VarIdPacked32(id=10,cache=true,parents=11)"
         );
         let mut id = VarIdPacked64::new(10);
@@ -1274,18 +1274,18 @@ mod tests {
         id.increment_parents();
         id.increment_parents();
         assert_eq!(
-            format!("{:?}", id),
+            format!("{id:?}"),
             "VarIdPacked64(id=10,cache=true,parents=11)"
         );
 
         let undef = VarIdPacked16::undefined();
-        assert_eq!(format!("{:?}", undef), "VarIdPacked16(undefined)");
+        assert_eq!(format!("{undef:?}"), "VarIdPacked16(undefined)");
 
         let undef = VarIdPacked32::undefined();
-        assert_eq!(format!("{:?}", undef), "VarIdPacked32(undefined)");
+        assert_eq!(format!("{undef:?}"), "VarIdPacked32(undefined)");
 
         let undef = VarIdPacked64::undefined();
-        assert_eq!(format!("{:?}", undef), "VarIdPacked64(undefined)");
+        assert_eq!(format!("{undef:?}"), "VarIdPacked64(undefined)");
     }
 
     macro_rules! test_packed_id_mark {

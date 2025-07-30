@@ -542,7 +542,7 @@ pub mod tests {
         assert_eq!(result.node_count(), 8192);
 
         let err = ripple_carry_adder(32).unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.width, 16);
     }
 }

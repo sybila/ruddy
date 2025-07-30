@@ -415,8 +415,8 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
                 id,
                 node.variable()
             )?;
-            writeln!(output, "  {} -> {} [style=dashed];", id, low)?;
-            writeln!(output, "  {} -> {};", id, high)?;
+            writeln!(output, "  {id} -> {low} [style=dashed];")?;
+            writeln!(output, "  {id} -> {high};")?;
         }
 
         writeln!(output, "}}")?;
