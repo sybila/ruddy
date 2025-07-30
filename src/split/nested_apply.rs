@@ -99,7 +99,7 @@ impl Bdd {
     }
 }
 
-/// Data used to store the state of the inner apply algorithm.
+/// Data used to store the state of the inner `apply` algorithm.
 #[derive(Debug, Clone)]
 pub(crate) struct InnerApplyState<TNodeTable: NodeTableAny> {
     pub(crate) stack: Vec<(TNodeTable::Id, TNodeTable::Id, TNodeTable::VarId)>,
@@ -238,7 +238,7 @@ pub(crate) fn inner_apply_any<
 
 type NodeId<B> = <B as BddAny>::Id;
 
-/// Data used to store the state of the nested apply algorithm.
+/// Data used to store the state of the nested `apply` algorithm.
 #[derive(Debug)]
 struct NestedApplyState<
     TResultBdd: BddAny,
@@ -339,7 +339,7 @@ macro_rules! impl_nested_apply_state_conversion {
 impl_nested_apply_state_conversion!(NestedApplyState16, NestedApplyState32);
 impl_nested_apply_state_conversion!(NestedApplyState32, NestedApplyState64);
 
-/// A nested apply algorithm that interleaves two passes of the apply algorithm.
+/// A nested `apply` algorithm that interleaves two passes of the `apply` algorithm.
 /// First, `outer_op` is applied to `left` and `right`. If the resulting node's
 /// variable triggers `trigger`, `inner_op` is applied to the node's children.
 fn nested_apply_any<
@@ -429,7 +429,7 @@ fn nested_apply_any<
 
         let node_id = if trigger(variable) {
             if inner_state.is_empty() {
-                // Construct the starting state for inner apply
+                // Construct the starting state for inner `apply`
                 inner_state = InnerApplyState {
                     stack: vec![(low_result, high_result, TResultBdd::VarId::undefined())],
                     results: Vec::new(),
@@ -492,7 +492,7 @@ fn nested_apply_any<
 
 /// Like [`nested_apply_any_default_state`], but specifically for 16-bit BDDs.
 ///
-/// The function automatically grows the BDD to 32, or 64 bits if the result does not fit.
+/// The function automatically grows the BDD to 32 or 64 bits if the result does not fit.
 fn nested_apply_16_bit_input<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
     left: &Bdd16,
     right: &Bdd16,
@@ -628,7 +628,7 @@ mod tests {
         assert!(Bdd::structural_eq(&a.exists(&[v_b]), &a));
         assert!(Bdd::structural_eq(&a.for_all(&[v_b]), &a));
 
-        // Quantifying over empty set of variables
+        // Quantifying over an empty set of variables
         let a_and_b = a.and(&b);
         assert!(Bdd::structural_eq(&a_and_b, &a_and_b.exists(&[])));
         assert!(Bdd::structural_eq(&a_and_b, &a_and_b.for_all(&[])));
@@ -682,7 +682,7 @@ mod tests {
         // Create a formula: ((x ∧ z ∧ w) ∨ w) ∧ (y xor z)
         let formula = x.and(&z).and(&w).or(&x.and(&z).or(&w)).and(&y.xor(&z));
 
-        // Test that the order of quantification doesn't matter for same quantifier
+        // Test that the order of quantification doesn't matter for the same quantifier
         let exists_x_then_y = formula.exists(&[v_x]).exists(&[v_y]);
         let exists_y_then_x = formula.exists(&[v_y]).exists(&[v_x]);
         let exists_xy = formula.exists(&[v_x, v_y]);
@@ -802,9 +802,9 @@ mod tests {
             for x in 0..(num_vars / 2) {
                 let x1 = Bdd::new_literal(VariableId::new(x), true);
                 let x2 = Bdd::new_literal(VariableId::new(x + num_vars / 2), true);
-                // To make it a bit more fun, we always erase some previously used variable.
+                // To make it a bit more interesting, we always erase some previously used variable.
                 // This means we are not computing ripple carry adder after all, but at least
-                // it tests the nested apply operator.
+                // it tests the nested `apply` operator.
                 let and = Bdd::binary_op_with_exists(&x1, &x2, boolean_operators::And, &[]);
                 result = Bdd::binary_op_with_exists(
                     &result,

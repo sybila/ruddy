@@ -87,7 +87,7 @@ pub(crate) fn apply_64_bit_input<
         .into()
 }
 
-/// Data used to store the state of the apply algorithm.
+/// Data used to store the state of the `apply` algorithm.
 #[derive(Debug)]
 pub(crate) struct ApplyState<TResultBdd: BddAny, TNodeId1, TNodeId2, TTaskCache, TNodeTable> {
     stack: Vec<(TNodeId1, TNodeId2, TResultBdd::VarId)>,
@@ -170,7 +170,7 @@ impl_apply_state_conversion!(ApplyState32, ApplyState64);
 /// A generic universal function used for implementing logical operators. The function works
 /// for any (reasonable) combination of BDD widths.
 ///
-/// The function returns [`Result::Ok`] with the computed BDD or [`Result::Err`]
+/// The function returns [`Ok`] with the computed BDD or [`Err`]
 /// with the state of the computation if the BDD could not fit into the target width.
 fn apply_any<
     TResultBdd: BddAny,
@@ -366,7 +366,7 @@ pub mod tests {
     impl BddOverflowError {
         pub fn new<T: BddAny>() -> BddOverflowError {
             BddOverflowError {
-                width: std::mem::size_of::<NodeId<T>>() * 8,
+                width: size_of::<NodeId<T>>() * 8,
             }
         }
     }
@@ -422,7 +422,7 @@ pub mod tests {
 
     #[test]
     pub fn basic_apply_invariants() {
-        // These are obviously not all invariants/equalities, but at least something to
+        // These are not all invariants/equalities, but at least something to
         // check that we have the major corner cases covered.
 
         let a = Bdd::new_literal(VariableId::from(1u32), true);
@@ -480,7 +480,7 @@ pub mod tests {
         for a in &data {
             for b in &data {
                 let iff = a.xor(b);
-                let other_iff = (a.and(&b.not())).or(&a.not().and(b));
+                let other_iff = a.and(&b.not()).or(&a.not().and(b));
                 assert!(iff.structural_eq(&other_iff));
             }
         }
@@ -488,7 +488,7 @@ pub mod tests {
 
     #[test]
     fn bdd_test_checked_logical_operators() {
-        // This only covers very basic "positive" outcomes (i.e. no size overflow).
+        // This only covers very basic "positive" outcomes (i.e., no size overflow).
         // Making the BDDs overflow is much harder because we actually need the result to have
         // at least 2^16 (resp. 2^32) nodes.
 

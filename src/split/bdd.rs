@@ -25,7 +25,7 @@ use std::io::{self, Write};
 /// these properties are typically enforced in practice by the implementations of this trait.
 ///
 /// Finally, note that standalone BDDs are typically assumed to be immutable. There are certain
-/// situations where mutability makes sense (for example to allow chaining of multiple smaller
+/// situations where mutability makes sense (for example, to allow chaining of multiple smaller
 /// structural changes without unnecessary copying), but this is mostly an exception to the rule.
 /// In particular, no method in the actual trait allows mutability.
 pub(crate) trait BddAny: Debug + Clone {
@@ -61,7 +61,7 @@ pub(crate) trait BddAny: Debug + Clone {
 
     /// ID of the BDD root node.
     fn root(&self) -> Self::Id;
-    /// Get a (checked) reference to a node, or `None` if such node does not exist.
+    /// Get a (checked) reference to a node, or `None` if such a node does not exist.
     #[allow(dead_code)]
     fn get(&self, id: Self::Id) -> Option<&Self::Node>;
 
@@ -109,7 +109,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
         }
     }
 
-    /// Compares the two BDDs structurally, i.e. by comparing their roots and the
+    /// Compares the two BDDs structurally, i.e., by comparing their roots and the
     /// underlying lists of nodes.
     ///
     /// Note that this does not guarantee that the two BDDs represent the same boolean function,
@@ -180,7 +180,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
     }
 
     /// Approximately counts the number of satisfying valuations in the BDD. If
-    /// `largest_variable` is [`Option::Some`], then it is assumed to be the largest
+    /// `largest_variable` is [`Some`], then it is assumed to be the largest
     /// variable. Otherwise, the largest variable in the BDD is used.
     ///
     /// Assumes that the given variable is greater than or equal to any
@@ -432,7 +432,7 @@ pub(crate) enum BddInner {
     Size64(Bdd64),
 }
 
-/// A type representing a binary decision diagram, that is split, i.e., owns all
+/// A type representing a binary decision diagram, which is split, i.e., owns all
 /// of its nodes in a vector and is immutable.
 ///
 /// Consequently, each operation produces a new BDD, which is independent of its
@@ -528,11 +528,11 @@ impl Bdd {
 
     /// Shrink the BDD to the smallest possible bit-width.
     ///
-    /// - If the BDD has less than `2**16` nodes and all variables fit in 16 bits, it will be
+    /// * If the BDD has less than `2**16` nodes and all variables fit in 16 bits, it will be
     ///   shrunk to a 16-bit BDD.
-    /// - If the BDD has less than `2**32` nodes and all variables fit in 32 bits, it will be
+    /// * If the BDD has less than `2**32` nodes and all variables fit in 32 bits, it will be
     ///   shrunk to a 32-bit BDD.
-    /// - Otherwise, the BDD will remain the same bit-width.
+    /// * Otherwise, the BDD will remain the same bit-width.
     pub(crate) fn shrink(self) -> Self {
         match self.0 {
             BddInner::Size64(bdd) if bdd.node_count() < 1 << 32 => {
@@ -571,7 +571,7 @@ impl Bdd {
         }
     }
 
-    /// Compares the two `Bdd`s structurally, i.e. by comparing their roots and the
+    /// Compares the two `Bdd`-s structurally, i.e., by comparing their roots and the
     /// underlying lists of nodes.
     ///
     /// Note that this does not guarantee that the two BDDs represent the same boolean function,
@@ -586,7 +586,7 @@ impl Bdd {
         }
     }
 
-    /// Returns the identifier of the root node of the `Bdd`.
+    /// Returns the identifier of the `Bdd` root node.
     pub fn root(&self) -> NodeId {
         match &self.0 {
             BddInner::Size16(bdd) => bdd.root().unchecked_into(),
@@ -628,8 +628,8 @@ impl Bdd {
         }
     }
 
-    /// Approximately counts the number of satisfying valuations of the `Bdd`. If
-    /// `largest_variable` is [`Option::Some`], then it is assumed to be the largest
+    /// Approximately counts the number of `Bdd` satisfying valuations. If
+    /// `largest_variable` is [`Some`], then it is assumed to be the largest
     /// variable. Otherwise, the largest variable in the BDD is used.
     ///
     /// # Panics
@@ -732,7 +732,7 @@ pub(crate) mod tests {
         let n: u16 = 16;
         // Create a BDD with 2n-2 variables v_1, ..., v_{2n-2} for the function
         // f(v_1, ..., v_{2n-2}) = v_1 * v_2 + v_3 * v_4 + ... + v_{2n-3} * v_{2n-2}.
-        // with the variable ordering v_1 < v_3 < ... < v_{2n-3} < v_2 < v_4 < ... < v_{2n-2}.
+        // With the variable ordering v_1 < v_3 < ... < v_{2n-3} < v_2 < v_4 < ... < v_{2n-2}.
         // The BDD will have 2^n nodes, hence it should grow to a 32-bit BDD.
         let low_vars: Vec<_> = (1..n).map(VariableId::from).collect();
         let high_vars: Vec<_> = (n + 1..2 * n).map(VariableId::from).collect();

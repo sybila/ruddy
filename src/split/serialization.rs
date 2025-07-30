@@ -21,8 +21,8 @@ pub enum BddDeserializationError {
     InvalidRoot(DeserializeIdError),
     /// The width of the BDD is invalid.
     InvalidWidth(u8),
-    /// The expected delimeter '|' was not found.
-    MissingDelimeter,
+    /// The expected delimiter '|' was not found.
+    MissingDelimiter,
     /// The BDD contains no nodes.
     EmptyBdd,
     /// Any other IO error.
@@ -45,7 +45,7 @@ impl Display for BddDeserializationError {
             BddDeserializationError::InvalidWidth(width) => {
                 write!(f, "Invalid width: {width}. Expected 16, 32 or 64.")
             }
-            BddDeserializationError::MissingDelimeter => {
+            BddDeserializationError::MissingDelimiter => {
                 write!(f, "Missing delimiter in serialized string.")
             }
             BddDeserializationError::EmptyBdd => write!(f, "The BDD does not contain any nodes."),
@@ -159,7 +159,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
         write!(output, "{}|", self.root())?;
         for node in &self.nodes {
             // write the variable using debug formatting to ensure it retains
-            // the packed information and we don't have to recompute it
+            // the packed information, and we don't have to recompute it
             write!(output, "{},", node.variable().to_string_packed())?;
             write!(output, "{},", node.low())?;
             write!(output, "{}|", node.high())?;
@@ -174,7 +174,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
 
         let (root_str, rest) = buffer
             .split_once('|')
-            .ok_or(BddDeserializationError::MissingDelimeter)?;
+            .ok_or(BddDeserializationError::MissingDelimiter)?;
         let root = root_str
             .parse::<TNodeId>()
             .map_err(BddDeserializationError::InvalidRoot)?;
@@ -187,13 +187,13 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
 
             let low = node_parts
                 .next()
-                .ok_or(BddDeserializationError::MissingDelimeter)?
+                .ok_or(BddDeserializationError::MissingDelimiter)?
                 .parse::<TNodeId>()
                 .map_err(BddDeserializationError::InvalidLowChild)?;
 
             let high = node_parts
                 .next()
-                .ok_or(BddDeserializationError::MissingDelimeter)?
+                .ok_or(BddDeserializationError::MissingDelimiter)?
                 .parse::<TNodeId>()
                 .map_err(BddDeserializationError::InvalidHighChild)?;
 
