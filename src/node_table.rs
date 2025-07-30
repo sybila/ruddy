@@ -16,7 +16,7 @@ use std::io::Write;
 use std::rc::Weak;
 use std::{fmt, io};
 
-/// The `NodeTableAny` is a data structure that enforces uniqueness of BDD nodes created
+/// The `NodeTableAny` is a data structure that enforces the uniqueness of BDD nodes created
 /// during the BDD construction process.
 pub(crate) trait NodeTableAny: Default {
     type Id: NodeIdAny;
@@ -29,7 +29,7 @@ pub(crate) trait NodeTableAny: Default {
     /// Returns the number of nodes in the node table, including the terminal nodes.
     fn node_count(&self) -> usize;
 
-    /// Get a (checked) reference to a node, or `None` if such node does not exist.
+    /// Get a (checked) reference to a node, or `None` if such a node does not exist.
     fn get_node(&self, id: Self::Id) -> Option<&Self::Node>;
 
     /// An unchecked variant of [`NodeTableAny::get_node`].
@@ -40,15 +40,15 @@ pub(crate) trait NodeTableAny: Default {
     unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node;
 
     /// Searches the `NodeTableAny` for a node matching node `(var, (low, high))`, and returns its
-    /// identifier (i.e. the node's variable is `var`, and the node's low and high children
+    /// identifier (i.e., the node's variable is `var`, and the node's low and high children
     /// are `low` and `high`, respectively). If such a node is not found, a new node is created
     /// and added to the node table.
     ///
-    /// This method should not be used to "create" terminal nodes, i.e. it must hold that
+    /// This method should not be used to "create" terminal nodes, i.e., it must hold that
     /// `variable != VarId::undefined`. Furthermore, the method can fail if the node table is
     /// "full", meaning no new nodes can be created. Typically, the table is responsible
     /// for resizing itself, but some implementations can be limited in the number of representable
-    /// nodes through other means (e.g. the bit width of the underlying ID types).
+    /// nodes through other means (e.g., the bit width of the underlying ID types).
     fn ensure_node(
         &mut self,
         variable: Self::VarId,
@@ -62,7 +62,7 @@ pub(crate) trait NodeTableAny: Default {
     ///
     /// ## Safety
     ///
-    /// Similar to [`BddAny::new_unchecked`], this function is unsafe, because it can be used to
+    /// Similar to [`BddAny::new_unchecked`], this function is unsafe because it can be used to
     /// create an invariant-breaking BDD. While [`NodeTableAny`] cannot be used (under normal
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
@@ -76,7 +76,7 @@ pub(crate) trait NodeTableAny: Default {
     ///
     /// ## Safety
     ///
-    /// Similar to [`BddAny::new_unchecked`], this function is unsafe, because it can be used to
+    /// Similar to [`BddAny::new_unchecked`], this function is unsafe because it can be used to
     /// create an invariant-breaking BDD. While [`NodeTableAny`] cannot be used (under normal
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
@@ -235,11 +235,11 @@ fn top_bit_is_one(hash: u64) -> bool {
 /// few nodes have many parents, resulting in average `O(log)` search time (this part does
 /// in fact depend on hash collisions).
 ///
-/// (Note that we could obtain a tight `O(log)` bound by using a search tree instead of
+/// (Note that we could get a tight `O(log)` bound by using a search tree instead of
 /// a hash-prefix tree, but this would require balancing, which adds a lot of overhead)
 ///
 /// The `NodeTableImpl` also supports deletion of nodes. When a node is deleted,
-/// it is not actually removed from the table, but only marked as deleted.
+/// it is not removed from the table, but only marked as deleted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NodeTableImpl<
     TNodeId: NodeIdAny,
@@ -503,7 +503,7 @@ where
         }
     }
 
-    /// Replace the one child or the zero child of `node` with `replacement`.
+    /// Replace the one/zero child of `node` with `replacement`.
     fn replace_nodes_child(&mut self, node: TNodeId, one_child: bool, replacement: TNodeId) {
         let node_entry = unsafe { self.get_entry_unchecked_mut(node) };
         if one_child {
@@ -539,10 +539,11 @@ where
     /// and returns its identifier. If such a node is not found,
     /// a new node is created and added to the node table.
     ///
-    /// This method should not be used to "create" terminal nodes, i.e. it must hold that
+    /// This method should not be used to "create" terminal nodes, i.e., it must hold that
     /// `variable != VarId::undefined`.
-    // This method is currently not used, but could be useful in
-    // the future, so let's not remove it.
+    ///
+    /// **This method is currently not used, but could be useful in
+    /// the future as a simpler version of `ensure_node`, so let's not remove it.**
     #[allow(dead_code)]
     pub(crate) fn ensure_literal(
         &mut self,
@@ -557,13 +558,13 @@ where
     }
 
     /// Compute the number of nodes that are reachable from the given `root` node. This
-    /// is not very useful for standalone BDDs, but it is used often to compute BDD size
+    /// is not very useful for standalone BDDs, but it is often used to compute BDD size
     /// for shared BDDs.
     pub(crate) fn reachable_node_count(&self, root: TNodeId) -> usize {
         debug_assert!(!root.is_undefined());
 
         // Ensure that the root exists. Transitively, everything reachable from root
-        // also exists and we can safely avoid bounds checks.
+        // also exists, and we can safely avoid bounds checks.
         assert!(self.get_entry(root).is_some());
 
         if root.is_zero() {
@@ -590,7 +591,7 @@ where
         visited.len() + 2 // plus two terminal nodes...
     }
 
-    /// Get the largest [`VariableId`] in the table. Returns [`Option::None`] if
+    /// Get the largest [`VariableId`] in the table. Returns [`None`] if
     /// the table contains only terminal nodes.
     pub(crate) fn get_largest_variable(&self) -> Option<VariableId> {
         let variable = self
@@ -653,7 +654,7 @@ where
     }
 
     /// Approximately counts the number of satisfying valuations in the BDD
-    /// rooted in `root`. If `largest_variable` is [`Option::Some`], then it is
+    /// rooted in `root`. If `largest_variable` is [`Some`], then it is
     /// assumed to be the largest variable. Otherwise, the largest variable in the
     /// table is used.
     ///
@@ -816,7 +817,7 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId,
         let new_node = if self.first_free.is_undefined() {
             debug_assert_eq!(self.size(), self.node_count());
             TNodeId::try_from(self.size()).map_err(|_| NodeTableFullError {
-                width: std::mem::size_of::<TNodeId>() * 8,
+                width: size_of::<TNodeId>() * 8,
             })?
         } else {
             self.first_free
@@ -860,14 +861,14 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId,
 
             if top_bit_is_one(hash) {
                 if current_entry.next_parent_one.is_undefined() {
-                    // Next "one" slot is empty. We can save the node there.
+                    // The next "one" slot is empty. We can save the node there.
                     current_entry.next_parent_one = new_node;
                     unsafe {
                         self.push_node(variable, low, high);
                     }
                     return Ok(new_node);
                 } else {
-                    // Next slot is already occupied, which means we should test
+                    // The next slot is already occupied, which means we should test
                     // it in the next iteration.
                     current_node = current_entry.next_parent_one;
                 }
@@ -887,198 +888,6 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId,
             // Rotate hash so that the next iteration will see the next top-most bit.
             hash = hash.rotate_left(1);
         }
-    }
-
-    /// Deletes the entry with the given `id` from the node table.
-    ///
-    /// The entry must not be a terminal node, but this condition is only checked in debug mode.
-    ///
-    /// # Warning
-    ///
-    /// Deleting an entry using this method does not update the parent counter of its children.
-    ///
-    /// Deleting an entry which has a parent (i.e., its `parent` pointer is not `undefined`)
-    /// will result in the parent getting disconnected and unable to be found in
-    /// the node table's search trees (such as in [`NodeTableImpl::ensure_node`]). This is
-    /// okay as long as the parent is also deleted after.
-    fn delete(&mut self, id: TNodeId) {
-        debug_assert!(!id.is_terminal());
-        debug_assert!(id.as_usize() < self.size());
-
-        let entry = match self.get_entry_mut(id) {
-            Some(entry) => entry,
-            // The node is already deleted. We don't have to do anything.
-            None => return,
-        };
-
-        let node = &entry.node;
-        let low = node.low();
-        let high = node.high();
-        let deleted_entry_next_parent_one = entry.next_parent_one;
-        let deleted_entry_next_parent_zero = entry.next_parent_zero;
-
-        let max_child = max(low, high);
-
-        let mut hash = hash_node_data(node.variable(), low, high);
-
-        debug_assert!(low.as_usize() < self.size());
-        debug_assert!(high.as_usize() < self.size());
-
-        // Max child is the node through which we will enter the tree using its parent pointer.
-        let tree_parent = match self.get_entry(max_child) {
-            Some(entry) => entry,
-            None => {
-                // The node's max child is deleted. Call `max_child` x and its
-                // entry's parent y (which is the root of the tree that should contain
-                // our node). The bdd and the parent tree look the following way:
-                //          ...                              ...
-                //           |                                |
-                //          id                                x
-                //         /  \  parents of x                |p
-                //        /    \ / /                         y
-                //      ...     x                          /0 \1
-                //             / \                       parents of x
-                //             ...                          ...
-                // Hence we expect `id` and all of the other parents of x to be
-                // deleted (because it should not happen under normal usage that
-                // x is unreachable while its parents are reachable). This means
-                // we don't have to do any updates to the parent tree, and can
-                // simply mark `id` as deleted.
-                self.mark_node_as_deleted(id);
-                return;
-            }
-        };
-        // `tree_parent.parent` is the root of the tree that contains the node to be deleted.
-        let root = tree_parent.parent;
-        debug_assert!(!root.is_undefined());
-
-        // We need to save the parent of the node to be deleted, so that we can update it later.
-        // Note that this parent is *inside* the tree and is different from `tree_parent`.
-        let (deleted_node_parent, deleted_node_is_one_child) =
-            self.find_parent_of_node(id, root, &mut hash);
-
-        // Now follow the hash until we find a leaf.
-        // We will use this leaf to replace the deleted node.
-        let (leaf, leaf_parent, leaf_is_one_child) = self.follow_hash_to_leaf(id, &mut hash);
-
-        let deleted_node_is_leaf = leaf == id;
-        let deleted_node_is_root = deleted_node_parent.is_undefined();
-        let deleted_node_is_replacement_leafs_parent = leaf_parent == id;
-
-        const LEAF: bool = true;
-        const NOT_LEAF: bool = false;
-        const ROOT: bool = true;
-        const NOT_ROOT: bool = false;
-        const LEAF_PARENT: bool = true;
-        const NOT_LEAF_PARENT: bool = false;
-
-        match (
-            deleted_node_is_leaf,
-            deleted_node_is_root,
-            deleted_node_is_replacement_leafs_parent,
-        ) {
-            (LEAF, ROOT, NOT_LEAF_PARENT) => {
-                // The tree contains exactly one node which we are deleting.
-                // Update `tree_parent`'s parent pointer to undefined.
-                let tree_parent = unsafe { self.get_entry_unchecked_mut(max_child) };
-                tree_parent.parent = TNodeId::undefined();
-            }
-            (LEAF, NOT_ROOT, NOT_LEAF_PARENT) => {
-                // The deleted node is a leaf and it is not the root of the tree.
-
-                // Intuitively, `leaf_parent` should in this case be the same as
-                // `deleted_node_parent`. However, `find_leaf_with_same_hash`
-                // cannot find the parent of the leaf, since it starts at the leaf
-                // itself.
-
-                // Update the deleted node's parent's child pointer.
-                self.replace_nodes_child(
-                    deleted_node_parent,
-                    deleted_node_is_one_child,
-                    TNodeId::undefined(),
-                );
-            }
-            (NOT_LEAF, NOT_ROOT, LEAF_PARENT) => {
-                // The deleted node is not a leaf and it is not the root of the tree.
-                // It is the parent of the leaf we are replacing it with.
-
-                // Update the deleted node's parent's child pointer to be the leaf.
-                self.replace_nodes_child(deleted_node_parent, deleted_node_is_one_child, leaf);
-
-                // Update the leaf's child pointer to be the deleted node's (other) child.
-                self.replace_nodes_child(
-                    leaf,
-                    !leaf_is_one_child,
-                    if !leaf_is_one_child {
-                        deleted_entry_next_parent_one
-                    } else {
-                        deleted_entry_next_parent_zero
-                    },
-                );
-            }
-            (NOT_LEAF, ROOT, LEAF_PARENT) => {
-                // The deleted node is the root of the tree, but not a leaf.
-                // Furthermore, it is the parent of the leaf we are replacing it
-                // with, i.e., the leaf is its child.
-
-                // Update `tree_parent`'s parent pointer to point to the leaf.
-                let tree_parent = unsafe { self.get_entry_unchecked_mut(max_child) };
-                tree_parent.parent = leaf;
-
-                // Update the leaf's child pointer to be the deleted node's (other) child.
-                self.replace_nodes_child(
-                    leaf,
-                    !leaf_is_one_child,
-                    if !leaf_is_one_child {
-                        deleted_entry_next_parent_one
-                    } else {
-                        deleted_entry_next_parent_zero
-                    },
-                );
-            }
-            (NOT_LEAF, ROOT, NOT_LEAF_PARENT) => {
-                // The deleted node is the root of the tree, but not a leaf.
-                // It is not the parent of the leaf we are replacing it with.
-
-                // Update `tree_parent`'s parent pointer to point to the leaf.
-                let tree_parent = unsafe { self.get_entry_unchecked_mut(max_child) };
-                tree_parent.parent = leaf;
-
-                // Update the leaf's parent pointer to undefined.
-                self.replace_nodes_child(leaf_parent, leaf_is_one_child, TNodeId::undefined());
-
-                // Update the leaf's child pointers to be the deleted node's children.
-                self.replace_nodes_children(
-                    leaf,
-                    deleted_entry_next_parent_one,
-                    deleted_entry_next_parent_zero,
-                );
-            }
-            (NOT_LEAF, NOT_ROOT, NOT_LEAF_PARENT) => {
-                // The deleted node is not a leaf and it is not the root of the tree.
-                // It is not the parent of the leaf we are replacing it with.
-
-                // Update the deleted node's parent's child pointer to be the leaf.
-                self.replace_nodes_child(deleted_node_parent, deleted_node_is_one_child, leaf);
-
-                // Update the leaf's child pointers to be the deleted node's children.
-                self.replace_nodes_children(
-                    leaf,
-                    deleted_entry_next_parent_one,
-                    deleted_entry_next_parent_zero,
-                );
-
-                // Update the leaf's parent's child pointer to be undefined.
-                self.replace_nodes_child(leaf_parent, leaf_is_one_child, TNodeId::undefined());
-            }
-            (LEAF, _, LEAF_PARENT) => {
-                // This case should never happen. If the deleted node is a leaf
-                // then it cannot be its parent.
-                unreachable!("deleted node is a leaf and also its parent");
-            }
-        }
-
-        self.mark_node_as_deleted(id);
     }
 
     unsafe fn into_bdd<TBdd: BddAny<Id = TNodeId, VarId = TVarId, Node = TNode>>(
@@ -1175,6 +984,198 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId,
 
         let new_root = unsafe { self.get_entry_unchecked_mut(root) }.parent;
         unsafe { TBdd::new_unchecked(new_root, result) }
+    }
+
+    /// Deletes the entry with the given `id` from the node table.
+    ///
+    /// The entry must not be a terminal node, but this condition is only checked in debug mode.
+    ///
+    /// # Warning
+    ///
+    /// Deleting an entry using this method does not update the parent counter of its children.
+    ///
+    /// Deleting an entry which has a parent (i.e., its `parent` pointer is not `undefined`)
+    /// will result in the parent getting disconnected and unable to be found in
+    /// the node table's search trees (such as in [`NodeTableImpl::ensure_node`]). This is
+    /// okay as long as the parent is also deleted after.
+    fn delete(&mut self, id: TNodeId) {
+        debug_assert!(!id.is_terminal());
+        debug_assert!(id.as_usize() < self.size());
+
+        let entry = match self.get_entry_mut(id) {
+            Some(entry) => entry,
+            // The node is already deleted. We don't have to do anything.
+            None => return,
+        };
+
+        let node = &entry.node;
+        let low = node.low();
+        let high = node.high();
+        let deleted_entry_next_parent_one = entry.next_parent_one;
+        let deleted_entry_next_parent_zero = entry.next_parent_zero;
+
+        let max_child = max(low, high);
+
+        let mut hash = hash_node_data(node.variable(), low, high);
+
+        debug_assert!(low.as_usize() < self.size());
+        debug_assert!(high.as_usize() < self.size());
+
+        // Max child is the node through which we will enter the tree using its parent pointer.
+        let tree_parent = match self.get_entry(max_child) {
+            Some(entry) => entry,
+            None => {
+                // The node's max child is deleted. Call `max_child` x and its
+                // entry's parent y (which is the root of the tree that should contain
+                // our node). The bdd and the parent tree look the following way:
+                //          ...                              ...
+                //           |                                |
+                //          id                                x
+                //         /  \  parents of x                |p
+                //        /    \ / /                         y
+                //      ...     x                          /0 \1
+                //             / \                       parents of x
+                //             ...                          ...
+                // Hence, we expect `id` and all the other parents of x to be
+                // deleted (because it should not happen under normal usage that
+                // x is unreachable while its parents are reachable). This means
+                // we don't have to do any updates to the parent tree, and can
+                // simply mark `id` as deleted.
+                self.mark_node_as_deleted(id);
+                return;
+            }
+        };
+        // `tree_parent.parent` is the root of the tree that contains the node to be deleted.
+        let root = tree_parent.parent;
+        debug_assert!(!root.is_undefined());
+
+        // We need to save the parent of the node to be deleted, so that we can update it later.
+        // Note that this parent is *inside* the tree and is different from `tree_parent`.
+        let (deleted_node_parent, deleted_node_is_one_child) =
+            self.find_parent_of_node(id, root, &mut hash);
+
+        // Now follow the hash until we find a leaf.
+        // We will use this leaf to replace the deleted node.
+        let (leaf, leaf_parent, leaf_is_one_child) = self.follow_hash_to_leaf(id, &mut hash);
+
+        let deleted_node_is_leaf = leaf == id;
+        let deleted_node_is_root = deleted_node_parent.is_undefined();
+        let deleted_node_is_replacement_leafs_parent = leaf_parent == id;
+
+        const LEAF: bool = true;
+        const NOT_LEAF: bool = false;
+        const ROOT: bool = true;
+        const NOT_ROOT: bool = false;
+        const LEAF_PARENT: bool = true;
+        const NOT_LEAF_PARENT: bool = false;
+
+        match (
+            deleted_node_is_leaf,
+            deleted_node_is_root,
+            deleted_node_is_replacement_leafs_parent,
+        ) {
+            (LEAF, ROOT, NOT_LEAF_PARENT) => {
+                // The tree contains exactly one node which we are deleting.
+                // Update `tree_parent`'s parent pointer to undefined.
+                let tree_parent = unsafe { self.get_entry_unchecked_mut(max_child) };
+                tree_parent.parent = TNodeId::undefined();
+            }
+            (LEAF, NOT_ROOT, NOT_LEAF_PARENT) => {
+                // The deleted node is a leaf, and it is not the root of the tree.
+
+                // Intuitively, `leaf_parent` should in this case be the same as
+                // `deleted_node_parent`. However, `find_leaf_with_same_hash`
+                // cannot find the parent of the leaf, since it starts at the leaf
+                // itself.
+
+                // Update the deleted node's parent's child pointer.
+                self.replace_nodes_child(
+                    deleted_node_parent,
+                    deleted_node_is_one_child,
+                    TNodeId::undefined(),
+                );
+            }
+            (NOT_LEAF, NOT_ROOT, LEAF_PARENT) => {
+                // The deleted node is not a leaf, and it is not the root of the tree.
+                // It is the parent of the leaf we are replacing it with.
+
+                // Update the deleted node's parent's child pointer to be the leaf.
+                self.replace_nodes_child(deleted_node_parent, deleted_node_is_one_child, leaf);
+
+                // Update the leaf's child pointer to be the deleted node's (other) child.
+                self.replace_nodes_child(
+                    leaf,
+                    !leaf_is_one_child,
+                    if !leaf_is_one_child {
+                        deleted_entry_next_parent_one
+                    } else {
+                        deleted_entry_next_parent_zero
+                    },
+                );
+            }
+            (NOT_LEAF, ROOT, LEAF_PARENT) => {
+                // The deleted node is the root of the tree, but not a leaf.
+                // Furthermore, it is the parent of the leaf we are replacing it
+                // with, i.e., the leaf is its child.
+
+                // Update `tree_parent`'s parent pointer to point to the leaf.
+                let tree_parent = unsafe { self.get_entry_unchecked_mut(max_child) };
+                tree_parent.parent = leaf;
+
+                // Update the leaf's child pointer to be the deleted node's (other) child.
+                self.replace_nodes_child(
+                    leaf,
+                    !leaf_is_one_child,
+                    if !leaf_is_one_child {
+                        deleted_entry_next_parent_one
+                    } else {
+                        deleted_entry_next_parent_zero
+                    },
+                );
+            }
+            (NOT_LEAF, ROOT, NOT_LEAF_PARENT) => {
+                // The deleted node is the root of the tree, but not a leaf.
+                // It is not the parent of the leaf we are replacing it with.
+
+                // Update `tree_parent`'s parent pointer to point to the leaf.
+                let tree_parent = unsafe { self.get_entry_unchecked_mut(max_child) };
+                tree_parent.parent = leaf;
+
+                // Update the leaf's parent pointer to undefined.
+                self.replace_nodes_child(leaf_parent, leaf_is_one_child, TNodeId::undefined());
+
+                // Update the leaf's child pointers to be the deleted node's children.
+                self.replace_nodes_children(
+                    leaf,
+                    deleted_entry_next_parent_one,
+                    deleted_entry_next_parent_zero,
+                );
+            }
+            (NOT_LEAF, NOT_ROOT, NOT_LEAF_PARENT) => {
+                // The deleted node is not a leaf, and it is not the root of the tree.
+                // It is not the parent of the leaf we are replacing it with.
+
+                // Update the deleted node's parent's child pointer to be the leaf.
+                self.replace_nodes_child(deleted_node_parent, deleted_node_is_one_child, leaf);
+
+                // Update the leaf's child pointers to be the deleted node's children.
+                self.replace_nodes_children(
+                    leaf,
+                    deleted_entry_next_parent_one,
+                    deleted_entry_next_parent_zero,
+                );
+
+                // Update the leaf's parent's child pointer to be undefined.
+                self.replace_nodes_child(leaf_parent, leaf_is_one_child, TNodeId::undefined());
+            }
+            (LEAF, _, LEAF_PARENT) => {
+                // This case should never happen. If the deleted node is a leaf,
+                // then it cannot be its parent.
+                unreachable!("deleted node is a leaf and also its parent");
+            }
+        }
+
+        self.mark_node_as_deleted(id);
     }
 }
 
@@ -1391,13 +1392,13 @@ where
 
         // Here we need to create a translation table from the old node ids to the new node ids.
         // We could use a vector for this, but since the old table is not used anymore, we can
-        // reuse it to store the translations. This is safe, because the old table has
+        // reuse it to store the translations. This is safe because the old table has
         // bit-width equal or higher to the new table, hence we can safely fit the new nodes
         // into it. We will use the entry's `parent` pointer to store the translation of the node.
-        // This will not interfere with the traversal of the nodes, because the `parent`
+        // This will not interfere with the traversal of the nodes because the `parent`
         // pointer is not used during the traversal.
         //
-        // Furthermore, we want to avoid initializing all of the `parent` pointers to `undefined`.
+        // Furthermore, we want to avoid initializing all the `parent` pointers to `undefined`.
         // We can do so by using the mark of the nodes to store whether that
         // entry's parent is a translation or not.
 
@@ -1480,7 +1481,7 @@ where
             // `get_entry_unchecked`, which panics if the node is deleted.
             // We want `is_node_reachable_unchecked` to panic, because checking
             // reachability of a deleted node is suspicious and probably a bug.
-            // Hence we use `self.entries.get_unchecked` directly.
+            // Hence, we use `self.entries.get_unchecked` directly.
             // `delete` handles deleted nodes correctly.
             let entry = unsafe { self.entries.get_unchecked(idx) };
             if !entry.node.has_same_mark(self.current_mark) {
@@ -1509,10 +1510,10 @@ where
         let potential_fragmentation = holes + deletions;
 
         if potential_fragmentation.saturating_mul(Self::FRAGMENTATION_FACTOR) >= total_nodes {
-            // If there would be a lot of holes in the table, perform a rebuild operation.
+            // If there are a lot of holes in the table, perform a rebuild operation.
             self.rebuild_shrink(roots, reachable_count, max_var_id)
         } else {
-            // Otherwise just delete the unreachable nodes.
+            // Otherwise, delete the unreachable nodes.
             self.delete_unreachable()
         }
     }
@@ -1844,7 +1845,7 @@ mod tests {
         assert!(table.entries[root.as_usize()].is_deleted());
 
         let new_root = table.entries[1].parent;
-        assert!(new_root != root);
+        assert_ne!(new_root, root);
         assert!(new_root == leaf0 || new_root == leaf1);
 
         let new_root_entry = table.get_entry(new_root).unwrap();
@@ -1863,6 +1864,8 @@ mod tests {
     #[test]
     fn delete_leafs_parent() {
         // Make a tree which looks like this:
+        //
+        // ```
         //    1
         //    |p
         //    2 == root
@@ -1870,6 +1873,8 @@ mod tests {
         // 3    4
         //    /0 \1
         //   5    6
+        // ```
+        //
         // and delete the node with id 4.
 
         let mut table = NodeTable32::new();
@@ -1899,7 +1904,7 @@ mod tests {
         assert!(table.entries[node4.as_usize()].is_deleted());
 
         let replacement = table.get_entry(root).unwrap().next_parent_one;
-        assert!(replacement != node4);
+        assert_ne!(replacement, node4);
         assert!(replacement == leaf0 || replacement == leaf1);
 
         let replacement_entry = table.get_entry(replacement).unwrap();
@@ -2023,7 +2028,7 @@ mod tests {
         let parent_old_next_parent_zero = parent_entry.next_parent_zero;
         let parent_old_next_parent_one = parent_entry.next_parent_one;
 
-        // This is not actually a failure, but a precondition for the test.
+        // This is not a failure, but a precondition for the test.
         // This should not happen unless we get really unlucky with the hash, or
         // the hashing function is bad.
         assert_ne!(node, root);
@@ -2209,6 +2214,7 @@ mod tests {
     #[test]
     fn delete_node_which_is_parent_of_tree_and_then_the_tree() {
         // Make a tree which looks like this:
+        // ```
         //           1
         //           |p
         //           2
@@ -2218,6 +2224,7 @@ mod tests {
         //         4   5
         //           /0 \1
         //          6    7
+        // ```
         // and delete the node with id 3, then 6,7, and 8.
 
         let mut table = NodeTable32::new();
@@ -2289,12 +2296,12 @@ mod tests {
         let mut table = NodeTable32::new();
         let mut ids_reachable = vec![NodeId32::zero(), NodeId32::one()];
 
-        let mut reachable_nonterminal = 10;
+        let mut reachable_non_terminal = 10;
 
-        for i in 0..reachable_nonterminal {
+        for i in 0..reachable_non_terminal {
             let id = table
                 .ensure_node(
-                    VarIdPacked32::new(reachable_nonterminal - i),
+                    VarIdPacked32::new(reachable_non_terminal - i),
                     *ids_reachable.last().unwrap(),
                     NodeId32::zero(),
                 )
@@ -2302,27 +2309,27 @@ mod tests {
             ids_reachable.push(id);
         }
 
-        let reachable_max_var_id = VarIdPacked32::new(reachable_nonterminal);
+        let reachable_max_var_id = VarIdPacked32::new(reachable_non_terminal);
 
         let root_32 = *ids_reachable.last().unwrap();
         let root: NodeId = root_32.unchecked_into();
 
-        let root_subtree_32 = ids_reachable[(reachable_nonterminal / 2) as usize];
+        let root_subtree_32 = ids_reachable[(reachable_non_terminal / 2) as usize];
         let root_subtree: NodeId = root_subtree_32.unchecked_into();
 
-        let superroot_32 = table
+        let super_root_32 = table
             .ensure_node(VarIdPacked32::new(0), root_32, root_subtree_32)
             .unwrap();
-        let superroot: NodeId = superroot_32.unchecked_into();
-        reachable_nonterminal += 1;
+        let super_root: NodeId = super_root_32.unchecked_into();
+        reachable_non_terminal += 1;
 
-        let unreachable_nonterminal_1 = 5;
+        let unreachable_non_terminal_1 = 5;
         let mut ids_unreachable_1 = vec![];
 
-        for i in 0..unreachable_nonterminal_1 {
+        for i in 0..unreachable_non_terminal_1 {
             let id = table
                 .ensure_node(
-                    VarIdPacked32::new(10 * (unreachable_nonterminal_1 - i)),
+                    VarIdPacked32::new(10 * (unreachable_non_terminal_1 - i)),
                     *ids_unreachable_1.last().unwrap_or(&NodeId32::zero()),
                     root_32,
                 )
@@ -2332,13 +2339,13 @@ mod tests {
 
         let unreachable_root1: NodeId = (*ids_unreachable_1.last().unwrap()).unchecked_into();
 
-        let unreachable_nonterminal_2 = 25;
+        let unreachable_non_terminal_2 = 25;
         let mut ids_unreachable_2 = vec![];
 
-        for i in 0..unreachable_nonterminal_2 {
+        for i in 0..unreachable_non_terminal_2 {
             let id = table
                 .ensure_node(
-                    VarIdPacked32::new(100 * (unreachable_nonterminal_2 - i)),
+                    VarIdPacked32::new(100 * (unreachable_non_terminal_2 - i)),
                     *ids_unreachable_2.last().unwrap_or(&NodeId32::zero()),
                     root_subtree_32,
                 )
@@ -2353,18 +2360,18 @@ mod tests {
 
         assert_eq!(
             table.node_count(),
-            (2 + reachable_nonterminal + unreachable_nonterminal_1 + unreachable_nonterminal_2)
+            (2 + reachable_non_terminal + unreachable_non_terminal_1 + unreachable_non_terminal_2)
                 as usize
         );
 
         let root = Rc::new(Cell::new(root));
         let root_subtree = Rc::new(Cell::new(root_subtree));
-        let superroot = Rc::new(Cell::new(superroot));
+        let super_root = Rc::new(Cell::new(super_root));
 
         let mut roots = vec![
             Rc::downgrade(&root),
             Rc::downgrade(&root_subtree),
-            Rc::downgrade(&superroot),
+            Rc::downgrade(&super_root),
         ];
 
         {
@@ -2379,11 +2386,11 @@ mod tests {
         assert_eq!(roots.len(), 3);
         assert_eq!(roots[0].upgrade().unwrap().get(), root.get());
         assert_eq!(roots[1].upgrade().unwrap().get(), root_subtree.get());
-        assert_eq!(roots[2].upgrade().unwrap().get(), superroot.get());
+        assert_eq!(roots[2].upgrade().unwrap().get(), super_root.get());
 
         assert_eq!(
             mark_data.reachable_count,
-            2 + reachable_nonterminal as usize
+            2 + reachable_non_terminal as usize
         );
         assert_eq!(mark_data.max_var_id, reachable_max_var_id);
 
@@ -2437,21 +2444,21 @@ mod tests {
         weak_ids: &[TNodeId],
     ) -> (Vec<Rc<Cell<NodeId>>>, Vec<Weak<Cell<NodeId>>>) {
         let mut all_roots = vec![];
-        let mut strongs = vec![];
+        let mut strong_roots = vec![];
 
         for &id in strong_ids {
             let strong = Rc::new(Cell::new(id.unchecked_into()));
             all_roots.push(strong.clone());
-            strongs.push(strong);
+            strong_roots.push(strong);
         }
 
         for &id in weak_ids {
             all_roots.push(Rc::new(Cell::new(id.unchecked_into())));
         }
 
-        let weaks = all_roots.iter().map(Rc::downgrade).collect();
+        let weak_roots = all_roots.iter().map(Rc::downgrade).collect();
 
-        (strongs, weaks)
+        (strong_roots, weak_roots)
     }
 
     #[allow(clippy::type_complexity)]
@@ -2521,8 +2528,8 @@ mod tests {
 
         let unreachable_root2 = ids[ids.len() - 1];
 
-        let (strongs, roots) = make_roots(&[root], &[unreachable_root1, unreachable_root2]);
-        assert_eq!(strongs.len(), 1);
+        let (strong_roots, roots) = make_roots(&[root], &[unreachable_root1, unreachable_root2]);
+        assert_eq!(strong_roots.len(), 1);
 
         let mut expected = ToNodeTable::default();
         let mut ids_to = vec![ToNodeId::zero(), ToNodeId::one()];
@@ -2543,7 +2550,7 @@ mod tests {
         (
             expected,
             expected_root,
-            strongs[0].clone(),
+            strong_roots[0].clone(),
             roots,
             var_reachable.unchecked_into(),
         )
@@ -2655,8 +2662,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        // At this point all of the nodes are considered reachable.
-        // Flip mark and remark reachable nodes.
+        // At this point, all the nodes are considered reachable.
+        // Flip mark and re-mark the reachable nodes.
         let new_mark = table.current_mark.flipped();
         table.current_mark = new_mark;
 
@@ -2752,7 +2759,7 @@ mod tests {
 
         let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
 
-        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+        let (_strong_roots, mut roots) = make_roots(&[root_big, root_small], &[]);
 
         use super::GarbageCollector;
         let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
@@ -2775,7 +2782,7 @@ mod tests {
 
         let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
 
-        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+        let (_strong_roots, mut roots) = make_roots(&[root_big, root_small], &[]);
 
         use super::GarbageCollector;
         let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
@@ -2800,7 +2807,7 @@ mod tests {
 
         let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
 
-        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+        let (_strong_roots, mut roots) = make_roots(&[root_big, root_small], &[]);
 
         use super::GarbageCollector;
         let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
@@ -2950,7 +2957,7 @@ mod tests {
 
         let root = ids_reachable[ids_reachable.len() - 1];
 
-        let (_strongs, mut roots) = make_roots(&[root], &[unreachable_root]);
+        let (_strong_roots, mut roots) = make_roots(&[root], &[unreachable_root]);
 
         fn validate_table_after_gc(
             new_table: &mut NodeTable32,
@@ -3062,7 +3069,7 @@ mod tests {
 
         let root = ids_reachable[ids_reachable.len() - 1];
 
-        let (_strongs, mut roots) = make_roots(&[root], &[unreachable_root]);
+        let (_strong_roots, mut roots) = make_roots(&[root], &[unreachable_root]);
 
         let new_table = match table.collect_garbage(&mut roots) {
             NodeTable::Size16(table) => table,
@@ -3092,8 +3099,8 @@ mod tests {
 
     #[test]
     fn into_reachable_bdd() {
-        // Manually create a very broken bdd (not in post-order, with nodes
-        // not in the bdd inbetween nodes in the bdd) inside the node table.
+        // Manually create a very broken bdd (not in post-order, with unreachable nodes
+        // present in the BDD) inside the node table.
         // bdd: v1 or !v2 or v3 or v4
         // the nodes are organized as: 0, 1, v4, vi1, vi2, v1, vi3, v2, v3
         let mut table = NodeTable32::new();
