@@ -77,11 +77,11 @@ impl<'a, TNodeSource: NodeAccess> Iterator for SatisfyingValuationsImpl<'a, TNod
                 }
             }
         }
-        // The final valuation had all of the variables assigned to `true`, so the
-        // loop exited without returning a value. Move to next path.
+        // The final valuation had all the variables assigned to `true`, so the
+        // loop exited without returning a value. Move to the next path.
         let new_path = self.sat_paths.next()?;
 
-        // Start with all of the variables not on the path assigned to `false`.
+        // Start with all the variables not on the path assigned to `false`.
         self.valuation = new_path
             .iter()
             .map(|assignment| assignment.unwrap_or(false))
@@ -220,12 +220,12 @@ pub(crate) mod split {
 
     impl Bdd {
         /// Gets an iterator over the satisfying paths in this `Bdd`. If `largest_variable`
-        /// is [`Option::Some`], then it is assumed to be the largest variable.
+        /// is [`Some`], then it is assumed to be the largest variable.
         /// Otherwise, the largest variable in the BDD is used.
         ///
         /// # Panics
         ///
-        /// Panics if the given variable is smaller than any variable in the BDD.
+        /// Panic if the given variable is smaller than any variable in the BDD.
         pub fn satisfying_paths(&self, largest_variable: Option<VariableId>) -> SatisfyingPaths {
             match &self.0 {
                 BddInner::Size16(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size16(
@@ -241,12 +241,12 @@ pub(crate) mod split {
         }
 
         /// Gets an iterator over the satisfying valuations of this `Bdd`. If `largest_variable`
-        /// is [`Option::Some`], then it is assumed to be the largest variable.
+        /// is [`Some`], then it is assumed to be the largest variable.
         /// Otherwise, the largest variable in the BDD is used.
         ///
         /// # Panics
         ///
-        /// Panics if the given variable is smaller than any variable in the BDD.
+        /// Panic if the given variable is smaller than any variable in the BDD.
         pub fn satisfying_valuation(
             &self,
             largest_variable: Option<VariableId>,
@@ -491,12 +491,12 @@ pub(crate) mod shared {
 
     impl BddManager {
         /// Gets an iterator over the satisfying paths in the `bdd`. If `largest_variable`
-        /// is [`Option::Some`], then it is assumed to be the largest variable.
+        /// is [`Some`], then it is assumed to be the largest variable.
         /// Otherwise, the largest variable residing in the manager is used.
         ///
         /// # Panics
         ///
-        /// Panics if the given variable is smaller than any variable in the BDD.
+        /// Panic if the given variable is smaller than any variable in the BDD.
         pub fn satisfying_paths(
             &self,
             bdd: &Bdd,
@@ -516,12 +516,12 @@ pub(crate) mod shared {
         }
 
         /// Gets an iterator over the satisfying valuations in the `bdd`. If `largest_variable`
-        /// is [`Option::Some`], then it is assumed to be the largest variable.
+        /// is [`Some`], then it is assumed to be the largest variable.
         /// Otherwise, the largest variable residing in the manager is used.
         ///
         /// # Panics
         ///
-        /// Panics if the given variable is smaller than any variable in the BDD.
+        /// Panic if the given variable is smaller than any variable in the BDD.
         pub fn satisfying_valuations(
             &self,
             bdd: &Bdd,
