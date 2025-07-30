@@ -1,25 +1,24 @@
-//! Defines the representation of node tables (used to represent BDDs). Includes: [`NodeTableAny`],
-//! [`NodeTableImpl`], [`NodeTable16`], [`NodeTable32`], and [`NodeTable64`].
-//!
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
+use crate::variable_id::{Mark, VariableId, variables_between};
 use crate::{
-    bdd::BddAny,
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
+    split::bdd::BddAny,
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny},
 };
 use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
-use rustc_hash::{FxBuildHasher, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use std::cell::Cell;
 use std::cmp::{max, min};
 use std::collections::HashSet;
-use std::fmt;
+use std::io::Write;
 use std::rc::Weak;
+use std::{fmt, io};
 
-/// The `NodeTableAny` is a data structure that enforces uniqueness of BDD nodes created
+/// The `NodeTableAny` is a data structure that enforces the uniqueness of BDD nodes created
 /// during the BDD construction process.
-pub trait NodeTableAny: Default {
+pub(crate) trait NodeTableAny: Default {
     type Id: NodeIdAny;
     type VarId: VarIdPackedAny;
     type Node: BddNodeAny<Id = Self::Id, VarId = Self::VarId>;
@@ -30,10 +29,10 @@ pub trait NodeTableAny: Default {
     /// Returns the number of nodes in the node table, including the terminal nodes.
     fn node_count(&self) -> usize;
 
-    /// Get a (checked) reference to a node, or `None` if such node does not exist.
+    /// Get a (checked) reference to a node, or `None` if such a node does not exist.
     fn get_node(&self, id: Self::Id) -> Option<&Self::Node>;
 
-    /// An unchecked variant of [`NodeTableAny::get`].
+    /// An unchecked variant of [`NodeTableAny::get_node`].
     ///
     /// # Safety
     ///
@@ -41,15 +40,15 @@ pub trait NodeTableAny: Default {
     unsafe fn get_node_unchecked(&self, id: Self::Id) -> &Self::Node;
 
     /// Searches the `NodeTableAny` for a node matching node `(var, (low, high))`, and returns its
-    /// identifier (i.e. the node's variable is `var`, and the node's low and high children
+    /// identifier (i.e., the node's variable is `var`, and the node's low and high children
     /// are `low` and `high`, respectively). If such a node is not found, a new node is created
     /// and added to the node table.
     ///
-    /// This method should not be used to "create" terminal nodes, i.e. it must hold that
+    /// This method should not be used to "create" terminal nodes, i.e., it must hold that
     /// `variable != VarId::undefined`. Furthermore, the method can fail if the node table is
     /// "full", meaning no new nodes can be created. Typically, the table is responsible
     /// for resizing itself, but some implementations can be limited in the number of representable
-    /// nodes through other means (e.g. the bit width of the underlying ID types).
+    /// nodes through other means (e.g., the bit width of the underlying ID types).
     fn ensure_node(
         &mut self,
         variable: Self::VarId,
@@ -63,7 +62,7 @@ pub trait NodeTableAny: Default {
     ///
     /// ## Safety
     ///
-    /// Similar to [`BddAny::new_unchecked`], this function is unsafe, because it can be used to
+    /// Similar to [`BddAny::new_unchecked`], this function is unsafe because it can be used to
     /// create an invariant-breaking BDD. While [`NodeTableAny`] cannot be used (under normal
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
@@ -77,7 +76,7 @@ pub trait NodeTableAny: Default {
     ///
     /// ## Safety
     ///
-    /// Similar to [`BddAny::new_unchecked`], this function is unsafe, because it can be used to
+    /// Similar to [`BddAny::new_unchecked`], this function is unsafe because it can be used to
     /// create an invariant-breaking BDD. While [`NodeTableAny`] cannot be used (under normal
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
@@ -98,7 +97,7 @@ pub trait NodeTableAny: Default {
 ///
 /// It carries the bit-width of the current node ID type for which the error was raised.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct NodeTableFullError {
+pub(crate) struct NodeTableFullError {
     width: usize,
 }
 
@@ -114,7 +113,7 @@ impl std::error::Error for NodeTableFullError {}
 /// referencing the `parent` tree that is rooted in this entry, plus two `next_parent` pointers
 /// that define the parent tree which contains the entry itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeEntry<
+pub(crate) struct NodeEntry<
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
@@ -125,11 +124,8 @@ pub struct NodeEntry<
     next_parent_one: TNodeId,
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > From<TNode> for NodeEntry<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    From<TNode> for NodeEntry<TNodeId, TVarId, TNode>
 {
     fn from(node: TNode) -> Self {
         NodeEntry {
@@ -141,11 +137,8 @@ impl<
     }
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > NodeEntry<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    NodeEntry<TNodeId, TVarId, TNode>
 {
     fn zero() -> Self {
         Self::from(TNode::zero())
@@ -202,11 +195,8 @@ struct DeletedEntryMut<
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
 >(&'a mut NodeEntry<TNodeId, TVarId, TNode>);
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > DeletedEntryMut<'_, TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    DeletedEntryMut<'_, TNodeId, TVarId, TNode>
 {
     fn next_free(&self) -> TNodeId {
         self.0.node.high()
@@ -237,34 +227,6 @@ fn top_bit_is_one(hash: u64) -> bool {
     hash & (1 << (u64::BITS - 1)) != 0
 }
 
-/// A type-safe wrapper on `u8` that represents the current reachability cycle
-/// of the garbage-collection algorithm.
-///
-/// We can use one bit to mark a node as reachable (1) or unreachable (0).
-/// However, this requires clearing the reachability bit of each node
-/// before recalculating reachability. Instead, we use a cycle counter
-/// that flips between two values, allowing us to treat all previously
-/// reachable nodes as unreachable by simply flipping the cycle.
-///
-/// A node is considered reachable if its reachability bit matches the current cycle value.
-///
-/// To simplify bitwise operations, we use `0x00` and `0xFF` as the two cycle values.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct ReachabilityCycle(u8);
-
-impl ReachabilityCycle {
-    /// Returns the flipped cycle value.
-    pub(crate) fn flipped(self) -> Self {
-        Self(!self.0)
-    }
-}
-
-impl From<ReachabilityCycle> for u8 {
-    fn from(cycle: ReachabilityCycle) -> u8 {
-        cycle.0
-    }
-}
-
 /// A generic implementation of [`NodeTableAny`] backed by [`BddNodeAny`].
 ///
 /// Instead of "normal" hashing, it uses a "tree of parents" scheme, where each node is stored
@@ -273,13 +235,13 @@ impl From<ReachabilityCycle> for u8 {
 /// few nodes have many parents, resulting in average `O(log)` search time (this part does
 /// in fact depend on hash collisions).
 ///
-/// (Note that we could obtain a tight `O(log)` bound by using a search tree instead of
+/// (Note that we could get a tight `O(log)` bound by using a search tree instead of
 /// a hash-prefix tree, but this would require balancing, which adds a lot of overhead)
 ///
 /// The `NodeTableImpl` also supports deletion of nodes. When a node is deleted,
-/// it is not actually removed from the table, but only marked as deleted.
+/// it is not removed from the table, but only marked as deleted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeTableImpl<
+pub(crate) struct NodeTableImpl<
     TNodeId: NodeIdAny,
     TVarId: VarIdPackedAny,
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
@@ -287,7 +249,7 @@ pub struct NodeTableImpl<
     entries: Vec<NodeEntry<TNodeId, TVarId, TNode>>,
     first_free: TNodeId,
     deleted: usize,
-    cycle: ReachabilityCycle,
+    current_mark: Mark,
 }
 
 impl<TNodeId, TVarId, TNode> NodeTableImpl<TNodeId, TVarId, TNode>
@@ -302,7 +264,7 @@ where
             entries: vec![NodeEntry::zero(), NodeEntry::one()],
             first_free: TNodeId::undefined(),
             deleted: 0,
-            cycle: ReachabilityCycle::default(),
+            current_mark: Mark::default(),
         }
     }
 
@@ -321,25 +283,28 @@ where
     /// table. This requirement is not checked in release mode and if broken results
     /// in undefined behavior.
     unsafe fn push_node(&mut self, variable: TVarId, low: TNodeId, high: TNodeId) {
-        self.get_node_unchecked_mut(low).increment_parent_counter();
+        unsafe {
+            debug_assert!(!variable.is_undefined());
+            self.get_node_unchecked_mut(low).increment_parent_counter();
 
-        self.get_node_unchecked_mut(high).increment_parent_counter();
+            self.get_node_unchecked_mut(high).increment_parent_counter();
 
-        // Reset the parent counter of the new node.
-        let mut variable = variable.reset_parents();
-        // Consider the new node as reachable in the current cycle.
-        variable.mark_as_reachable(self.cycle);
+            // Reset the parent counter of the new node.
+            let mut variable = variable.reset_parents();
+            // We want the new node to have the same mark as the rest of the nodes.
+            variable.set_mark(self.current_mark);
 
-        let new_entry = TNode::new(variable, low, high).into();
+            let new_entry = TNode::new(variable, low, high).into();
 
-        if self.first_free.is_undefined() {
-            self.entries.push(new_entry);
-        } else {
-            let free_entry = self.get_deleted_entry_unchecked_mut(self.first_free);
-            let new_first_free = free_entry.next_free();
-            free_entry.insert(new_entry);
-            self.first_free = new_first_free;
-            self.deleted -= 1;
+            if self.first_free.is_undefined() {
+                self.entries.push(new_entry);
+            } else {
+                let free_entry = self.get_deleted_entry_unchecked_mut(self.first_free);
+                let new_first_free = free_entry.next_free();
+                free_entry.insert(new_entry);
+                self.first_free = new_first_free;
+                self.deleted -= 1;
+            }
         }
     }
 
@@ -363,10 +328,12 @@ where
     ///
     /// Calling this method with an `id` that is not in the table is undefined behavior.
     unsafe fn get_entry_unchecked(&self, id: TNodeId) -> &NodeEntry<TNodeId, TVarId, TNode> {
-        debug_assert!(id.as_usize() < self.size());
-        let entry = self.entries.get_unchecked(id.as_usize());
-        debug_assert!(!entry.is_deleted());
-        entry
+        unsafe {
+            debug_assert!(id.as_usize() < self.size());
+            let entry = self.entries.get_unchecked(id.as_usize());
+            debug_assert!(!entry.is_deleted());
+            entry
+        }
     }
 
     /// An unchecked variant of [`NodeTableImpl::get_entry_mut`].
@@ -378,10 +345,12 @@ where
         &mut self,
         id: TNodeId,
     ) -> &mut NodeEntry<TNodeId, TVarId, TNode> {
-        debug_assert!(id.as_usize() < self.size());
-        let entry = self.entries.get_unchecked_mut(id.as_usize());
-        debug_assert!(!entry.is_deleted());
-        entry
+        unsafe {
+            debug_assert!(id.as_usize() < self.size());
+            let entry = self.entries.get_unchecked_mut(id.as_usize());
+            debug_assert!(!entry.is_deleted());
+            entry
+        }
     }
 
     /// Get an unchecked mutable reference to the deleted entry with the given `id`.
@@ -393,10 +362,12 @@ where
         &mut self,
         id: TNodeId,
     ) -> DeletedEntryMut<TNodeId, TVarId, TNode> {
-        debug_assert!(id.as_usize() < self.size());
-        let entry = self.entries.get_unchecked_mut(id.as_usize());
-        debug_assert!(entry.is_deleted());
-        DeletedEntryMut(entry)
+        unsafe {
+            debug_assert!(id.as_usize() < self.size());
+            let entry = self.entries.get_unchecked_mut(id.as_usize());
+            debug_assert!(entry.is_deleted());
+            DeletedEntryMut(entry)
+        }
     }
 
     /// Get an unchecked mutable reference to the node with the given `id`.
@@ -405,7 +376,15 @@ where
     ///
     /// Calling this method with an `id` that is not in the table is undefined behavior.
     pub(crate) unsafe fn get_node_unchecked_mut(&mut self, id: TNodeId) -> &mut TNode {
-        &mut self.get_entry_unchecked_mut(id).node
+        unsafe { &mut self.get_entry_unchecked_mut(id).node }
+    }
+
+    /// Get an iterator over nodes in the table.
+    pub(crate) fn iter_nodes(&self) -> impl Iterator<Item = &TNode> {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.is_deleted())
+            .map(|entry| &entry.node)
     }
 
     /// Find the parent of `node` in the tree rooted in `start` by following the `hash`.
@@ -524,7 +503,7 @@ where
         }
     }
 
-    /// Replace the one child or the zero child of `node` with `replacement`.
+    /// Replace the one/zero child of `node` with `replacement`.
     fn replace_nodes_child(&mut self, node: TNodeId, one_child: bool, replacement: TNodeId) {
         let node_entry = unsafe { self.get_entry_unchecked_mut(node) };
         if one_child {
@@ -560,11 +539,12 @@ where
     /// and returns its identifier. If such a node is not found,
     /// a new node is created and added to the node table.
     ///
-    /// This method should not be used to "create" terminal nodes, i.e. it must hold that
+    /// This method should not be used to "create" terminal nodes, i.e., it must hold that
     /// `variable != VarId::undefined`.
-    // This method is currently not used, but could be useful in
-    // the future, so let's not remove it.
-    #[allow(unused)]
+    ///
+    /// **This method is currently not used, but could be useful in
+    /// the future as a simpler version of `ensure_node`, so let's not remove it.**
+    #[allow(dead_code)]
     pub(crate) fn ensure_literal(
         &mut self,
         variable: TVarId,
@@ -578,13 +558,13 @@ where
     }
 
     /// Compute the number of nodes that are reachable from the given `root` node. This
-    /// is not very useful for standalone BDDs, but it is used often to compute BDD size
+    /// is not very useful for standalone BDDs, but it is often used to compute BDD size
     /// for shared BDDs.
     pub(crate) fn reachable_node_count(&self, root: TNodeId) -> usize {
         debug_assert!(!root.is_undefined());
 
         // Ensure that the root exists. Transitively, everything reachable from root
-        // also exists and we can safely avoid bounds checks.
+        // also exists, and we can safely avoid bounds checks.
         assert!(self.get_entry(root).is_some());
 
         if root.is_zero() {
@@ -610,24 +590,186 @@ where
 
         visited.len() + 2 // plus two terminal nodes...
     }
+
+    /// Get the largest [`VariableId`] in the table. Returns [`None`] if
+    /// the table contains only terminal nodes.
+    pub(crate) fn get_largest_variable(&self) -> Option<VariableId> {
+        let variable = self
+            .iter_nodes()
+            .map(|node| node.variable())
+            .reduce(TVarId::max_defined)
+            .expect("node table is not empty");
+        if variable.is_undefined() {
+            None
+        } else {
+            Some(variable.unchecked_into())
+        }
+    }
+
+    /// Approximately counts the number of satisfying paths in the BDD rooted
+    /// in `root`.
+    pub(crate) fn count_satisfying_paths(&self, root: TNodeId) -> f64 {
+        debug_assert!(!root.is_undefined());
+        assert!(self.get_entry(root).is_some());
+
+        let mut cache: FxHashMap<TNodeId, f64> =
+            FxHashMap::with_capacity_and_hasher(1024, FxBuildHasher);
+
+        cache.insert(TNodeId::zero(), 0.0);
+        cache.insert(TNodeId::one(), 1.0);
+
+        let mut stack = vec![root];
+
+        while let Some(id) = stack.pop() {
+            if cache.contains_key(&id) {
+                continue;
+            }
+
+            let node = unsafe { self.get_node_unchecked(id) };
+            let low = node.low();
+            let high = node.high();
+
+            let low_count = cache.get(&low);
+            let high_count = cache.get(&high);
+
+            match (low_count, high_count) {
+                (Some(low_count), Some(high_count)) => {
+                    cache.insert(id, low_count + high_count);
+                }
+                _ => {
+                    stack.push(id);
+
+                    if low_count.is_none() {
+                        stack.push(low);
+                    }
+
+                    if high_count.is_none() {
+                        stack.push(high);
+                    }
+                }
+            };
+        }
+
+        *cache.get(&root).expect("count for root present in cache")
+    }
+
+    /// Approximately counts the number of satisfying valuations in the BDD
+    /// rooted in `root`. If `largest_variable` is [`Some`], then it is
+    /// assumed to be the largest variable. Otherwise, the largest variable in the
+    /// table is used.
+    ///
+    /// Assumes that the given variable is greater than or equal to than any
+    /// variable in the BDD. Otherwise, the function may give unexpected results
+    /// in release mode or panic in debug mode.
+    pub(crate) fn count_satisfying_valuations(
+        &self,
+        root: TNodeId,
+        largest_variable: Option<VariableId>,
+    ) -> f64 {
+        debug_assert!(!root.is_undefined());
+        if root.is_zero() {
+            return 0.0;
+        }
+
+        let largest_variable = largest_variable.or_else(|| self.get_largest_variable());
+
+        if root.is_one() {
+            if let Some(largest_variable) = largest_variable {
+                let exponent = (Into::<u64>::into(largest_variable) + 1)
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP);
+                return 2.0f64.powi(exponent);
+            }
+            return 1.0f64;
+        }
+
+        let largest_variable = largest_variable.expect("node table contains non-terminal node");
+
+        let root_variable = match self.get_node(root) {
+            Some(node) => node.variable(),
+            None => unreachable!(),
+        };
+
+        let mut cache: FxHashMap<TNodeId, f64> =
+            FxHashMap::with_capacity_and_hasher(1024, FxBuildHasher);
+
+        cache.insert(TNodeId::zero(), 0.0);
+        cache.insert(TNodeId::one(), 1.0);
+
+        let mut stack = vec![root];
+
+        while let Some(&id) = stack.last() {
+            if cache.contains_key(&id) {
+                stack.pop();
+                continue;
+            }
+
+            let node = unsafe { self.get_node_unchecked(id) };
+            let low = node.low();
+            let high = node.high();
+            let variable = node.variable();
+            let low_variable = unsafe { self.get_node_unchecked(low) }.variable();
+            let high_variable = unsafe { self.get_node_unchecked(high) }.variable();
+
+            let low_count = cache.get(&low);
+            let high_count = cache.get(&high);
+
+            match (low_count, high_count) {
+                (Some(low_count), Some(high_count)) => {
+                    let skipped = variables_between(low_variable, variable, largest_variable)
+                        .try_into()
+                        .unwrap_or(f64::MAX_EXP);
+
+                    let low_count = low_count * 2.0f64.powi(skipped);
+
+                    let skipped = variables_between(high_variable, variable, largest_variable)
+                        .try_into()
+                        .unwrap_or(f64::MAX_EXP);
+
+                    let high_count = high_count * 2.0f64.powi(skipped);
+
+                    cache.insert(id, low_count + high_count);
+                }
+                _ => {
+                    stack.push(id);
+
+                    if low_count.is_none() {
+                        stack.push(low);
+                    }
+
+                    if high_count.is_none() {
+                        stack.push(high);
+                    }
+                }
+            };
+        }
+
+        let count = cache.get(&root).expect("count for root present in cache");
+        let result = count
+            * 2.0f64.powi(
+                root_variable
+                    .unpack_u64()
+                    .try_into()
+                    .unwrap_or(f64::MAX_EXP),
+            );
+        if result.is_nan() {
+            f64::INFINITY
+        } else {
+            result
+        }
+    }
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > Default for NodeTableImpl<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    Default for NodeTableImpl<TNodeId, TVarId, TNode>
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > NodeTableAny for NodeTableImpl<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    NodeTableAny for NodeTableImpl<TNodeId, TVarId, TNode>
 {
     type Id = TNodeId;
     type VarId = TVarId;
@@ -641,7 +783,7 @@ impl<
             entries,
             first_free: TNodeId::undefined(),
             deleted: 0,
-            cycle: ReachabilityCycle::default(),
+            current_mark: Mark::default(),
         }
     }
 
@@ -654,7 +796,7 @@ impl<
     }
 
     unsafe fn get_node_unchecked(&self, id: TNodeId) -> &TNode {
-        &self.get_entry_unchecked(id).node
+        unsafe { &self.get_entry_unchecked(id).node }
     }
 
     fn ensure_node(
@@ -675,7 +817,7 @@ impl<
         let new_node = if self.first_free.is_undefined() {
             debug_assert_eq!(self.size(), self.node_count());
             TNodeId::try_from(self.size()).map_err(|_| NodeTableFullError {
-                width: std::mem::size_of::<TNodeId>() * 8,
+                width: size_of::<TNodeId>() * 8,
             })?
         } else {
             self.first_free
@@ -719,14 +861,14 @@ impl<
 
             if top_bit_is_one(hash) {
                 if current_entry.next_parent_one.is_undefined() {
-                    // Next "one" slot is empty. We can save the node there.
+                    // The next "one" slot is empty. We can save the node there.
                     current_entry.next_parent_one = new_node;
                     unsafe {
                         self.push_node(variable, low, high);
                     }
                     return Ok(new_node);
                 } else {
-                    // Next slot is already occupied, which means we should test
+                    // The next slot is already occupied, which means we should test
                     // it in the next iteration.
                     current_node = current_entry.next_parent_one;
                 }
@@ -746,6 +888,102 @@ impl<
             // Rotate hash so that the next iteration will see the next top-most bit.
             hash = hash.rotate_left(1);
         }
+    }
+
+    unsafe fn into_bdd<TBdd: BddAny<Id = TNodeId, VarId = TVarId, Node = TNode>>(
+        self,
+        root: TNodeId,
+    ) -> TBdd {
+        // Zero and one have special cases to always ensure that they are structurally equivalent
+        // to the result of [`BddAny::new_false`]/[`BddAny::new_true`], regardless of what's in the
+        // provided node table.
+        if root.is_zero() {
+            return TBdd::new_false();
+        }
+        if root.is_one() {
+            return TBdd::new_true();
+        }
+        let nodes = self.entries.into_iter().map(|entry| entry.node).collect();
+        unsafe { TBdd::new_unchecked(root, nodes) }
+    }
+
+    unsafe fn into_reachable_bdd<
+        TBdd: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
+    >(
+        mut self,
+        root: Self::Id,
+    ) -> TBdd {
+        // Zero and one have special cases to always ensure that they are structurally equivalent
+        // to the result of [`BddAny::new_false`]/[`BddAny::new_true`], regardless of what's in the
+        // provided node table.
+        if root.is_zero() {
+            return TBdd::new_false();
+        }
+        if root.is_one() {
+            return TBdd::new_true();
+        }
+
+        let mut result = vec![TNode::zero(), TNode::one()];
+        let mut stack = vec![root];
+
+        let new_mark = self.current_mark.flipped();
+
+        // `0` and `1` have correct translations.
+        unsafe {
+            let zero = self.get_entry_unchecked_mut(TNodeId::zero());
+            zero.parent = TNodeId::zero();
+
+            let one = self.get_entry_unchecked_mut(TNodeId::one());
+            one.parent = TNodeId::one();
+        }
+
+        while let Some(id) = stack.pop() {
+            let node = unsafe { self.get_node_unchecked(id) };
+            if node.has_same_mark(new_mark) {
+                continue;
+            }
+
+            let low = node.low();
+            let high = node.high();
+            let variable = node.variable();
+
+            let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
+            let low_is_translated = low_entry.node.has_same_mark(new_mark);
+            let new_low = low_entry.parent;
+
+            let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
+            let high_is_translated = high_entry.node.has_same_mark(new_mark);
+            let new_high = high_entry.parent;
+
+            if low_is_translated && high_is_translated {
+                result.push(TNode::new(variable.reset(), new_low, new_high));
+                unsafe {
+                    result
+                        .get_unchecked_mut(new_low.as_usize())
+                        .increment_parent_counter();
+                    result
+                        .get_unchecked_mut(new_high.as_usize())
+                        .increment_parent_counter();
+                }
+                let entry = unsafe { self.get_entry_unchecked_mut(id) };
+                entry.parent = (result.len() - 1).unchecked_into();
+                entry.node.set_mark(new_mark);
+                continue;
+            }
+
+            stack.push(id);
+
+            if !high_is_translated {
+                stack.push(high);
+            }
+
+            if !low_is_translated {
+                stack.push(low);
+            }
+        }
+
+        let new_root = unsafe { self.get_entry_unchecked_mut(root) }.parent;
+        unsafe { TBdd::new_unchecked(new_root, result) }
     }
 
     /// Deletes the entry with the given `id` from the node table.
@@ -798,7 +1036,7 @@ impl<
                 //      ...     x                          /0 \1
                 //             / \                       parents of x
                 //             ...                          ...
-                // Hence we expect `id` and all of the other parents of x to be
+                // Hence, we expect `id` and all the other parents of x to be
                 // deleted (because it should not happen under normal usage that
                 // x is unreachable while its parents are reachable). This means
                 // we don't have to do any updates to the parent tree, and can
@@ -843,7 +1081,7 @@ impl<
                 tree_parent.parent = TNodeId::undefined();
             }
             (LEAF, NOT_ROOT, NOT_LEAF_PARENT) => {
-                // The deleted node is a leaf and it is not the root of the tree.
+                // The deleted node is a leaf, and it is not the root of the tree.
 
                 // Intuitively, `leaf_parent` should in this case be the same as
                 // `deleted_node_parent`. However, `find_leaf_with_same_hash`
@@ -858,7 +1096,7 @@ impl<
                 );
             }
             (NOT_LEAF, NOT_ROOT, LEAF_PARENT) => {
-                // The deleted node is not a leaf and it is not the root of the tree.
+                // The deleted node is not a leaf, and it is not the root of the tree.
                 // It is the parent of the leaf we are replacing it with.
 
                 // Update the deleted node's parent's child pointer to be the leaf.
@@ -914,7 +1152,7 @@ impl<
                 );
             }
             (NOT_LEAF, NOT_ROOT, NOT_LEAF_PARENT) => {
-                // The deleted node is not a leaf and it is not the root of the tree.
+                // The deleted node is not a leaf, and it is not the root of the tree.
                 // It is not the parent of the leaf we are replacing it with.
 
                 // Update the deleted node's parent's child pointer to be the leaf.
@@ -931,7 +1169,7 @@ impl<
                 self.replace_nodes_child(leaf_parent, leaf_is_one_child, TNodeId::undefined());
             }
             (LEAF, _, LEAF_PARENT) => {
-                // This case should never happen. If the deleted node is a leaf
+                // This case should never happen. If the deleted node is a leaf,
                 // then it cannot be its parent.
                 unreachable!("deleted node is a leaf and also its parent");
             }
@@ -939,109 +1177,11 @@ impl<
 
         self.mark_node_as_deleted(id);
     }
-
-    unsafe fn into_bdd<TBdd: BddAny<Id = TNodeId, VarId = TVarId, Node = TNode>>(
-        self,
-        root: TNodeId,
-    ) -> TBdd {
-        // Zero and one have special cases to always ensure that they are structurally equivalent
-        // to the result of [`BddAny::new_false`]/[`BddAny::new_true`], regardless of what's in the
-        // provided node table.
-        if root.is_zero() {
-            return TBdd::new_false();
-        }
-        if root.is_one() {
-            return TBdd::new_true();
-        }
-        let nodes = self.entries.into_iter().map(|entry| entry.node).collect();
-        unsafe { TBdd::new_unchecked(root, nodes) }
-    }
-
-    unsafe fn into_reachable_bdd<
-        TBdd: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
-    >(
-        mut self,
-        root: Self::Id,
-    ) -> TBdd {
-        // Zero and one have special cases to always ensure that they are structurally equivalent
-        // to the result of [`BddAny::new_false`]/[`BddAny::new_true`], regardless of what's in the
-        // provided node table.
-        if root.is_zero() {
-            return TBdd::new_false();
-        }
-        if root.is_one() {
-            return TBdd::new_true();
-        }
-
-        let mut result = vec![TNode::zero(), TNode::one()];
-        let mut stack = vec![root];
-
-        // After the flip, all of the reachable nodes will be marked as unreachable for the cycle.
-        let next_cycle = self.cycle.flipped();
-        self.cycle = next_cycle;
-
-        // `0` and `1` have correct translations.
-        unsafe {
-            let zero = self.get_entry_unchecked_mut(TNodeId::zero());
-            zero.parent = TNodeId::zero();
-
-            let one = self.get_entry_unchecked_mut(TNodeId::one());
-            one.parent = TNodeId::one();
-        }
-
-        while let Some(id) = stack.pop() {
-            let node = unsafe { self.get_node_unchecked(id) };
-            if node.is_reachable(next_cycle) {
-                continue;
-            }
-
-            let low = node.low();
-            let high = node.high();
-            let variable = node.variable();
-
-            let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
-            let low_is_translated = low_entry.node.is_reachable(next_cycle);
-            let new_low = low_entry.parent;
-
-            let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
-            let high_is_translated = high_entry.node.is_reachable(next_cycle);
-            let new_high = high_entry.parent;
-
-            if low_is_translated && high_is_translated {
-                result.push(TNode::new(variable.reset(), new_low, new_high));
-                unsafe {
-                    result
-                        .get_unchecked_mut(new_low.as_usize())
-                        .increment_parent_counter();
-                    result
-                        .get_unchecked_mut(new_high.as_usize())
-                        .increment_parent_counter();
-                }
-                let entry = unsafe { self.get_entry_unchecked_mut(id) };
-                entry.parent = (result.len() - 1).unchecked_into();
-                entry.node.mark_as_reachable(next_cycle);
-                continue;
-            }
-
-            stack.push(id);
-
-            if !high_is_translated {
-                stack.push(high);
-            }
-
-            if !low_is_translated {
-                stack.push(low);
-            }
-        }
-
-        let new_root = unsafe { self.get_entry_unchecked_mut(root) }.parent;
-        unsafe { TBdd::new_unchecked(new_root, result) }
-    }
 }
 
-pub type NodeTable16 = NodeTableImpl<NodeId16, VarIdPacked16, BddNode16>;
-pub type NodeTable32 = NodeTableImpl<NodeId32, VarIdPacked32, BddNode32>;
-pub type NodeTable64 = NodeTableImpl<NodeId64, VarIdPacked64, BddNode64>;
+pub(crate) type NodeTable16 = NodeTableImpl<NodeId16, VarIdPacked16, BddNode16>;
+pub(crate) type NodeTable32 = NodeTableImpl<NodeId32, VarIdPacked32, BddNode32>;
+pub(crate) type NodeTable64 = NodeTableImpl<NodeId64, VarIdPacked64, BddNode64>;
 
 macro_rules! impl_from_node_table {
     ($from:ident, $to:ident) => {
@@ -1056,7 +1196,7 @@ macro_rules! impl_from_node_table {
                     entries,
                     first_free: table.first_free.into(),
                     deleted: table.deleted,
-                    cycle: table.cycle,
+                    current_mark: table.current_mark,
                 }
             }
         }
@@ -1114,7 +1254,7 @@ impl NodeTable64 {
 }
 
 #[derive(Debug)]
-pub enum NodeTable {
+pub(crate) enum NodeTable {
     Size16(NodeTable16),
     Size32(NodeTable32),
     Size64(NodeTable64),
@@ -1166,11 +1306,10 @@ where
     /// The `roots` vector is modified to only contain the roots that are still alive.
     /// The nodes' parent counters are recalculated to only count the reachable parents.
     fn mark_reachable(&mut self, roots: &mut Vec<Weak<Cell<NodeId>>>) -> MarkPhaseData<TVarId> {
-        // Flip the mark cycle to avoid having to reset the reachability mark of all nodes.
-        // Now, the nodes that were previously considered reachable will be viewed
-        // as unreachable.
-        let next_cycle = self.cycle.flipped();
-        self.cycle = next_cycle;
+        // Currently, all nodes have their mark set to `self.current_mark`.
+        // Flip the mark to avoid having to explicitly reset the mark of all nodes.
+        let new_mark = self.current_mark.flipped();
+        self.current_mark = new_mark;
 
         // Terminal nodes are always reachable.
         let mut reachable_count = 2usize;
@@ -1180,10 +1319,10 @@ where
             if let Some(root) = root.upgrade() {
                 let root_id: TNodeId = root.get().unchecked_into();
                 let root_node = unsafe { self.get_node_unchecked_mut(root_id) };
-                if root_node.is_reachable(next_cycle) {
+                if root_node.has_same_mark(new_mark) {
                     return true;
                 }
-                root_node.mark_as_reachable(next_cycle);
+                root_node.set_mark(new_mark);
                 root_node.reset_parent_counter();
                 reachable_count += 1;
 
@@ -1199,18 +1338,18 @@ where
                     let low = node.low();
 
                     let high_node = unsafe { self.get_node_unchecked_mut(high) };
-                    if !high_node.is_reachable(next_cycle) {
+                    if !high_node.has_same_mark(new_mark) {
                         high_node.reset_parent_counter();
-                        high_node.mark_as_reachable(next_cycle);
+                        high_node.set_mark(new_mark);
                         reachable_count += 1;
                         stack.push(high);
                     }
                     high_node.increment_parent_counter();
 
                     let low_node = unsafe { self.get_node_unchecked_mut(low) };
-                    if !low_node.is_reachable(next_cycle) {
+                    if !low_node.has_same_mark(new_mark) {
                         low_node.reset_parent_counter();
-                        low_node.mark_as_reachable(next_cycle);
+                        low_node.set_mark(new_mark);
                         reachable_count += 1;
                         stack.push(low);
                     }
@@ -1253,22 +1392,17 @@ where
 
         // Here we need to create a translation table from the old node ids to the new node ids.
         // We could use a vector for this, but since the old table is not used anymore, we can
-        // reuse it to store the translations. This is safe, because the old table has
+        // reuse it to store the translations. This is safe because the old table has
         // bit-width equal or higher to the new table, hence we can safely fit the new nodes
         // into it. We will use the entry's `parent` pointer to store the translation of the node.
-        // This will not interfere with the traversal of the nodes, because the `parent`
+        // This will not interfere with the traversal of the nodes because the `parent`
         // pointer is not used during the traversal.
         //
-        // Furthermore, we want to avoid initializing all of the `parent` pointers to `undefined`.
-        // We can do so by using the `reachable` bit of the nodes to store whether that
-        // entry's parent is a translation or not. We expect all of the reachable nodes to
-        // have their `reachable` bit correctly set. Therefore, we flip the table's cycle
-        // and use the nodes' reachability as a marker for whether the `parent` pointer
-        // contains a computed translation or not.
+        // Furthermore, we want to avoid initializing all the `parent` pointers to `undefined`.
+        // We can do so by using the mark of the nodes to store whether that
+        // entry's parent is a translation or not.
 
-        // After the flip, all of the reachable nodes will be marked as unreachable for the cycle.
-        let next_cycle = self.cycle.flipped();
-        self.cycle = next_cycle;
+        let new_mark = self.current_mark.flipped();
 
         // `0` and `1` have correct translations.
         unsafe {
@@ -1292,11 +1426,11 @@ where
                     let high = node.high();
 
                     let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
-                    let low_is_translated = low_entry.node.is_reachable(next_cycle);
+                    let low_is_translated = low_entry.node.has_same_mark(new_mark);
                     let new_low = low_entry.parent;
 
                     let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
-                    let high_is_translated = high_entry.node.is_reachable(next_cycle);
+                    let high_is_translated = high_entry.node.has_same_mark(new_mark);
                     let new_high = high_entry.parent;
 
                     if low_is_translated && high_is_translated {
@@ -1311,7 +1445,7 @@ where
                             );
                         let entry = unsafe { self.get_entry_unchecked_mut(id) };
                         entry.parent = new_id.into();
-                        entry.node.mark_as_reachable(next_cycle);
+                        entry.node.set_mark(new_mark);
                         continue;
                     }
 
@@ -1326,9 +1460,10 @@ where
                     }
                 }
 
-                debug_assert!(self
-                    .get_node(root_id)
-                    .is_some_and(|node| node.is_reachable(next_cycle)));
+                debug_assert!(
+                    self.get_node(root_id)
+                        .is_some_and(|node| node.has_same_mark(new_mark))
+                );
                 let new_root = unsafe { self.get_entry_unchecked_mut(root_id).parent };
                 root.set(new_root.unchecked_into());
             }
@@ -1346,10 +1481,10 @@ where
             // `get_entry_unchecked`, which panics if the node is deleted.
             // We want `is_node_reachable_unchecked` to panic, because checking
             // reachability of a deleted node is suspicious and probably a bug.
-            // Hence we use `self.entries.get_unchecked` directly.
+            // Hence, we use `self.entries.get_unchecked` directly.
             // `delete` handles deleted nodes correctly.
             let entry = unsafe { self.entries.get_unchecked(idx) };
-            if !entry.node.is_reachable(self.cycle) {
+            if !entry.node.has_same_mark(self.current_mark) {
                 self.delete(id);
             }
         }
@@ -1375,10 +1510,10 @@ where
         let potential_fragmentation = holes + deletions;
 
         if potential_fragmentation.saturating_mul(Self::FRAGMENTATION_FACTOR) >= total_nodes {
-            // If there would be a lot of holes in the table, perform a rebuild operation.
+            // If there are a lot of holes in the table, perform a rebuild operation.
             self.rebuild_shrink(roots, reachable_count, max_var_id)
         } else {
-            // Otherwise just delete the unreachable nodes.
+            // Otherwise, delete the unreachable nodes.
             self.delete_unreachable()
         }
     }
@@ -1495,18 +1630,87 @@ impl GarbageCollector for NodeTable64 {
     }
 }
 
+impl<TNodeId, TVarId, TNode> NodeTableImpl<TNodeId, TVarId, TNode>
+where
+    TNodeId: NodeIdAny,
+    TVarId: VarIdPackedAny,
+    TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
+{
+    /// Write the BDD rooted in `root` as a DOT graph to the given `output` stream.
+    pub(crate) fn write_bdd_as_dot(&self, root: TNodeId, output: &mut dyn Write) -> io::Result<()> {
+        assert!(self.get_entry(root).is_some());
+
+        let mut seen = FxHashSet::default();
+        seen.insert(root);
+        seen.insert(TNodeId::zero());
+        seen.insert(TNodeId::one());
+        let mut stack = vec![root];
+        writeln!(output, "digraph BDD {{")?;
+        writeln!(
+            output,
+            "  __ruddy_root [label=\"\", style=invis, height=0, width=0];"
+        )?;
+
+        writeln!(output, "  __ruddy_root -> {root};")?;
+        writeln!(output)?;
+        writeln!(output, "  edge [dir=none];")?;
+        writeln!(output)?;
+
+        writeln!(
+            output,
+            "  0 [label=\"0\", shape=box, width=0.3, height=0.3];"
+        )?;
+        writeln!(
+            output,
+            "  1 [label=\"1\", shape=box, width=0.3, height=0.3];"
+        )?;
+        if root.is_terminal() {
+            writeln!(output, "}}")?;
+            return Ok(());
+        }
+
+        writeln!(output)?;
+
+        while let Some(id) = stack.pop() {
+            let node = unsafe { self.get_node_unchecked(id) };
+
+            let low = node.low();
+            let high = node.high();
+            let variable = node.variable();
+
+            writeln!(output, "  {id} [label=\"{variable}\", shape=circle];")?;
+            writeln!(output, "  {id} -> {low} [style=dashed];")?;
+            writeln!(output, "  {id} -> {high};",)?;
+
+            if !seen.contains(&low) {
+                seen.insert(low);
+                stack.push(low);
+            }
+
+            if !seen.contains(&high) {
+                seen.insert(high);
+                stack.push(high);
+            }
+        }
+
+        writeln!(output, "}}")?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
     use std::rc::{Rc, Weak};
 
-    use crate::bdd::{Bdd32, BddAny};
     use crate::bdd_node::{BddNode32, BddNodeAny};
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeIdAny};
     use crate::node_table::{
-        hash_node_data, NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny,
+        NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny, hash_node_data,
     };
+    use crate::split::bdd::{Bdd32, BddAny};
     use crate::variable_id::{
         VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     };
@@ -1576,18 +1780,22 @@ mod tests {
         let err = table
             .ensure_node(v, NodeId16::zero(), NodeId16::one())
             .unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.width, 16);
 
         table.delete(NodeId16::new(2));
         assert!(!table.is_full());
-        assert!(table
-            .ensure_node(VarIdPacked16::new(11), NodeId16::zero(), NodeId16::one())
-            .is_ok());
+        assert!(
+            table
+                .ensure_node(VarIdPacked16::new(11), NodeId16::zero(), NodeId16::one())
+                .is_ok()
+        );
         assert!(table.is_full());
-        assert!(table
-            .ensure_node(VarIdPacked16::new(12), NodeId16::zero(), NodeId16::one())
-            .is_err());
+        assert!(
+            table
+                .ensure_node(VarIdPacked16::new(12), NodeId16::zero(), NodeId16::one())
+                .is_err()
+        );
     }
 
     #[test]
@@ -1637,7 +1845,7 @@ mod tests {
         assert!(table.entries[root.as_usize()].is_deleted());
 
         let new_root = table.entries[1].parent;
-        assert!(new_root != root);
+        assert_ne!(new_root, root);
         assert!(new_root == leaf0 || new_root == leaf1);
 
         let new_root_entry = table.get_entry(new_root).unwrap();
@@ -1656,6 +1864,8 @@ mod tests {
     #[test]
     fn delete_leafs_parent() {
         // Make a tree which looks like this:
+        //
+        // ```
         //    1
         //    |p
         //    2 == root
@@ -1663,6 +1873,8 @@ mod tests {
         // 3    4
         //    /0 \1
         //   5    6
+        // ```
+        //
         // and delete the node with id 4.
 
         let mut table = NodeTable32::new();
@@ -1692,7 +1904,7 @@ mod tests {
         assert!(table.entries[node4.as_usize()].is_deleted());
 
         let replacement = table.get_entry(root).unwrap().next_parent_one;
-        assert!(replacement != node4);
+        assert_ne!(replacement, node4);
         assert!(replacement == leaf0 || replacement == leaf1);
 
         let replacement_entry = table.get_entry(replacement).unwrap();
@@ -1816,7 +2028,7 @@ mod tests {
         let parent_old_next_parent_zero = parent_entry.next_parent_zero;
         let parent_old_next_parent_one = parent_entry.next_parent_one;
 
-        // This is not actually a failure, but a precondition for the test.
+        // This is not a failure, but a precondition for the test.
         // This should not happen unless we get really unlucky with the hash, or
         // the hashing function is bad.
         assert_ne!(node, root);
@@ -2002,6 +2214,7 @@ mod tests {
     #[test]
     fn delete_node_which_is_parent_of_tree_and_then_the_tree() {
         // Make a tree which looks like this:
+        // ```
         //           1
         //           |p
         //           2
@@ -2011,6 +2224,7 @@ mod tests {
         //         4   5
         //           /0 \1
         //          6    7
+        // ```
         // and delete the node with id 3, then 6,7, and 8.
 
         let mut table = NodeTable32::new();
@@ -2077,25 +2291,17 @@ mod tests {
         assert_eq!(node4_entry.parent, NodeId32::undefined());
     }
 
-    impl NodeTable32 {
-        /// Returns `true` if the node with the given `id` is considered reachable in the current cycle.
-        unsafe fn is_node_reachable_unchecked(&self, id: NodeId32) -> bool {
-            let node = unsafe { self.get_node_unchecked(id) };
-            node.is_reachable(self.cycle)
-        }
-    }
-
     #[test]
     fn mark_reachable() {
         let mut table = NodeTable32::new();
         let mut ids_reachable = vec![NodeId32::zero(), NodeId32::one()];
 
-        let mut reachable_nonterminal = 10;
+        let mut reachable_non_terminal = 10;
 
-        for i in 0..reachable_nonterminal {
+        for i in 0..reachable_non_terminal {
             let id = table
                 .ensure_node(
-                    VarIdPacked32::new(reachable_nonterminal - i),
+                    VarIdPacked32::new(reachable_non_terminal - i),
                     *ids_reachable.last().unwrap(),
                     NodeId32::zero(),
                 )
@@ -2103,27 +2309,27 @@ mod tests {
             ids_reachable.push(id);
         }
 
-        let reachable_max_var_id = VarIdPacked32::new(reachable_nonterminal);
+        let reachable_max_var_id = VarIdPacked32::new(reachable_non_terminal);
 
         let root_32 = *ids_reachable.last().unwrap();
         let root: NodeId = root_32.unchecked_into();
 
-        let root_subtree_32 = ids_reachable[(reachable_nonterminal / 2) as usize];
+        let root_subtree_32 = ids_reachable[(reachable_non_terminal / 2) as usize];
         let root_subtree: NodeId = root_subtree_32.unchecked_into();
 
-        let superroot_32 = table
+        let super_root_32 = table
             .ensure_node(VarIdPacked32::new(0), root_32, root_subtree_32)
             .unwrap();
-        let superroot: NodeId = superroot_32.unchecked_into();
-        reachable_nonterminal += 1;
+        let super_root: NodeId = super_root_32.unchecked_into();
+        reachable_non_terminal += 1;
 
-        let unreachable_nonterminal_1 = 5;
+        let unreachable_non_terminal_1 = 5;
         let mut ids_unreachable_1 = vec![];
 
-        for i in 0..unreachable_nonterminal_1 {
+        for i in 0..unreachable_non_terminal_1 {
             let id = table
                 .ensure_node(
-                    VarIdPacked32::new(10 * (unreachable_nonterminal_1 - i)),
+                    VarIdPacked32::new(10 * (unreachable_non_terminal_1 - i)),
                     *ids_unreachable_1.last().unwrap_or(&NodeId32::zero()),
                     root_32,
                 )
@@ -2133,13 +2339,13 @@ mod tests {
 
         let unreachable_root1: NodeId = (*ids_unreachable_1.last().unwrap()).unchecked_into();
 
-        let unreachable_nonterminal_2 = 25;
+        let unreachable_non_terminal_2 = 25;
         let mut ids_unreachable_2 = vec![];
 
-        for i in 0..unreachable_nonterminal_2 {
+        for i in 0..unreachable_non_terminal_2 {
             let id = table
                 .ensure_node(
-                    VarIdPacked32::new(100 * (unreachable_nonterminal_2 - i)),
+                    VarIdPacked32::new(100 * (unreachable_non_terminal_2 - i)),
                     *ids_unreachable_2.last().unwrap_or(&NodeId32::zero()),
                     root_subtree_32,
                 )
@@ -2154,18 +2360,18 @@ mod tests {
 
         assert_eq!(
             table.node_count(),
-            (2 + reachable_nonterminal + unreachable_nonterminal_1 + unreachable_nonterminal_2)
+            (2 + reachable_non_terminal + unreachable_non_terminal_1 + unreachable_non_terminal_2)
                 as usize
         );
 
         let root = Rc::new(Cell::new(root));
         let root_subtree = Rc::new(Cell::new(root_subtree));
-        let superroot = Rc::new(Cell::new(superroot));
+        let super_root = Rc::new(Cell::new(super_root));
 
         let mut roots = vec![
             Rc::downgrade(&root),
             Rc::downgrade(&root_subtree),
-            Rc::downgrade(&superroot),
+            Rc::downgrade(&super_root),
         ];
 
         {
@@ -2180,16 +2386,21 @@ mod tests {
         assert_eq!(roots.len(), 3);
         assert_eq!(roots[0].upgrade().unwrap().get(), root.get());
         assert_eq!(roots[1].upgrade().unwrap().get(), root_subtree.get());
-        assert_eq!(roots[2].upgrade().unwrap().get(), superroot.get());
+        assert_eq!(roots[2].upgrade().unwrap().get(), super_root.get());
 
         assert_eq!(
             mark_data.reachable_count,
-            2 + reachable_nonterminal as usize
+            2 + reachable_non_terminal as usize
         );
         assert_eq!(mark_data.max_var_id, reachable_max_var_id);
 
         for &id in ids_reachable.iter() {
-            assert!(unsafe { table.is_node_reachable_unchecked(id) });
+            assert!(
+                table
+                    .get_node(id)
+                    .unwrap()
+                    .has_same_mark(table.current_mark)
+            );
             if !id.is_terminal() && id != root_32 && id != root_subtree_32 {
                 // The reachable nodes should have exactly one parent.
                 let node = &mut table.get_entry_mut(id).unwrap().node;
@@ -2208,12 +2419,22 @@ mod tests {
         let root_subtree = &mut table.get_entry_mut(root_subtree_32).unwrap().node;
         assert!(root_subtree.has_many_parents());
 
-        for id in ids_unreachable_1.iter() {
-            assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
+        for &id in ids_unreachable_1.iter() {
+            assert!(
+                !table
+                    .get_node(id)
+                    .unwrap()
+                    .has_same_mark(table.current_mark)
+            );
         }
 
-        for id in ids_unreachable_2.iter() {
-            assert!(!unsafe { table.is_node_reachable_unchecked(*id) });
+        for &id in ids_unreachable_2.iter() {
+            assert!(
+                !table
+                    .get_node(id)
+                    .unwrap()
+                    .has_same_mark(table.current_mark)
+            );
         }
     }
 
@@ -2223,21 +2444,21 @@ mod tests {
         weak_ids: &[TNodeId],
     ) -> (Vec<Rc<Cell<NodeId>>>, Vec<Weak<Cell<NodeId>>>) {
         let mut all_roots = vec![];
-        let mut strongs = vec![];
+        let mut strong_roots = vec![];
 
         for &id in strong_ids {
             let strong = Rc::new(Cell::new(id.unchecked_into()));
             all_roots.push(strong.clone());
-            strongs.push(strong);
+            strong_roots.push(strong);
         }
 
         for &id in weak_ids {
             all_roots.push(Rc::new(Cell::new(id.unchecked_into())));
         }
 
-        let weaks = all_roots.iter().map(Rc::downgrade).collect();
+        let weak_roots = all_roots.iter().map(Rc::downgrade).collect();
 
-        (strongs, weaks)
+        (strong_roots, weak_roots)
     }
 
     #[allow(clippy::type_complexity)]
@@ -2307,8 +2528,8 @@ mod tests {
 
         let unreachable_root2 = ids[ids.len() - 1];
 
-        let (strongs, roots) = make_roots(&[root], &[unreachable_root1, unreachable_root2]);
-        assert_eq!(strongs.len(), 1);
+        let (strong_roots, roots) = make_roots(&[root], &[unreachable_root1, unreachable_root2]);
+        assert_eq!(strong_roots.len(), 1);
 
         let mut expected = ToNodeTable::default();
         let mut ids_to = vec![ToNodeId::zero(), ToNodeId::one()];
@@ -2329,7 +2550,7 @@ mod tests {
         (
             expected,
             expected_root,
-            strongs[0].clone(),
+            strong_roots[0].clone(),
             roots,
             var_reachable.unchecked_into(),
         )
@@ -2338,8 +2559,8 @@ mod tests {
     #[test]
     fn rebuild_32_to_16() {
         let mut table = NodeTable32::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = u16::MAX as usize;
 
@@ -2357,16 +2578,18 @@ mod tests {
 
         assert_eq!(expected, rebuilt);
 
-        assert!(rebuilt
-            .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
-            .is_err());
+        assert!(
+            rebuilt
+                .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
+                .is_err()
+        );
     }
 
     #[test]
     fn rebuild_64_to_16() {
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = u16::MAX as usize;
 
@@ -2384,16 +2607,18 @@ mod tests {
 
         assert_eq!(expected, rebuilt);
 
-        assert!(rebuilt
-            .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
-            .is_err());
+        assert!(
+            rebuilt
+                .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
+                .is_err()
+        );
     }
 
     #[test]
     fn rebuild_64_to_32() {
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         // Making 2**32 nodes is impractical, so just 2**17 for now.
         let reachable = (u16::MAX as usize) * 2;
@@ -2437,21 +2662,17 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        // At this point all of the nodes are considered reachable.
-        // Flip cycle and mark reachable nodes.
-        let cycle = table.cycle.flipped();
-        table.cycle = cycle;
+        // At this point, all the nodes are considered reachable.
+        // Flip mark and re-mark the reachable nodes.
+        let new_mark = table.current_mark.flipped();
+        table.current_mark = new_mark;
 
         for &id in reachable_ids.iter() {
-            table
-                .get_entry_mut(id)
-                .unwrap()
-                .node
-                .mark_as_reachable(cycle);
+            table.get_entry_mut(id).unwrap().node.set_mark(new_mark);
         }
 
         for &id in unreachable_ids.iter() {
-            assert!(!table.get_node(id).unwrap().is_reachable(cycle));
+            assert!(!table.get_node(id).unwrap().has_same_mark(new_mark));
         }
 
         table.delete_unreachable();
@@ -2462,7 +2683,7 @@ mod tests {
         for &id in reachable_ids.iter() {
             assert!(table.get_entry(id).is_some());
             assert!(!table.entries[id.as_usize()].is_deleted());
-            assert!(table.get_node(id).unwrap().is_reachable(cycle));
+            assert!(table.get_node(id).unwrap().has_same_mark(new_mark));
         }
 
         for &id in unreachable_ids.iter() {
@@ -2491,7 +2712,7 @@ mod tests {
         assert_eq!(table.deleted, nodes as usize);
 
         // Delete the rest of the nodes.
-        table.cycle = table.cycle.flipped();
+        table.current_mark = table.current_mark.flipped();
         table.delete_unreachable();
 
         assert_eq!(table.node_count(), 2);
@@ -2538,7 +2759,7 @@ mod tests {
 
         let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
 
-        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+        let (_strong_roots, mut roots) = make_roots(&[root_big, root_small], &[]);
 
         use super::GarbageCollector;
         let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
@@ -2561,7 +2782,7 @@ mod tests {
 
         let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
 
-        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+        let (_strong_roots, mut roots) = make_roots(&[root_big, root_small], &[]);
 
         use super::GarbageCollector;
         let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
@@ -2586,7 +2807,7 @@ mod tests {
 
         let (root_big, root_small) = init_rebuild_does_not_shrink(&mut table, big, small);
 
-        let (_strongs, mut roots) = make_roots(&[root_big, root_small], &[]);
+        let (_strong_roots, mut roots) = make_roots(&[root_big, root_small], &[]);
 
         use super::GarbageCollector;
         let rebuilt = match table.rebuild_shrink(&mut roots, reachable, big) {
@@ -2615,8 +2836,8 @@ mod tests {
     fn rebuild_shrink_64_to_16() {
         use super::GarbageCollector;
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = NodeTable64::SHRINK_THRESHOLD_16_BIT;
 
@@ -2642,8 +2863,8 @@ mod tests {
     fn rebuild_shrink_64_to_32() {
         use super::GarbageCollector;
         let mut table = NodeTable64::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = NodeTable64::SHRINK_THRESHOLD_16_BIT + 1;
 
@@ -2669,8 +2890,8 @@ mod tests {
     fn rebuild_shrink_32_to_16() {
         use super::GarbageCollector;
         let mut table = NodeTable32::new();
-        // Make sure that the cycle does not interfere with rebuilding.
-        table.cycle = table.cycle.flipped();
+        // Make sure that the mark does not interfere with rebuilding.
+        table.current_mark = table.current_mark.flipped();
 
         let reachable = NodeTable32::SHRINK_THRESHOLD_16_BIT;
 
@@ -2736,7 +2957,7 @@ mod tests {
 
         let root = ids_reachable[ids_reachable.len() - 1];
 
-        let (_strongs, mut roots) = make_roots(&[root], &[unreachable_root]);
+        let (_strong_roots, mut roots) = make_roots(&[root], &[unreachable_root]);
 
         fn validate_table_after_gc(
             new_table: &mut NodeTable32,
@@ -2848,7 +3069,7 @@ mod tests {
 
         let root = ids_reachable[ids_reachable.len() - 1];
 
-        let (_strongs, mut roots) = make_roots(&[root], &[unreachable_root]);
+        let (_strong_roots, mut roots) = make_roots(&[root], &[unreachable_root]);
 
         let new_table = match table.collect_garbage(&mut roots) {
             NodeTable::Size16(table) => table,
@@ -2868,18 +3089,18 @@ mod tests {
 
         assert_eq!(roots.len(), 1);
         assert_eq!(new_table.node_count(), reachable);
-        // The tables should still be equal except for the cycle.
+        // The tables should still be equal except for the mark.
         // This might break if we also start checking that the packed information
         // in the variables is the same.
-        assert_ne!(new_table.cycle, expected.cycle);
-        new_table.cycle = new_table.cycle.flipped();
+        assert_ne!(new_table.current_mark, expected.current_mark);
+        new_table.current_mark = new_table.current_mark.flipped();
         assert_eq!(new_table, expected);
     }
 
     #[test]
     fn into_reachable_bdd() {
-        // Manually create a very broken bdd (not in post-order, with nodes
-        // not in the bdd inbetween nodes in the bdd) inside the node table.
+        // Manually create a very broken bdd (not in post-order, with unreachable nodes
+        // present in the BDD) inside the node table.
         // bdd: v1 or !v2 or v3 or v4
         // the nodes are organized as: 0, 1, v4, vi1, vi2, v1, vi3, v2, v3
         let mut table = NodeTable32::new();

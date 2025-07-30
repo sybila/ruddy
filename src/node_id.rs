@@ -1,10 +1,9 @@
-//! Defines the representation of node identifiers. Includes: [`NodeIdAny`], [`NodeId16`],
-//! [`NodeId32`] and [`NodeId64`].
-
-use crate::boolean_operators::TriBool;
 use crate::conversion::{UncheckedFrom, UncheckedInto};
-use std::fmt::{self, Debug};
+use fmt::Formatter;
+use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 /// An internal trait implemented by types that can serve as BDD node identifiers. The core
 /// property of this trait is that a node ID must have one designated "undefined" value
@@ -17,6 +16,7 @@ pub trait NodeIdAny:
     + Copy
     + Hash
     + Debug
+    + Display
     + TryFrom<usize>
     + UncheckedFrom<usize>
     + UncheckedInto<u16>
@@ -26,12 +26,13 @@ pub trait NodeIdAny:
     + UncheckedInto<usize>
     + UncheckedInto<NodeId>
     + UncheckedFrom<NodeId>
+    + FromStr<Err = DeserializeIdError>
 {
     /// Return an instance of the "undefined" node ID.
     fn undefined() -> Self;
-    /// Return an instance of the zero node ID.
+    /// Return an instance of the zero-node ID.
     fn zero() -> Self;
-    /// Return an instance of the one node ID.
+    /// Return an instance of the one-node ID.
     fn one() -> Self;
 
     /// Checks if this ID is [`NodeIdAny::undefined`].
@@ -54,30 +55,6 @@ pub trait NodeIdAny:
         }
     }
 
-    /// Convert the ID into a [`TriBool`], where the terminal node 0 is mapped to `False`,
-    /// the terminal node 1 is mapped to `True`, and all other nodes are mapped to `Indeterminate`.
-    fn to_three_valued(self) -> TriBool {
-        // Decompiles to branch-less, nice code
-        // 0 -> -1, 1 -> 1, _ -> 0
-        match -i8::from(self.is_zero()) + i8::from(self.is_one()) {
-            1 => TriBool::True,
-            0 => TriBool::Indeterminate,
-            -1 => TriBool::False,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Convert a [`TriBool`] to a node ID, if possible. The value
-    /// `True` is mapped to the terminal node 1, `False` is mapped to the terminal node 0, and
-    /// `Indeterminate` is mapped to the ID with the undefined value.
-    fn from_three_valued(value: TriBool) -> Self {
-        match value {
-            TriBool::True => Self::one(),
-            TriBool::False => Self::zero(),
-            TriBool::Indeterminate => Self::undefined(),
-        }
-    }
-
     /// Convert the ID into a value that can be used for indexing. This can truncate IDs wider
     /// than the index type, but this should never happen on 64-bit systems.
     ///
@@ -93,17 +70,17 @@ pub trait NodeIdAny:
 /// Implementation of [`NodeIdAny`] backed by `u16`. The maximal ID is `2**16 - 1`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NodeId16(u16);
+pub(crate) struct NodeId16(u16);
 
 /// Implementation of [`NodeIdAny`] backed by `u32`. The maximal ID is `2**32 - 1`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NodeId32(u32);
+pub(crate) struct NodeId32(u32);
 
 /// Implementation of [`NodeIdAny`] backed by `u64`. The maximal ID is `2**64 - 1`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct NodeId64(u64);
+pub(crate) struct NodeId64(u64);
 
 impl NodeId16 {
     /// The largest ID representable by [`NodeId16`].
@@ -121,6 +98,21 @@ impl NodeId16 {
     pub fn new(id: u16) -> Self {
         debug_assert!(id != Self::UNDEFINED, "cannot create 16-bit undefined id");
         Self(id)
+    }
+
+    /// Convert the underlying ID to a 2-byte array (for serialization).
+    pub fn to_le_bytes(self) -> [u8; 2] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`NodeId16`] from a 2-byte array (for serialization).
+    pub fn from_le_bytes(bytes: [u8; 2]) -> Result<Self, DeserializeIdError> {
+        let id = u16::from_le_bytes(bytes);
+        if id > Self::MAX_ID {
+            Err(DeserializeIdError::InvalidId)
+        } else {
+            Ok(Self(id))
+        }
     }
 }
 
@@ -178,8 +170,13 @@ impl NodeId32 {
     }
 
     /// Create a new [`NodeId32`] from a 4-byte array (for serialization).
-    pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        Self(u32::from_le_bytes(bytes))
+    pub fn from_le_bytes(bytes: [u8; 4]) -> Result<Self, DeserializeIdError> {
+        let id = u32::from_le_bytes(bytes);
+        if id > Self::MAX_ID {
+            Err(DeserializeIdError::InvalidId)
+        } else {
+            Ok(Self(id))
+        }
     }
 }
 
@@ -229,6 +226,21 @@ impl NodeId64 {
     pub fn new(id: u64) -> Self {
         debug_assert!(id != Self::UNDEFINED, "cannot create 64-bit undefined id");
         Self(id)
+    }
+
+    /// Convert the underlying ID to an 8-byte array (for serialization).
+    pub fn to_le_bytes(self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`NodeId32`] from a 4-byte array (for serialization).
+    pub fn from_le_bytes(bytes: [u8; 8]) -> Result<Self, DeserializeIdError> {
+        let id = u64::from_le_bytes(bytes);
+        if id > Self::MAX_ID {
+            Err(DeserializeIdError::InvalidId)
+        } else {
+            Ok(Self(id))
+        }
     }
 }
 
@@ -348,14 +360,14 @@ impl UncheckedFrom<NodeId64> for NodeId32 {
 /// An implementation of [`std::error::Error`] that is reported when conversion
 /// between instances of [`NodeIdAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct TryFromNodeIdError {
+pub(crate) struct TryFromNodeIdError {
     id: u64,
     from_width: usize,
     to_width: usize,
 }
 
-impl fmt::Display for TryFromNodeIdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromNodeIdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}-bit node ID {} cannot be converted to {}-bit",
@@ -397,13 +409,13 @@ impl_try_from!(NodeId32 => NodeId16);
 /// An implementation of [`std::error::Error`] that is reported when an instance of
 /// [`NodeIdAny`] cannot be created from a value of type `usize`.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct TryFromUsizeError {
+pub(crate) struct TryFromUsizeError {
     id: usize,
     to_width: usize,
 }
 
-impl fmt::Display for TryFromUsizeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromUsizeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "cannot convert usize {} to {}-bit node ID",
@@ -459,23 +471,79 @@ impl_unchecked_from_usize!(NodeId64, u64);
 ///
 /// This mainly allows us to write `AsNodeId<T>` instead of needing to write
 /// `NodeIdAny + Into<T>` everywhere.
-pub trait AsNodeId<TNodeId: NodeIdAny>: NodeIdAny + Into<TNodeId> {}
+pub(crate) trait AsNodeId<TNodeId: NodeIdAny>: NodeIdAny + Into<TNodeId> {}
 impl<A: NodeIdAny, B: NodeIdAny + Into<A>> AsNodeId<A> for B {}
 
-impl fmt::Display for NodeId16 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+/// An error which can be returned when deserializing a variable or node identifier.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum DeserializeIdError {
+    /// Identifier is invalid.
+    InvalidId,
+
+    /// String being parsed is empty.
+    Empty,
+    /// String representation contains an invalid digit.
+    InvalidDigit,
+}
+
+impl From<ParseIntError> for DeserializeIdError {
+    fn from(value: ParseIntError) -> Self {
+        use std::num::IntErrorKind;
+        match value.kind() {
+            IntErrorKind::Empty => DeserializeIdError::Empty,
+            IntErrorKind::InvalidDigit => DeserializeIdError::InvalidDigit,
+            _ => DeserializeIdError::InvalidId,
+        }
+    }
+}
+
+impl Display for DeserializeIdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DeserializeIdError::Empty => write!(f, "empty string"),
+            DeserializeIdError::InvalidId => write!(f, "invalid ID"),
+            DeserializeIdError::InvalidDigit => write!(f, "invalid digit in ID"),
+        }
+    }
+}
+
+impl std::error::Error for DeserializeIdError {}
+
+macro_rules! impl_from_str {
+    ($NodeId:ident, $Width:ident) => {
+        impl std::str::FromStr for $NodeId {
+            type Err = DeserializeIdError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                let id = s.parse::<$Width>()?;
+                if id > $NodeId::MAX_ID.into() {
+                    Err(DeserializeIdError::InvalidId)
+                } else {
+                    Ok(Self(id))
+                }
+            }
+        }
+    };
+}
+
+impl_from_str!(NodeId16, u16);
+impl_from_str!(NodeId32, u32);
+impl_from_str!(NodeId64, u64);
+
+impl Display for NodeId16 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl fmt::Display for NodeId32 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for NodeId32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl fmt::Display for NodeId64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for NodeId64 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -530,8 +598,8 @@ impl NodeId {
     }
 }
 
-impl fmt::Display for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for NodeId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -597,7 +665,6 @@ impl UncheckedFrom<NodeId64> for NodeId {
 
 #[cfg(test)]
 mod tests {
-    use crate::boolean_operators::TriBool;
     use crate::conversion::{UncheckedFrom, UncheckedInto};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::{usize_is_at_least_32_bits, usize_is_at_least_64_bits};
@@ -624,14 +691,6 @@ mod tests {
 
         assert_ne!(Node::undefined(), Node::one());
         assert_ne!(Node::undefined(), Node::zero());
-
-        assert!(Node::from_three_valued(TriBool::True).is_one());
-        assert!(Node::from_three_valued(TriBool::False).is_zero());
-        assert!(Node::from_three_valued(TriBool::Indeterminate).is_undefined());
-
-        assert_eq!(Node::undefined().to_three_valued(), TriBool::Indeterminate);
-        assert_eq!(Node::one().to_three_valued(), TriBool::True);
-        assert_eq!(Node::zero().to_three_valued(), TriBool::False);
     }
 
     fn node_invalid_as_usize<Node: NodeIdAny>() {
@@ -675,12 +734,6 @@ mod tests {
     #[should_panic]
     pub fn node_32_invalid_new() {
         NodeId32::new(NodeId32::MAX_ID + 1);
-    }
-
-    #[test]
-    pub fn node_32_bytes() {
-        let x = NodeId32::new(10);
-        assert_eq!(NodeId32::from_le_bytes(x.to_le_bytes()), x);
     }
 
     macro_rules! test_node_id_from {
@@ -863,13 +916,13 @@ mod tests {
     fn node_id_try_from_conversion() {
         let id = NodeId32::new((u16::MAX as u32) + 1);
         let err = NodeId16::try_from(id).unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.from_width, 32);
         assert_eq!(err.to_width, 16);
 
         let size_id = (u16::MAX as usize) + 1;
         let err = NodeId16::try_from(size_id).unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.id, size_id);
         assert_eq!(err.to_width, 16);
     }
@@ -1018,5 +1071,56 @@ mod tests {
         let id32 = NodeId32::new(NodeId32::MAX_ID);
         let id: NodeId = id32.unchecked_into();
         let _: NodeId16 = id.unchecked_into();
+    }
+
+    macro_rules! test_node_id_byte_conversions {
+        ($NodeId:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let one = $NodeId::one();
+                let zero = $NodeId::zero();
+                let undef = $NodeId::undefined();
+
+                assert_eq!($NodeId::from_le_bytes(one.to_le_bytes()), Ok(one));
+                assert_eq!($NodeId::from_le_bytes(zero.to_le_bytes()), Ok(zero));
+                assert!($NodeId::from_le_bytes(undef.to_le_bytes()).is_err());
+            }
+        };
+    }
+
+    test_node_id_byte_conversions!(NodeId16, node_id_16_byte_conversions);
+    test_node_id_byte_conversions!(NodeId32, node_id_32_byte_conversions);
+    test_node_id_byte_conversions!(NodeId64, node_id_64_byte_conversions);
+
+    fn test_node_id_from_str<TNodeId: NodeIdAny>() {
+        let one = TNodeId::one();
+        let zero = TNodeId::zero();
+        let undef = TNodeId::undefined();
+
+        let one_str = one.to_string();
+        let zero_str = zero.to_string();
+        let undef_str = undef.to_string();
+
+        let one_from_str = TNodeId::from_str(&one_str).unwrap();
+        let zero_from_str = TNodeId::from_str(&zero_str).unwrap();
+
+        assert_eq!(one, one_from_str);
+        assert_eq!(zero, zero_from_str);
+        assert!(TNodeId::from_str(&undef_str).is_err());
+    }
+
+    #[test]
+    fn node_id_16_from_str() {
+        test_node_id_from_str::<NodeId16>();
+    }
+
+    #[test]
+    fn node_id_32_from_str() {
+        test_node_id_from_str::<NodeId32>();
+    }
+
+    #[test]
+    fn node_id_64_from_str() {
+        test_node_id_from_str::<NodeId64>();
     }
 }

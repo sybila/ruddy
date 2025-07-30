@@ -1,23 +1,23 @@
 //! Defines the representation of BDD nodes. Includes: [`BddNodeAny`], [`BddNode16`],
 //! [`BddNode32`], and [`BddNode64`].
 
+use fmt::{Display, Formatter};
 use std::fmt::Debug;
 use std::{convert::TryFrom, fmt};
 
-use crate::node_table::ReachabilityCycle;
 use crate::{
     conversion::{UncheckedFrom, UncheckedInto},
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny, TryFromNodeIdError},
     variable_id::{
-        TryFromVarIdPackedError, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
+        Mark, TryFromVarIdPackedError, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
     },
 };
 
 /// An internal trait implemented by types that can serve as BDD nodes. Each BDD node is either
 /// a *terminal node* (`0` or `1`) or a *decision node*. A decision node consists of the decision
-/// variable (of type [`VarIdPackedAny`]) and two child references, *low* and *high*
+/// variable (of the type [`VarIdPackedAny`]) and two child references, *low* and *high*
 /// (of type [`NodeIdAny`]).
-pub trait BddNodeAny: Clone + Eq + Debug {
+pub(crate) trait BddNodeAny: Clone + Eq + Debug {
     /// Node ID type used by this [`BddNodeAny`].
     type Id: NodeIdAny;
     /// Variable ID type used by this [`BddNodeAny`].
@@ -27,12 +27,21 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     ///
     /// The flags in the variable ID are *not* reset.
     ///
-    /// ## Undefined behavior
+    /// # Undefined behavior
     ///
     /// When creating a new [`BddNodeAny`], no argument is allowed to be "undefined". If this happens,
     /// the implementation will panic in debug mode, but these checks do not run in release mode
     /// for performance reasons. Hence, using an undefined value can result in undefined behavior.
     fn new(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self;
+
+    /// An unchecked variant of [`BddNodeAny::new`], which does not check whether
+    /// the arguments are not undefined.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the arguments are not undefined. If this is not the case,
+    /// the behavior is undefined.
+    unsafe fn new_unchecked(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self;
 
     /// Return an instance of the terminal `0` node.
     fn zero() -> Self;
@@ -40,8 +49,16 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     fn one() -> Self;
 
     /// Checks if this node is [`BddNodeAny::zero`].
+    ///
+    /// **This is currently unused (we usually check the node ID instead), but can be useful in
+    /// some algorithms.**
+    #[allow(dead_code)]
     fn is_zero(&self) -> bool;
     /// Checks if this node is [`BddNodeAny::one`].
+    ///
+    /// **This is currently unused (we usually check the node ID instead), but can be useful in
+    /// some algorithms.**
+    #[allow(dead_code)]
     fn is_one(&self) -> bool;
     /// Checks if this node is [`BddNodeAny::zero`] or [`BddNodeAny::one`].
     fn is_terminal(&self) -> bool;
@@ -74,139 +91,123 @@ pub trait BddNodeAny: Clone + Eq + Debug {
     /// Reset the parent counter of the node.
     fn reset_parent_counter(&mut self);
 
-    /// Mark the node as reachable in the given cycle.
-    ///
-    /// This method should not be used on terminal nodes, as these are always
-    /// considered reachable. For performance reasons, this condition is only
-    /// checked in debug mode.
-    fn mark_as_reachable(&mut self, cycle: ReachabilityCycle);
+    /// Set the node's mark to `mark`.
+    fn set_mark(&mut self, mark: Mark);
 
-    /// Returns `true` if the node is reachable in the given cycle. Terminal
-    /// nodes are always considered reachable.
-    fn is_reachable(&self, cycle: ReachabilityCycle) -> bool {
-        self.is_terminal() || self.variable().is_reachable(cycle)
+    /// Returns `true` if the node has the mark `mark`.
+    fn has_same_mark(&self, mark: Mark) -> bool {
+        self.variable().has_same_mark(mark)
     }
 }
 
-macro_rules! impl_bdd_node {
-    ($name:ident, $NodeId:ident, $VarId:ident) => {
-        impl BddNodeAny for $name {
-            type Id = $NodeId;
-            type VarId = $VarId;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BddNodeImpl<TNodeId, TVarId> {
+    pub variable: TVarId,
+    pub low: TNodeId,
+    pub high: TNodeId,
+}
 
-            fn new(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self {
-                debug_assert!(!variable.is_undefined());
-                debug_assert!(!low.is_undefined());
-                debug_assert!(!high.is_undefined());
-                Self {
-                    variable,
-                    low,
-                    high,
-                }
-            }
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddNodeAny for BddNodeImpl<TNodeId, TVarId> {
+    type Id = TNodeId;
+    type VarId = TVarId;
 
-            fn zero() -> Self {
-                Self {
-                    variable: $VarId::undefined(),
-                    low: $NodeId::zero(),
-                    high: $NodeId::zero(),
-                }
-            }
-
-            fn one() -> Self {
-                Self {
-                    variable: $VarId::undefined(),
-                    low: $NodeId::one(),
-                    high: $NodeId::one(),
-                }
-            }
-
-            fn is_zero(&self) -> bool {
-                self.is_terminal() && self.low.is_zero()
-            }
-
-            fn is_one(&self) -> bool {
-                self.is_terminal() && self.low.is_one()
-            }
-
-            fn is_terminal(&self) -> bool {
-                self.variable.is_undefined()
-            }
-
-            fn low(&self) -> Self::Id {
-                self.low
-            }
-
-            fn low_mut(&mut self) -> &mut Self::Id {
-                &mut self.low
-            }
-
-            fn high(&self) -> Self::Id {
-                self.high
-            }
-
-            fn high_mut(&mut self) -> &mut Self::Id {
-                &mut self.high
-            }
-
-            fn variable(&self) -> Self::VarId {
-                self.variable
-            }
-
-            fn increment_parent_counter(&mut self) {
-                self.variable.increment_parents();
-            }
-
-            fn reset_parent_counter(&mut self) {
-                self.variable = self.variable.reset_parents();
-            }
-
-            fn mark_as_reachable(&mut self, cycle: ReachabilityCycle) {
-                debug_assert!(!self.is_terminal());
-                self.variable.mark_as_reachable(cycle);
-            }
+    fn new(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self {
+        debug_assert!(!variable.is_undefined());
+        debug_assert!(!low.is_undefined());
+        debug_assert!(!high.is_undefined());
+        Self {
+            variable,
+            low,
+            high,
         }
-    };
+    }
+
+    unsafe fn new_unchecked(variable: Self::VarId, low: Self::Id, high: Self::Id) -> Self {
+        Self {
+            variable,
+            low,
+            high,
+        }
+    }
+
+    fn zero() -> Self {
+        Self {
+            variable: TVarId::undefined(),
+            low: TNodeId::zero(),
+            high: TNodeId::zero(),
+        }
+    }
+
+    fn one() -> Self {
+        Self {
+            variable: TVarId::undefined(),
+            low: TNodeId::one(),
+            high: TNodeId::one(),
+        }
+    }
+
+    fn is_zero(&self) -> bool {
+        self.is_terminal() && self.low.is_zero()
+    }
+
+    fn is_one(&self) -> bool {
+        self.is_terminal() && self.low.is_one()
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.variable.is_undefined()
+    }
+
+    fn low(&self) -> Self::Id {
+        self.low
+    }
+
+    fn high(&self) -> Self::Id {
+        self.high
+    }
+
+    fn variable(&self) -> Self::VarId {
+        self.variable
+    }
+
+    fn low_mut(&mut self) -> &mut Self::Id {
+        &mut self.low
+    }
+
+    fn high_mut(&mut self) -> &mut Self::Id {
+        &mut self.high
+    }
+
+    fn increment_parent_counter(&mut self) {
+        self.variable.increment_parents();
+    }
+
+    fn reset_parent_counter(&mut self) {
+        self.variable = self.variable.reset_parents();
+    }
+
+    fn set_mark(&mut self, mark: Mark) {
+        self.variable.set_mark(mark);
+    }
 }
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId16`] and [`VarIdPacked16`].
 ///
 /// Note that [`VarIdPacked16`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BddNode16 {
-    pub variable: VarIdPacked16,
-    pub low: NodeId16,
-    pub high: NodeId16,
-}
-
-impl_bdd_node!(BddNode16, NodeId16, VarIdPacked16);
+pub(crate) type BddNode16 = BddNodeImpl<NodeId16, VarIdPacked16>;
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId32`] and [`VarIdPacked32`].
 ///
 /// Note that [`VarIdPacked32`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BddNode32 {
-    pub variable: VarIdPacked32,
-    pub low: NodeId32,
-    pub high: NodeId32,
-}
-
-impl_bdd_node!(BddNode32, NodeId32, VarIdPacked32);
+pub(crate) type BddNode32 = BddNodeImpl<NodeId32, VarIdPacked32>;
 
 /// An implementation of [`BddNodeAny`] backed by [`NodeId64`] and [`VarIdPacked64`].
 ///
 /// Note that [`VarIdPacked64`] also uses three of its bits to provide a `{0,1,many}` "parent
 /// counter" and a "use cache" boolean flag.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BddNode64 {
-    pub variable: VarIdPacked64,
-    pub low: NodeId64,
-    pub high: NodeId64,
-}
-
-impl_bdd_node!(BddNode64, NodeId64, VarIdPacked64);
+pub(crate) type BddNode64 = BddNodeImpl<NodeId64, VarIdPacked64>;
 
 macro_rules! impl_from {
     ($Small:ident => $Large:ident) => {
@@ -247,19 +248,19 @@ impl_unchecked_from!(BddNode64 => BddNode32);
 /// An implementation of [`std::error::Error`] that is reported when conversion
 /// between instances of [`BddNodeAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum TryFromBddNodeError {
+pub(crate) enum TryFromBddNodeError {
     Variable(TryFromVarIdPackedError),
     Low(TryFromNodeIdError),
     High(TryFromNodeIdError),
 }
 
-impl fmt::Display for TryFromBddNodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromBddNodeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "bdd node cannot be converted: ")?;
         match self {
-            Self::Variable(e) => write!(f, "{}", e),
-            Self::Low(e) => write!(f, "low child {}", e),
-            Self::High(e) => write!(f, "high child {}", e),
+            Self::Variable(e) => write!(f, "{e}"),
+            Self::Low(e) => write!(f, "low child {e}"),
+            Self::High(e) => write!(f, "high child {e}"),
         }
     }
 }
@@ -293,8 +294,7 @@ impl_try_from!(BddNode64 => BddNode32);
 mod tests {
     use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, TryFromBddNodeError};
     use crate::node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny};
-    use crate::node_table::ReachabilityCycle;
-    use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
+    use crate::variable_id::{Mark, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny};
 
     macro_rules! test_bdd_node_invariants {
         ($func:ident, $BddNode:ident, $VarId:ident, $NodeId:ident) => {
@@ -386,23 +386,17 @@ mod tests {
             #[test]
             pub fn $func() {
                 let mut n = $BddNode::new($VarId::new(1), $NodeId::zero(), $NodeId::one());
-                let cycle = ReachabilityCycle::default();
-                n.mark_as_reachable(cycle);
-                assert!(n.is_reachable(cycle));
-                let flipped = cycle.flipped();
-                assert!(!n.is_reachable(flipped));
-                n.mark_as_reachable(flipped);
-                assert!(!n.is_reachable(cycle));
-                assert!(n.is_reachable(flipped));
+                let mark = Mark::default();
+                n.has_same_mark(mark);
+                let flipped = mark.flipped();
+                assert!(!n.has_same_mark(flipped));
+                n.set_mark(flipped);
+                assert!(n.has_same_mark(flipped));
+                assert!(!n.has_same_mark(mark));
+                n.set_mark(mark);
+                assert!(n.has_same_mark(mark.flipped().flipped()));
 
-                let flipped_twice = flipped.flipped().flipped();
-                assert!(n.is_reachable(flipped_twice));
-
-                assert!($BddNode::one().is_reachable(cycle));
-                assert!($BddNode::one().is_reachable(flipped));
-
-                assert!($BddNode::zero().is_reachable(cycle));
-                assert!($BddNode::zero().is_reachable(flipped));
+                assert_ne!(mark, flipped);
             }
         };
     }
@@ -477,9 +471,9 @@ mod tests {
         let err_low = BddNode16::try_from(invalid_low.clone()).unwrap_err();
         let err_high = BddNode16::try_from(invalid_high.clone()).unwrap_err();
 
-        println!("{}", err_var);
-        println!("{}", err_low);
-        println!("{}", err_high);
+        println!("{err_var}");
+        println!("{err_low}");
+        println!("{err_high}");
 
         assert!(matches!(err_var, TryFromBddNodeError::Variable(_)));
         assert!(matches!(err_low, TryFromBddNodeError::Low(_)));

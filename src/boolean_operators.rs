@@ -1,12 +1,37 @@
-//! Defines three-valued logic operators based on [`TriBool`]. These are used to implement
-//! Boolean operators in the `apply` algorithms.
-//!
+//! Defines binary boolean operators [`And`], [`Or`], [`Xor`], and others,
+//! used in [`crate::split::Bdd::apply`], [`crate::shared::BddManager::apply`], and
+//! [`crate::split::Bdd::nested_apply`], [`crate::shared::BddManager::nested_apply`] plus its variants.
+
 use std::cmp::{max, min};
 
 use crate::node_id::NodeIdAny;
 
+/// Convert an ID into a [`TriBool`], where terminal node `0` is mapped to `False`,
+/// terminal node `1` is mapped to `True`, and all other IDs are mapped to `Indeterminate`.
+fn to_three_valued<T: NodeIdAny>(id: T) -> TriBool {
+    // Decompiles to branch-less, nice code
+    // 0 -> -1, 1 -> 1, _ -> 0
+    match -i8::from(id.is_zero()) + i8::from(id.is_one()) {
+        1 => TriBool::True,
+        0 => TriBool::Indeterminate,
+        -1 => TriBool::False,
+        _ => unreachable!(),
+    }
+}
+
+/// Convert a [`TriBool`] to a node ID. The value
+/// `True` is mapped to terminal node `1`, `False` is mapped to terminal node `0`, and
+/// `Indeterminate` is mapped to the ID with the undefined value.
+fn from_three_valued<T: NodeIdAny>(value: TriBool) -> T {
+    match value {
+        TriBool::True => T::one(),
+        TriBool::False => T::zero(),
+        TriBool::Indeterminate => T::undefined(),
+    }
+}
+
 /// Lifts a three-valued logic operator to operate on [`NodeIdAny`] identifiers.
-pub fn lift_operator<
+fn lift_operator<
     TId1: NodeIdAny,
     TId2: NodeIdAny,
     TResultId: NodeIdAny,
@@ -15,56 +40,16 @@ pub fn lift_operator<
     operator: TTriBoolOperator,
 ) -> impl Fn(TId1, TId2) -> TResultId {
     move |left, right| {
-        let left = left.to_three_valued();
-        let right = right.to_three_valued();
-        TResultId::from_three_valued(operator(left, right))
+        let left = to_three_valued(left);
+        let right = to_three_valued(right);
+        from_three_valued(operator(left, right))
     }
-}
-
-/// Three-valued conjunction of two [`NodeIdAny`] identifiers.
-pub fn and<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::and)(left, right)
-}
-
-/// Three-valued disjunction of two [`NodeIdAny`] identifiers.
-pub fn or<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::or)(left, right)
-}
-
-/// Three-valued exclusive or (non-equivalence) of two [`NodeIdAny`] identifiers.
-pub fn xor<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::xor)(left, right)
-}
-
-/// Three-valued implication of two [`NodeIdAny`] identifiers.
-pub fn implies<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::implies)(left, right)
-}
-
-/// Three-valued equivalence of two [`NodeIdAny`] identifiers.
-pub fn iff<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
-    left: TId1,
-    right: TId2,
-) -> TResultId {
-    lift_operator(TriBool::iff)(left, right)
 }
 
 /// A type representing a three-valued logic value.
 #[derive(PartialOrd, Ord, PartialEq, Eq, Debug)]
 #[repr(i8)]
-pub enum TriBool {
+enum TriBool {
     True = 1,
     Indeterminate = 0,
     False = -1,
@@ -72,17 +57,17 @@ pub enum TriBool {
 
 impl TriBool {
     /// Logical disjunction.
-    pub(crate) fn or(self, other: Self) -> Self {
+    fn or(self, other: Self) -> Self {
         max(self, other)
     }
 
     /// Logical conjunction.
-    pub(crate) fn and(self, other: Self) -> Self {
+    fn and(self, other: Self) -> Self {
         min(self, other)
     }
 
     /// Exclusive or (non-equivalence).
-    pub(crate) fn xor(self, other: Self) -> Self {
+    fn xor(self, other: Self) -> Self {
         // min(max(a,b), neg(min(a,b)))
         let [smaller, greater] = if self < other {
             [self, other]
@@ -93,12 +78,12 @@ impl TriBool {
     }
 
     /// Implication.
-    pub(crate) fn implies(self, other: Self) -> Self {
+    fn implies(self, other: Self) -> Self {
         (!self).or(other)
     }
 
     /// Equivalence.
-    pub(crate) fn iff(self, other: Self) -> Self {
+    fn iff(self, other: Self) -> Self {
         !self.xor(other)
     }
 }
@@ -115,20 +100,224 @@ impl std::ops::Not for TriBool {
     }
 }
 
+/// A trait representing a binary boolean operator.
+///
+/// It is expected to be defined mainly for terminal [`NodeIdAny`] arguments. However,
+/// since some logical operators can return the result, even if only one of the arguments
+/// is a terminal node, it has to work for non-terminal nodes as well. If the result is not
+/// yet known, the function should return [`NodeIdAny::undefined`]. For example, the logical
+/// operator implementing disjunction (for split BDDs) could be defined as:
+/// ```
+/// use ruddy::NodeIdAny;
+///
+/// fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>() -> impl Fn(TId1, TId2) -> TResultId {
+///     move |left, right| {
+///         if left.is_one() || right.is_one() {
+///             TResultId::one()
+///         } else if left.is_zero() && right.is_zero() {
+///             TResultId::zero()
+///         } else {
+///             TResultId::undefined()
+///         }
+///     }
+/// }
+/// ```
+///
+/// For shared BDDs, there are more cases where the result can be immediately known.
+/// For example, the logical operator implementing disjunction for shared BDDs
+/// could be defined as:
+/// ```
+/// use ruddy::NodeIdAny;
+///
+/// fn for_shared<TId: NodeIdAny>() -> impl Fn(TId, TId) -> TId {
+///     |left, right| {
+///         if left.is_one() || right.is_one() {
+///             TId::one()
+///         } else if left.is_zero() {
+///             right
+///         } else if right.is_zero() {
+///             left
+///         } else if left == right {
+///             right
+///         } else {
+///             TId::undefined()
+///         }
+///     }
+/// }
+/// ```
+pub trait BooleanOperator: Clone + Copy {
+    /// Return a function implementing this boolean operation on [`NodeIdAny`] identifiers,
+    /// suitable for split BDDs.
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId;
+    /// Return a function implementing this boolean operation on [`NodeIdAny`] identifiers,
+    /// suitable for shared BDDs.
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId;
+}
+
+/// A type representing a logical conjunction.
+#[derive(Clone, Copy)]
+pub struct And;
+
+impl BooleanOperator for And {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::and)
+    }
+
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+        |left, right| {
+            if left.is_zero() || right.is_zero() {
+                TId::zero()
+            } else if left.is_one() {
+                right
+            } else if right.is_one() {
+                left
+            } else if left == right {
+                right
+            } else {
+                TId::undefined()
+            }
+        }
+    }
+}
+
+/// A type representing a logical disjunction.
+#[derive(Clone, Copy)]
+pub struct Or;
+
+impl BooleanOperator for Or {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::or)
+    }
+
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+        |left, right| {
+            if left.is_one() || right.is_one() {
+                TId::one()
+            } else if left.is_zero() {
+                right
+            } else if right.is_zero() {
+                left
+            } else if left == right {
+                right
+            } else {
+                TId::undefined()
+            }
+        }
+    }
+}
+
+/// A type representing a logical equivalence.
+#[derive(Clone, Copy)]
+pub struct Iff;
+
+impl BooleanOperator for Iff {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::iff)
+    }
+
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+        |left, right| {
+            if left.is_one() {
+                right
+            } else if right.is_one() {
+                left
+            } else if left == right {
+                TId::one()
+            } else {
+                TId::undefined()
+            }
+        }
+    }
+}
+
+/// A type representing a logical implication.
+#[derive(Clone, Copy)]
+pub struct Implies;
+
+impl BooleanOperator for Implies {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::implies)
+    }
+
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+        |left, right| {
+            if left.is_zero() {
+                TId::one()
+            } else if left.is_one() {
+                right
+            } else if right.is_one() || left == right {
+                TId::one()
+            } else {
+                TId::undefined()
+            }
+        }
+    }
+}
+
+/// A type representing a logical xor (exclusive or; non-equivalence).
+#[derive(Clone, Copy)]
+pub struct Xor;
+
+impl BooleanOperator for Xor {
+    fn for_split<TId1: NodeIdAny, TId2: NodeIdAny, TResultId: NodeIdAny>(
+        self,
+    ) -> impl Fn(TId1, TId2) -> TResultId {
+        lift_operator(TriBool::xor)
+    }
+
+    fn for_shared<TId: NodeIdAny>(self) -> impl Fn(TId, TId) -> TId {
+        |left, right| {
+            if left.is_zero() {
+                right
+            } else if right.is_zero() {
+                left
+            } else if left == right {
+                TId::zero()
+            } else {
+                TId::undefined()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::node_id::NodeId32;
 
     #[test]
-    pub fn three_valued_logic_invariants() {
+    fn id_tribool_conversion() {
+        assert!(from_three_valued::<NodeId32>(TriBool::True).is_one());
+        assert!(from_three_valued::<NodeId32>(TriBool::False).is_zero());
+        assert!(from_three_valued::<NodeId32>(TriBool::Indeterminate).is_undefined());
+
+        assert_eq!(
+            to_three_valued(NodeId32::undefined()),
+            TriBool::Indeterminate
+        );
+        assert_eq!(to_three_valued(NodeId32::one()), TriBool::True);
+        assert_eq!(to_three_valued(NodeId32::zero()), TriBool::False);
+    }
+
+    #[test]
+    pub fn operators_for_split() {
         // Just a representative subset of input-output pairs for each operator.
 
-        let and = and::<NodeId32, NodeId32, NodeId32>;
-        let or = or::<NodeId32, NodeId32, NodeId32>;
-        let implies = implies::<NodeId32, NodeId32, NodeId32>;
-        let xor = xor::<NodeId32, NodeId32, NodeId32>;
-        let iff = iff::<NodeId32, NodeId32, NodeId32>;
+        let and = And.for_split::<NodeId32, NodeId32, NodeId32>();
+        let or = Or.for_split::<NodeId32, NodeId32, NodeId32>();
+        let implies = Implies.for_split::<NodeId32, NodeId32, NodeId32>();
+        let xor = Xor.for_split::<NodeId32, NodeId32, NodeId32>();
+        let iff = Iff.for_split::<NodeId32, NodeId32, NodeId32>();
 
         assert!(and(NodeId32::one(), NodeId32::one()).is_one());
         assert!(and(NodeId32::zero(), NodeId32::one()).is_zero());
@@ -154,5 +343,148 @@ mod tests {
         assert!(iff(NodeId32::zero(), NodeId32::one()).is_zero());
         assert!(iff(NodeId32::zero(), NodeId32::undefined()).is_undefined());
         assert!(iff(NodeId32::one(), NodeId32::undefined()).is_undefined());
+    }
+
+    #[test]
+    fn and_shared() {
+        let and = And.for_shared::<NodeId32>();
+        let zero = NodeId32::zero();
+        let one = NodeId32::one();
+        let n22 = NodeId32::new(22);
+        let n11 = NodeId32::new(11);
+
+        // zero
+        assert!(and(one, zero).is_zero());
+        assert!(and(zero, one).is_zero());
+        assert!(and(zero, n22).is_zero());
+        assert!(and(n11, zero).is_zero());
+
+        // one
+        assert!(and(one, one).is_one());
+        assert_eq!(n11, and(one, n11));
+        assert_eq!(n22, and(n22, one));
+
+        // equal
+        assert_eq!(n11, and(n11, n11));
+        assert_eq!(n22, and(n22, n22));
+
+        // not known
+        assert!(and(n11, n22).is_undefined());
+        assert!(and(n22, n11).is_undefined());
+    }
+
+    #[test]
+    fn or_shared() {
+        let or = Or.for_shared::<NodeId32>();
+        let zero = NodeId32::zero();
+        let one = NodeId32::one();
+        let n22 = NodeId32::new(22);
+        let n11 = NodeId32::new(11);
+
+        // one
+        assert!(or(one, zero).is_one());
+        assert!(or(zero, one).is_one());
+        assert!(or(one, n22).is_one());
+        assert!(or(n11, one).is_one());
+
+        // zero
+        assert!(or(zero, zero).is_zero());
+        assert_eq!(n11, or(zero, n11));
+        assert_eq!(n22, or(n22, zero));
+
+        // equal
+        assert_eq!(n11, or(n11, n11));
+        assert_eq!(n22, or(n22, n22));
+
+        // not known
+        assert!(or(n11, n22).is_undefined());
+        assert!(or(n22, n11).is_undefined());
+    }
+
+    #[test]
+    fn implies_shared() {
+        let implies = Implies.for_shared::<NodeId32>();
+        let zero = NodeId32::zero();
+        let one = NodeId32::one();
+        let n22 = NodeId32::new(22);
+        let n11 = NodeId32::new(11);
+
+        // false (only when true implies false)
+        assert!(implies(one, zero).is_zero());
+
+        // true when antecedent is false (regardless of consequent)
+        assert!(implies(zero, zero).is_one());
+        assert!(implies(zero, one).is_one());
+        assert!(implies(zero, n11).is_one());
+
+        // true when consequent is true (regardless of antecedent)
+        assert!(implies(one, one).is_one());
+        assert!(implies(n22, one).is_one());
+
+        // equal implies equal is true
+        assert!(implies(n11, n11).is_one());
+        assert!(implies(n22, n22).is_one());
+
+        // not known
+        assert!(implies(n11, n22).is_undefined());
+        assert!(implies(n22, n11).is_undefined());
+    }
+
+    #[test]
+    fn xor_shared() {
+        let xor = Xor.for_shared::<NodeId32>();
+        let zero = NodeId32::zero();
+        let one = NodeId32::one();
+        let n22 = NodeId32::new(22);
+        let n11 = NodeId32::new(11);
+
+        // XOR with zero returns the other operand
+        assert_eq!(one, xor(zero, one));
+        assert_eq!(one, xor(one, zero));
+        assert_eq!(n11, xor(zero, n11));
+        assert_eq!(n22, xor(n22, zero));
+
+        // XOR of same values is zero
+        assert!(xor(one, one).is_zero());
+        assert!(xor(zero, zero).is_zero());
+        assert_eq!(zero, xor(n11, n11));
+        assert_eq!(zero, xor(n22, n22));
+
+        // not known
+        assert!(xor(n11, n22).is_undefined());
+        assert!(xor(n22, n11).is_undefined());
+        assert!(xor(one, n11).is_undefined());
+        assert!(xor(n22, one).is_undefined());
+    }
+
+    #[test]
+    fn iff_shared() {
+        let iff = Iff.for_shared::<NodeId32>();
+        let zero = NodeId32::zero();
+        let one = NodeId32::one();
+        let n22 = NodeId32::new(22);
+        let n11 = NodeId32::new(11);
+
+        // true when both inputs are the same constant
+        assert!(iff(zero, zero).is_one());
+        assert!(iff(one, one).is_one());
+
+        // false when constants are different
+        assert!(iff(zero, one).is_zero());
+        assert!(iff(one, zero).is_zero());
+
+        // the same node is equivalent to itself
+        assert!(iff(n11, n11).is_one());
+        assert!(iff(n22, n22).is_one());
+
+        // returns another operand when one
+        assert_eq!(n11, iff(one, n11));
+        assert_eq!(n22, iff(n22, one));
+
+        // not known
+        assert!(iff(n11, zero).is_undefined());
+        assert!(iff(zero, n22).is_undefined());
+        assert!(iff(n11, n22).is_undefined());
+        assert!(iff(n22, n11).is_undefined());
     }
 }

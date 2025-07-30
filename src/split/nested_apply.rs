@@ -6,85 +6,92 @@
 use rustc_hash::FxHashSet;
 
 use crate::{
-    bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     bdd_node::BddNodeAny,
-    boolean_operators::{lift_operator, TriBool},
+    boolean_operators::{self, BooleanOperator},
     conversion::UncheckedInto,
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
+    split::bdd::{AsBdd, Bdd, Bdd16, Bdd32, Bdd64, BddAny},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId},
 };
 
+use super::bdd::BddInner;
+
 impl Bdd {
-    /// Eliminates the given `variables` using existential quantification.
+    /// Calculates a `Bdd` with the given `variables` eliminated using existential quantification.
     pub fn exists(&self, variables: &[VariableId]) -> Bdd {
-        self.binary_op_with_exists(self, TriBool::and, variables)
+        self.binary_op_with_exists(self, boolean_operators::And, variables)
     }
 
-    /// Eliminates the given `variables` using universal quantification.
+    /// Calculates a `Bdd` with the given `variables` eliminated using universal quantification.
     pub fn for_all(&self, variables: &[VariableId]) -> Bdd {
-        self.binary_op_with_for_all(self, TriBool::and, variables)
+        self.binary_op_with_for_all(self, boolean_operators::And, variables)
     }
 
-    /// Applies a binary operator to the BDDs and eliminates the given `variables` using existential
+    /// Applies the `operator` to the `Bdd`s and eliminates the given `variables` using existential
     /// quantification from the result.
-    pub fn binary_op_with_exists<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+    pub fn binary_op_with_exists<TBooleanOp: BooleanOperator>(
         &self,
         other: &Bdd,
-        operator: TTriBoolOp,
+        operator: TBooleanOp,
         variables: &[VariableId],
     ) -> Bdd {
-        self.nested_apply(other, operator, TriBool::or, variables)
+        self.nested_apply(other, operator, boolean_operators::Or, variables)
     }
 
-    /// Applies a binary operator to the BDDs and eliminates the given `variables` using universal
+    /// Applies the `operator` to the `Bdd`s and eliminates the given `variables` using universal
     /// quantification from the result.
-    pub fn binary_op_with_for_all<TTriBoolOp: Fn(TriBool, TriBool) -> TriBool>(
+    pub fn binary_op_with_for_all<TBooleanOp: BooleanOperator>(
         &self,
         other: &Bdd,
-        operator: TTriBoolOp,
+        operator: TBooleanOp,
         variables: &[VariableId],
     ) -> Bdd {
-        self.nested_apply(other, operator, TriBool::and, variables)
+        self.nested_apply(other, operator, boolean_operators::And, variables)
     }
 
-    pub(crate) fn nested_apply<
-        TTriboolOp1: Fn(TriBool, TriBool) -> TriBool,
-        TTriboolOp2: Fn(TriBool, TriBool) -> TriBool,
-    >(
+    /// Applies the `outer_op` to the `Bdd`s. On each node of the resulting `Bdd`,
+    /// if its variable is in `variables`, the node is replaced with the result
+    /// of applying `inner_op` to its low and high children.
+    ///
+    /// This function is useful for implementing combinations of applying binary
+    /// operators and quantification. For example, if `outer_op` is [`boolean_operators::And`]
+    /// and `inner_op` is [`boolean_operators::Or`], this combination corresponds to the
+    /// "relational product" operation.
+    pub fn nested_apply<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
         &self,
         other: &Bdd,
-        outer_op: TTriboolOp1,
-        inner_op: TTriboolOp2,
+        outer_op: TOuterOp,
+        inner_op: TInnerOp,
         variables: &[VariableId],
     ) -> Bdd {
-        match (self, other) {
-            (Bdd::Size16(left), Bdd::Size16(right)) => {
+        match (&self.0, &other.0) {
+            (BddInner::Size16(left), BddInner::Size16(right)) => {
                 nested_apply_16_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size16(left), Bdd::Size32(right)) => {
+            (BddInner::Size16(left), BddInner::Size32(right)) => {
                 nested_apply_32_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size16(left), Bdd::Size64(right)) => {
+            (BddInner::Size16(left), BddInner::Size64(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size32(left), Bdd::Size16(right)) => {
+            (BddInner::Size32(left), BddInner::Size16(right)) => {
                 nested_apply_32_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size32(left), Bdd::Size32(right)) => {
+            (BddInner::Size32(left), BddInner::Size32(right)) => {
                 nested_apply_32_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size32(left), Bdd::Size64(right)) => {
+            (BddInner::Size32(left), BddInner::Size64(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size64(left), Bdd::Size16(right)) => {
+            (BddInner::Size64(left), BddInner::Size16(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size64(left), Bdd::Size32(right)) => {
+            (BddInner::Size64(left), BddInner::Size32(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
-            (Bdd::Size64(left), Bdd::Size64(right)) => {
+            (BddInner::Size64(left), BddInner::Size64(right)) => {
                 nested_apply_64_bit_input(left, right, outer_op, inner_op, variables)
             }
         }
@@ -92,7 +99,7 @@ impl Bdd {
     }
 }
 
-/// Data used to store the state of the inner apply algorithm.
+/// Data used to store the state of the inner `apply` algorithm.
 #[derive(Debug, Clone)]
 pub(crate) struct InnerApplyState<TNodeTable: NodeTableAny> {
     pub(crate) stack: Vec<(TNodeTable::Id, TNodeTable::Id, TNodeTable::VarId)>,
@@ -231,7 +238,7 @@ pub(crate) fn inner_apply_any<
 
 type NodeId<B> = <B as BddAny>::Id;
 
-/// Data used to store the state of the nested apply algorithm.
+/// Data used to store the state of the nested `apply` algorithm.
 #[derive(Debug)]
 struct NestedApplyState<
     TResultBdd: BddAny,
@@ -332,15 +339,15 @@ macro_rules! impl_nested_apply_state_conversion {
 impl_nested_apply_state_conversion!(NestedApplyState16, NestedApplyState32);
 impl_nested_apply_state_conversion!(NestedApplyState32, NestedApplyState64);
 
-/// A nested apply algorithm that interleaves two passes of the apply algorithm.
+/// A nested `apply` algorithm that interleaves two passes of the `apply` algorithm.
 /// First, `outer_op` is applied to `left` and `right`. If the resulting node's
 /// variable triggers `trigger`, `inner_op` is applied to the node's children.
 fn nested_apply_any<
     TResultBdd: BddAny,
     TBdd1: AsBdd<TResultBdd>,
     TBdd2: AsBdd<TResultBdd>,
-    TOuterOp: Fn(TriBool, TriBool) -> TriBool,
-    TInnerOp: Fn(TriBool, TriBool) -> TriBool,
+    TOuterOp: BooleanOperator,
+    TInnerOp: BooleanOperator,
     TTrigger: Fn(TResultBdd::VarId) -> bool,
     TOuterCache: TaskCacheAny<ResultId = TResultBdd::Id>,
     TInnerCache: TaskCacheAny<ResultId = TResultBdd::Id>,
@@ -356,8 +363,8 @@ fn nested_apply_any<
     TResultBdd,
     NestedApplyState<TResultBdd, TBdd1::Id, TBdd2::Id, TOuterCache, TInnerCache, TNodeTable>,
 > {
-    let outer_op = lift_operator::<TBdd1::Id, TBdd2::Id, TResultBdd::Id, _>(&outer_op);
-    let inner_op = lift_operator::<TResultBdd::Id, TResultBdd::Id, TResultBdd::Id, _>(&inner_op);
+    let outer_op = outer_op.for_split::<TBdd1::Id, TBdd2::Id, TResultBdd::Id>();
+    let inner_op = inner_op.for_split::<TResultBdd::Id, TResultBdd::Id, TResultBdd::Id>();
 
     let NestedApplyState {
         mut stack,
@@ -422,7 +429,7 @@ fn nested_apply_any<
 
         let node_id = if trigger(variable) {
             if inner_state.is_empty() {
-                // Construct the starting state for inner apply
+                // Construct the starting state for inner `apply`
                 inner_state = InnerApplyState {
                     stack: vec![(low_result, high_result, TResultBdd::VarId::undefined())],
                     results: Vec::new(),
@@ -485,15 +492,12 @@ fn nested_apply_any<
 
 /// Like [`nested_apply_any_default_state`], but specifically for 16-bit BDDs.
 ///
-/// The function automatically grows the BDD to 32, or 64 bits if the result does not fit.
-fn nested_apply_16_bit_input<
-    TTriBoolOp1: Fn(TriBool, TriBool) -> TriBool,
-    TTriBoolOp2: Fn(TriBool, TriBool) -> TriBool,
->(
+/// The function automatically grows the BDD to 32 or 64 bits if the result does not fit.
+fn nested_apply_16_bit_input<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
     left: &Bdd16,
     right: &Bdd16,
-    outer_op: TTriBoolOp1,
-    inner_op: TTriBoolOp2,
+    outer_op: TOuterOp,
+    inner_op: TInnerOp,
     variables: &[VariableId],
 ) -> Bdd {
     let variable_set: FxHashSet<VarIdPacked16> =
@@ -501,25 +505,25 @@ fn nested_apply_16_bit_input<
 
     let trigger = |var: VarIdPacked16| variable_set.contains(&var);
     let state = default_state_16(left, right);
-    let result_16 = nested_apply_any(left, right, &outer_op, &inner_op, trigger, state);
+    let result_16 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     let state = match result_16 {
-        Ok(bdd) => return Bdd::Size16(bdd),
+        Ok(bdd) => return bdd.into(),
         Err(state) => state,
     };
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var.unchecked_into());
     let state: NestedApplyState32<NodeId16, NodeId16, TaskCache16<NodeId32>> = state.into();
-    let result_32 = nested_apply_any(left, right, &outer_op, &inner_op, trigger, state);
+    let result_32 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     let state = match result_32 {
-        Ok(bdd) => return Bdd::Size32(bdd),
+        Ok(bdd) => return bdd.into(),
         Err(state) => state,
     };
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
     let state: NestedApplyState64<NodeId16, NodeId16, TaskCache16<NodeId64>> = state.into();
-    let result_64 = nested_apply_any(left, right, &outer_op, &inner_op, trigger, state);
+    let result_64 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     match result_64 {
-        Ok(bdd) => Bdd::Size64(bdd),
+        Ok(bdd) => bdd.into(),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
@@ -530,13 +534,13 @@ fn nested_apply_16_bit_input<
 fn nested_apply_32_bit_input<
     TBdd1: AsBdd<Bdd32> + AsBdd<Bdd64>,
     TBdd2: AsBdd<Bdd32> + AsBdd<Bdd64>,
-    TTriBoolOp1: Fn(TriBool, TriBool) -> TriBool,
-    TTriBoolOp2: Fn(TriBool, TriBool) -> TriBool,
+    TOuterOp: BooleanOperator,
+    TInnerOp: BooleanOperator,
 >(
     left: &TBdd1,
     right: &TBdd2,
-    outer_op: TTriBoolOp1,
-    inner_op: TTriBoolOp2,
+    outer_op: TOuterOp,
+    inner_op: TInnerOp,
     variables: &[VariableId],
 ) -> Bdd {
     let variable_set: FxHashSet<VarIdPacked32> =
@@ -544,18 +548,18 @@ fn nested_apply_32_bit_input<
 
     let trigger = |var: VarIdPacked32| variable_set.contains(&var);
     let state = default_state_32(left, right);
-    let result_32 = nested_apply_any(left, right, &outer_op, &inner_op, trigger, state);
+    let result_32 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     let state = match result_32 {
-        Ok(bdd) => return Bdd::Size32(bdd),
+        Ok(bdd) => return bdd.into(),
         Err(state) => state,
     };
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var.unchecked_into());
     let state: NestedApplyState64<NodeId<TBdd1>, NodeId<TBdd2>, TaskCache32<NodeId64>> =
         state.into();
-    let result_64 = nested_apply_any(left, right, &outer_op, &inner_op, trigger, state);
+    let result_64 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     match result_64 {
-        Ok(bdd) => Bdd::Size64(bdd),
+        Ok(bdd) => bdd.into(),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
@@ -564,13 +568,13 @@ fn nested_apply_32_bit_input<
 fn nested_apply_64_bit_input<
     TBdd1: AsBdd<Bdd64>,
     TBdd2: AsBdd<Bdd64>,
-    TTriBoolOp1: Fn(TriBool, TriBool) -> TriBool,
-    TTriBoolOp2: Fn(TriBool, TriBool) -> TriBool,
+    TOuterOp: BooleanOperator,
+    TInnerOp: BooleanOperator,
 >(
     left: &TBdd1,
     right: &TBdd2,
-    outer_op: TTriBoolOp1,
-    inner_op: TTriBoolOp2,
+    outer_op: TOuterOp,
+    inner_op: TInnerOp,
     variables: &[VariableId],
 ) -> Bdd {
     let variable_set: FxHashSet<VarIdPacked64> =
@@ -578,9 +582,9 @@ fn nested_apply_64_bit_input<
 
     let trigger = |var: VarIdPacked64| variable_set.contains(&var);
     let state = default_state_64(left, right);
-    let result_64 = nested_apply_any(left, right, &outer_op, &inner_op, trigger, state);
+    let result_64 = nested_apply_any(left, right, outer_op, inner_op, trigger, state);
     match result_64 {
-        Ok(bdd) => Bdd::Size64(bdd),
+        Ok(bdd) => bdd.into(),
         Err(_state) => unreachable!("BDD does not fit into 64-bit bounds."),
     }
 }
@@ -588,12 +592,14 @@ fn nested_apply_64_bit_input<
 #[cfg(test)]
 mod tests {
     use crate::{
-        bdd::{Bdd, Bdd32, BddAny},
         bdd_node::BddNodeAny,
-        boolean_operators::{self, TriBool},
-        nested_apply::{inner_apply_any, InnerApplyState},
+        boolean_operators::{self, BooleanOperator},
         node_id::NodeId32,
         node_table::{NodeTable32, NodeTableAny},
+        split::{
+            bdd::{Bdd, Bdd32, BddAny},
+            nested_apply::{InnerApplyState, inner_apply_any},
+        },
         task_cache::TaskCache32,
         variable_id::{VarIdPacked32, VarIdPackedAny, VariableId},
     };
@@ -622,7 +628,7 @@ mod tests {
         assert!(Bdd::structural_eq(&a.exists(&[v_b]), &a));
         assert!(Bdd::structural_eq(&a.for_all(&[v_b]), &a));
 
-        // Quantifying over empty set of variables
+        // Quantifying over an empty set of variables
         let a_and_b = a.and(&b);
         assert!(Bdd::structural_eq(&a_and_b, &a_and_b.exists(&[])));
         assert!(Bdd::structural_eq(&a_and_b, &a_and_b.for_all(&[])));
@@ -647,7 +653,7 @@ mod tests {
         let g = z.iff(&w);
 
         // Calculate left side: ∃x.(f(x) ∧ g)
-        let left_side = f_x.binary_op_with_exists(&g, TriBool::and, &[v_x]);
+        let left_side = f_x.binary_op_with_exists(&g, boolean_operators::And, &[v_x]);
 
         // Calculate right side: (∃x.f(x)) ∧ g
         let right_side = f_x.exists(&[v_x]).and(&g);
@@ -655,7 +661,7 @@ mod tests {
         assert!(Bdd::structural_eq(&left_side, &right_side));
 
         // Also test for universal quantification: ∀x.(f(x) ∨ g) = (∀x.f(x)) ∨ g
-        let left_side_forall = f_x.binary_op_with_for_all(&g, TriBool::or, &[v_x]);
+        let left_side_forall = f_x.binary_op_with_for_all(&g, boolean_operators::Or, &[v_x]);
         let right_side_forall = f_x.for_all(&[v_x]).or(&g);
 
         assert!(Bdd::structural_eq(&left_side_forall, &right_side_forall));
@@ -676,7 +682,7 @@ mod tests {
         // Create a formula: ((x ∧ z ∧ w) ∨ w) ∧ (y xor z)
         let formula = x.and(&z).and(&w).or(&x.and(&z).or(&w)).and(&y.xor(&z));
 
-        // Test that the order of quantification doesn't matter for same quantifier
+        // Test that the order of quantification doesn't matter for the same quantifier
         let exists_x_then_y = formula.exists(&[v_x]).exists(&[v_y]);
         let exists_y_then_x = formula.exists(&[v_y]).exists(&[v_x]);
         let exists_xy = formula.exists(&[v_x, v_y]);
@@ -719,7 +725,7 @@ mod tests {
         let low = bdd.get(root).unwrap().low();
         let high = bdd.get(root).unwrap().high();
 
-        for node in bdd.into_nodes().iter().skip(2) {
+        for node in bdd.nodes.iter().skip(2) {
             table
                 .ensure_node(node.variable(), node.low(), node.high())
                 .unwrap();
@@ -731,7 +737,13 @@ mod tests {
         };
         let mut cache: TaskCache32<NodeId32> = TaskCache32::default();
 
-        let result = inner_apply_any(boolean_operators::or, state, &mut cache, &mut table).unwrap();
+        let result = inner_apply_any(
+            boolean_operators::Or.for_split(),
+            state,
+            &mut cache,
+            &mut table,
+        )
+        .unwrap();
 
         let result: Bdd32 = unsafe { table.into_reachable_bdd(result) };
 
@@ -765,9 +777,11 @@ mod tests {
         let e2 = x1.and(&x2).or(&x3).xor(&(x4.and(&x5))).and(&high16);
         let e3 = x3.implies(&x4).or(&x5).iff(&(x1.or(&x2))).and(&high32);
 
-        let nested_and = |b1: &Bdd, b2: &Bdd| b1.binary_op_with_exists(b2, TriBool::and, &[]);
+        let nested_and =
+            |b1: &Bdd, b2: &Bdd| b1.binary_op_with_exists(b2, boolean_operators::And, &[]);
 
-        let nested_iff = |b1: &Bdd, b2: &Bdd| b1.binary_op_with_for_all(b2, TriBool::iff, &[]);
+        let nested_iff =
+            |b1: &Bdd, b2: &Bdd| b1.binary_op_with_for_all(b2, boolean_operators::Iff, &[]);
 
         let result1 = nested_and(&e1, &e2);
         let result2 = e1.and(&e2);
@@ -788,14 +802,14 @@ mod tests {
             for x in 0..(num_vars / 2) {
                 let x1 = Bdd::new_literal(VariableId::new(x), true);
                 let x2 = Bdd::new_literal(VariableId::new(x + num_vars / 2), true);
-                // To make it a bit more fun, we always erase some previously used variable.
+                // To make it a bit more interesting, we always erase some previously used variable.
                 // This means we are not computing ripple carry adder after all, but at least
-                // it tests the nested apply operator.
-                let and = Bdd::binary_op_with_exists(&x1, &x2, TriBool::and, &[]);
+                // it tests the nested `apply` operator.
+                let and = Bdd::binary_op_with_exists(&x1, &x2, boolean_operators::And, &[]);
                 result = Bdd::binary_op_with_exists(
                     &result,
                     &and,
-                    TriBool::or,
+                    boolean_operators::Or,
                     &[VariableId::new(x / 4)],
                 );
             }
@@ -835,10 +849,15 @@ mod tests {
                 let bdd_b = Bdd::new_literal(var_b, true);
                 // Exists a: a | b is a tautology.
                 // Forall a,b: a | b is a contradiction.
-                let exists = Bdd::binary_op_with_exists(&bdd_a, &bdd_b, TriBool::or, &[var_a]);
+                let exists =
+                    Bdd::binary_op_with_exists(&bdd_a, &bdd_b, boolean_operators::Or, &[var_a]);
                 assert!(exists.is_true());
-                let forall =
-                    Bdd::binary_op_with_for_all(&bdd_a, &bdd_b, TriBool::or, &[var_a, var_b]);
+                let forall = Bdd::binary_op_with_for_all(
+                    &bdd_a,
+                    &bdd_b,
+                    boolean_operators::Or,
+                    &[var_a, var_b],
+                );
                 assert!(forall.is_false());
             }
         }

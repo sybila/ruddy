@@ -1,11 +1,6 @@
-//! Defines the representation of variable identifiers. Includes: [`VarIdPackedAny`],
-//! [`VarIdPacked16`], [`VarIdPacked32`], and [`VarIdPacked64`].
-
-use crate::{
-    conversion::{UncheckedFrom, UncheckedInto},
-    node_table::ReachabilityCycle,
-};
-use std::fmt::Formatter;
+use crate::conversion::{UncheckedFrom, UncheckedInto};
+use crate::{DeserializeIdError, usize_is_at_least_64_bits};
+use std::fmt::{Display, Formatter};
 use std::{
     convert::TryFrom,
     fmt::{self, Debug},
@@ -19,19 +14,29 @@ use std::{
 ///
 ///  - The maximum representable value of each ID type serves as an "undefined" value
 ///    (similar to `Option::None`).
-///  - Each ID type has a reachability flag, which is used to mark the associated BDD
-///    node as reachable in the garbage collection algorithm.
+///  - Each ID type has a mark, which is used during traversals or garbage collection.
 ///  - Each ID type has a "should use cache" flag (implemented by setting a particular
 ///    bit of the identifier), which can be used to control whether the associated BDD
 ///    node should be entered into the task cache during the `apply` algorithm.
-///  - Each ID type has a two-bit (`0`, `1`, `many`) counter tracking the number of parent
-///    nodes of the associated BDD node (if any). This is also used to guide heuristics
+///  - Each ID type has a two-bit counter (`0`, `1`, `many`) tracking the parent count
+///    of the associated BDD node (if any). This is also used to guide heuristics
 ///    within the `apply` algorithm.
 ///
 /// Note that the last two features are primarily used to speed up the `apply` algorithm and
-/// have no meaning outside of it.
-pub trait VarIdPackedAny:
-    Copy + Clone + PartialEq + Eq + PartialOrd + Ord + Hash + Debug + UncheckedFrom<VariableId>
+/// have no meaning outside it.
+pub(crate) trait VarIdPackedAny:
+    Copy
+    + Clone
+    + PartialEq
+    + Eq
+    + PartialOrd
+    + Ord
+    + Hash
+    + Debug
+    + UncheckedFrom<VariableId>
+    + Display
+    + UncheckedInto<VariableId>
+    + UncheckedInto<usize>
 {
     /// Return an instance of the "undefined" variable ID.
     fn undefined() -> Self;
@@ -47,38 +52,35 @@ pub trait VarIdPackedAny:
     /// will panic.* In release mode, unpacking an undefined value results in undefined behavior.
     fn unpack_u64(self) -> u64;
 
-    /// Returns true if the internal parent counter is set to `many` (i.e. not `0` or `1`).
+    /// Returns true if the internal parent counter is set to `many` (i.e., not `0` or `1`).
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn has_many_parents(self) -> bool;
 
     /// Check if the "use cache" flag is set on this variable ID.
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn use_cache(self) -> bool;
 
     /// Update the "use cache" flag of this variable ID.
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn set_use_cache(&mut self, value: bool);
 
     /// Increment the parent counter, assuming it is not already set to `many` (in that case,
     /// the counter stays the same).
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn increment_parents(&mut self);
 
-    /// Update the reachability flag of this variable ID to be considered reachable
-    /// in the given reachability cycle.
+    /// Set the mark of the variable ID to `mark`.
     ///
-    /// After calling `mark_as_reachable`, the variable ID will return `true`
-    /// when `is_reachable` is called with the reachability cycle.
-    fn mark_as_reachable(&mut self, cycle: ReachabilityCycle);
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
+    fn set_mark(&mut self, mark: Mark);
 
-    /// Check if the variable ID is reachable in the given reachability cycle.
-    ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
-    fn is_reachable(self, cycle: ReachabilityCycle) -> bool;
+    /// Check if the variable ID is marked as `mark`. For [`VarIdPackedAny::undefined`],
+    /// the function returns `true` regardless of `mark`.
+    fn has_same_mark(self, mark: Mark) -> bool;
 
     /// Returns the same variable ID, but with the internal flags reset to their default state.
     fn reset(self) -> Self;
@@ -89,23 +91,52 @@ pub trait VarIdPackedAny:
     /// Returns the maximum of the two given variable IDs, treating `undefined`
     /// as the smallest possible value.
     fn max_defined(self, other: Self) -> Self;
+
+    /// Convert the variable ID into a value that can be used for indexing. This can truncate
+    /// IDs wider than the index type, but this should never happen on 64-bit systems.
+    ///
+    /// ## Undefined behavior
+    ///
+    /// The result is not defined for [`VarIdPackedAny::undefined`]. In debug mode,
+    /// the method will panic. In release mode, this can result is undefined behavior.
+    fn as_usize(self) -> usize;
+
+    /// Converts the variable ID (with packed information) to a `String`.
+    fn to_string_packed(self) -> String;
+
+    /// Parses a variable ID from a string.
+    fn from_string_packed(s: &str) -> Result<Self, DeserializeIdError>;
+}
+
+/// Represents one of two distinct states in a flipping-mark system.
+///
+/// This type provides a type-safe way to manage the current mark value (conceptual
+/// '0' or '1') used in garbage collection. Instead of resetting marks, the
+/// "active" mark value flips between passes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Mark(u8);
+
+impl Mark {
+    /// Returns the flipped mark value.
+    pub(crate) fn flipped(self) -> Self {
+        Self(!self.0)
+    }
 }
 
 /// A 16-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply and garbage collection algorithms more efficient.
+/// to make the `apply` and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked16`] can only represent `2**13 - 1` unique variables (see also
 /// [`VarIdPacked16::MAX_ID`]).
 ///
 /// The packed information is as follows:
-///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
+///  - Two least-significant bits are used as a counter (`{0, 1, many}`) that keeps track of how
 ///    many parents the node containing the variable has.
 ///  - Third least-significant serves a dual purpose:
-///     - In the apply algorithm, it indicates whether the node containing the variable
+///     * In the `apply` algorithm, it indicates whether the node containing the variable
 ///       should use the task cache.
-///     - During garbage collection, it marks whether the node containing the variable is
-///       considered reachable.
+///     * As a mark for traversals or garbage collection.
 ///
 /// The two flags share the third least-significant bit as their usage is mutually exclusive.
 ///
@@ -113,7 +144,7 @@ pub trait VarIdPackedAny:
 /// `Ord` or `Hash`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct VarIdPacked16(u16);
+pub(crate) struct VarIdPacked16(u16);
 
 impl Debug for VarIdPacked16 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -135,8 +166,8 @@ impl VarIdPacked16 {
     /// The largest variable ID that can be safely represented by [`VarIdPacked16`].
     pub const MAX_ID: u16 = (u16::MAX >> 3) - 1;
     /// An internal "mask bit" that is used when manipulating the "use cache"
-    /// flag in packed variable IDs.
-    const USE_CACHE_AND_REACHABILITY_MASK: u16 = 0b100;
+    /// flag and mark in packed variable IDs.
+    const USE_CACHE_AND_MARK_MASK: u16 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u16 = !0b111;
     /// An internal mask that can be used to reset the "parent counter".
@@ -183,22 +214,32 @@ impl VarIdPacked16 {
         );
         self.0 >> 3
     }
+
+    /// Convert the ID to a 2-byte array (for serialization).
+    pub(crate) fn to_le_bytes(self) -> [u8; 2] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`VarIdPacked16`] from a 2-byte array (for serialization).
+    pub(crate) fn from_le_bytes(bytes: [u8; 2]) -> Self {
+        Self(u16::from_le_bytes(bytes))
+    }
 }
 
 /// A 32-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply and garbage collection algorithms more efficient.
+/// to make the `apply` and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked32`] can only represent `2**29 - 1` unique variables (see also
 /// [`VarIdPacked32::MAX_ID`]).
 ///
 /// The packed information is as follows:
-///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
+///  - Two least-significant bits are used as a counter (`{0, 1, many}`) that keeps track of how
 ///    many parents the node containing the variable has.
 ///  - Third least-significant serves a dual purpose:
-///     - In the apply algorithm, it indicates whether the node containing the variable
+///     * In the `apply` algorithm, it indicates whether the node containing the variable
 ///       should use the task cache.
-///     - During garbage collection, it marks whether the node containing the variable is
+///     * During garbage collection, it marks whether the node containing the variable is
 ///       considered reachable.
 ///
 /// The two flags share the third least-significant bit as their usage is mutually exclusive.
@@ -207,7 +248,7 @@ impl VarIdPacked16 {
 /// `Ord` or `Hash`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct VarIdPacked32(u32);
+pub(crate) struct VarIdPacked32(u32);
 
 impl Debug for VarIdPacked32 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -229,8 +270,8 @@ impl VarIdPacked32 {
     /// The largest variable ID that can be safely represented by [`VarIdPacked32`].
     pub const MAX_ID: u32 = (u32::MAX >> 3) - 1;
     /// An internal "mask bit" that is used when manipulating the "use cache"
-    /// flag in packed variable IDs.
-    const USE_CACHE_AND_REACHABILITY_MASK: u32 = 0b100;
+    /// flag and mark in packed variable IDs.
+    const USE_CACHE_AND_MARK_MASK: u32 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u32 = !0b111;
     /// An internal mask that can be used to reset the "parent counter".
@@ -282,22 +323,32 @@ impl VarIdPacked32 {
     pub(crate) fn fits_in_packed16(self) -> bool {
         self.is_undefined() || self.unpack() <= u32::from(VarIdPacked16::MAX_ID)
     }
+
+    /// Convert the ID to a 4-byte array (for serialization).
+    pub(crate) fn to_le_bytes(self) -> [u8; 4] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`VarIdPacked64`] from a 4-byte array (for serialization).
+    pub(crate) fn from_le_bytes(bytes: [u8; 4]) -> Self {
+        Self(u32::from_le_bytes(bytes))
+    }
 }
 
 /// A 64-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply and garbage collection algorithms more efficient.
+/// to make the `apply` and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked64`] can only represent `2**61 - 1` unique variables (see also
 /// [`VarIdPacked64::MAX_ID`]).
 ///
 /// The packed information is as follows:
-///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
+///  - Two least-significant bits are used as a counter (`{0, 1, many}`) that keeps track of how
 ///    many parents the node containing the variable has.
 ///  - Third least-significant serves a dual purpose:
-///     - In the apply algorithm, it indicates whether the node containing the variable
+///     * In the `apply` algorithm, it indicates whether the node containing the variable
 ///       should use the task cache.
-///     - During garbage collection, it marks whether the node containing the variable is
+///     * During garbage collection, it marks whether the node containing the variable is
 ///       considered reachable.
 ///
 /// The two flags share the third least-significant bit as their usage is mutually exclusive.
@@ -306,7 +357,7 @@ impl VarIdPacked32 {
 /// `Ord` or `Hash`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct VarIdPacked64(u64);
+pub(crate) struct VarIdPacked64(u64);
 
 impl Debug for VarIdPacked64 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -328,8 +379,8 @@ impl VarIdPacked64 {
     /// The largest variable ID that can be safely represented by [`VarIdPacked64`].
     pub const MAX_ID: u64 = (u64::MAX >> 3) - 1;
     /// An internal "mask bit" that is used when manipulating the "use cache"
-    /// flag in packed variable IDs.
-    const USE_CACHE_AND_REACHABILITY_MASK: u64 = 0b100;
+    /// flag and mark in packed variable IDs.
+    const USE_CACHE_AND_MARK_MASK: u64 = 0b100;
     /// An internal mask that can be used to reset the "packed information".
     const RESET_MASK: u64 = !0b111;
     /// An internal mask that can be used to reset the "parent counter".
@@ -386,6 +437,16 @@ impl VarIdPacked64 {
     pub(crate) fn fits_in_packed32(self) -> bool {
         self.is_undefined() || self.unpack() <= u64::from(VarIdPacked32::MAX_ID)
     }
+
+    /// Convert the ID to an 8-byte array (for serialization).
+    pub(crate) fn to_le_bytes(self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+
+    /// Create a new [`VarIdPacked64`] from an 8-byte array (for serialization).
+    pub(crate) fn from_le_bytes(bytes: [u8; 8]) -> Self {
+        Self(u64::from_le_bytes(bytes))
+    }
 }
 
 macro_rules! impl_var_id_packed {
@@ -437,12 +498,11 @@ macro_rules! impl_var_id_packed {
             }
 
             fn use_cache(self) -> bool {
-                self.0 & Self::USE_CACHE_AND_REACHABILITY_MASK != 0
+                self.0 & Self::USE_CACHE_AND_MARK_MASK != 0
             }
 
             fn set_use_cache(&mut self, value: bool) {
-                self.0 =
-                    (self.0 & !Self::USE_CACHE_AND_REACHABILITY_MASK) | ($width::from(value) << 2);
+                self.0 = (self.0 & !Self::USE_CACHE_AND_MARK_MASK) | ($width::from(value) << 2);
             }
 
             fn increment_parents(&mut self) {
@@ -454,23 +514,29 @@ macro_rules! impl_var_id_packed {
                 self.0 |= counter;
             }
 
-            fn mark_as_reachable(&mut self, cycle: ReachabilityCycle) {
+            fn set_mark(&mut self, mark: Mark) {
                 debug_assert!(!self.is_undefined());
-                self.0 = (self.0 & !Self::USE_CACHE_AND_REACHABILITY_MASK)
-                    | ($width::from(u8::from(cycle)) & Self::USE_CACHE_AND_REACHABILITY_MASK);
+                self.0 = (self.0 & !Self::USE_CACHE_AND_MARK_MASK)
+                    | ($width::from(mark.0) & Self::USE_CACHE_AND_MARK_MASK);
             }
 
-            fn is_reachable(self, cycle: ReachabilityCycle) -> bool {
-                debug_assert!(!self.is_undefined());
-                (self.0 & Self::USE_CACHE_AND_REACHABILITY_MASK)
-                    == ($width::from(u8::from(cycle)) & Self::USE_CACHE_AND_REACHABILITY_MASK)
+            fn has_same_mark(self, mark: Mark) -> bool {
+                match self.0 {
+                    Self::UNDEFINED => true,
+                    _ => {
+                        (self.0 & Self::USE_CACHE_AND_MARK_MASK)
+                            == ($width::from(mark.0) & Self::USE_CACHE_AND_MARK_MASK)
+                    }
+                }
             }
 
             fn reset(self) -> Self {
+                debug_assert!(!self.is_undefined());
                 Self(self.0 & Self::RESET_MASK)
             }
 
             fn reset_parents(self) -> Self {
+                debug_assert!(!self.is_undefined());
                 Self(self.0 & Self::RESET_PARENTS_MASK)
             }
 
@@ -480,6 +546,19 @@ macro_rules! impl_var_id_packed {
                     (_, Self::UNDEFINED) => self,
                     _ => self.max(other),
                 }
+            }
+
+            fn as_usize(self) -> usize {
+                self.unchecked_into()
+            }
+
+            fn to_string_packed(self) -> String {
+                self.0.to_string()
+            }
+
+            fn from_string_packed(s: &str) -> Result<Self, DeserializeIdError> {
+                let id: $width = s.parse()?;
+                Ok(Self(id))
             }
         }
     };
@@ -505,6 +584,20 @@ macro_rules! impl_from {
 impl_from!(VarIdPacked16 => VarIdPacked32);
 impl_from!(VarIdPacked16 => VarIdPacked64);
 impl_from!(VarIdPacked32 => VarIdPacked64);
+
+macro_rules! impl_unchecked_from_variable_to_usize {
+    ($VarId:ident) => {
+        impl UncheckedFrom<$VarId> for usize {
+            fn unchecked_from(id: $VarId) -> Self {
+                id.unpack().unchecked_into()
+            }
+        }
+    };
+}
+
+impl_unchecked_from_variable_to_usize!(VarIdPacked16);
+impl_unchecked_from_variable_to_usize!(VarIdPacked32);
+impl_unchecked_from_variable_to_usize!(VarIdPacked64);
 
 impl UncheckedFrom<VarIdPacked64> for VarIdPacked16 {
     #[allow(clippy::cast_possible_truncation)]
@@ -548,14 +641,14 @@ impl UncheckedFrom<VarIdPacked32> for VarIdPacked16 {
 /// An implementation of [`std::error::Error`] that is reported when checked conversion
 /// between instances of [`VarIdPackedAny`] is not possible.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct TryFromVarIdPackedError {
+pub(crate) struct TryFromVarIdPackedError {
     id: u64,
     from_width: usize,
     to_width: usize,
 }
 
-impl fmt::Display for TryFromVarIdPackedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromVarIdPackedError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}-bit variable ID {} cannot be converted to {}-bit",
@@ -602,17 +695,19 @@ impl_try_from!(VarIdPacked64 => VarIdPacked32);
 ///
 /// This mainly allows us to write `AsVarId<T>` instead of needing to write
 /// `VarIdPackedAny + Into<T>` everywhere.
-pub trait AsVarId<TVarId: VarIdPackedAny>: VarIdPackedAny + Into<TVarId> {}
+pub(crate) trait AsVarId<TVarId: VarIdPackedAny>: VarIdPackedAny + Into<TVarId> {}
 impl<A: VarIdPackedAny, B: VarIdPackedAny + Into<A>> AsVarId<A> for B {}
 
 /// A type for identifying variables in BDDs.
+///
+/// `VariableId` 0 is the highest one in the BDD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VariableId(u64);
 
 impl VariableId {
-    pub const MAX_16_BIT_ID: u64 = VarIdPacked16::MAX_ID as u64;
-    pub const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
-    pub const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
+    pub(crate) const MAX_16_BIT_ID: u64 = VarIdPacked16::MAX_ID as u64;
+    pub(crate) const MAX_32_BIT_ID: u64 = VarIdPacked32::MAX_ID as u64;
+    pub(crate) const MAX_64_BIT_ID: u64 = VarIdPacked64::MAX_ID;
 
     /// Create a new variable ID.
     ///
@@ -626,7 +721,7 @@ impl VariableId {
     ///
     /// This operation can fail, since the underlying algorithms are not required to support
     /// all 2^64 distinct IDs. You can assume that most IDs are still supported
-    /// (at least on 64-bit systems). However, for the purpose of ensuring backwards compatibility
+    /// (at least on 64-bit systems). However, to ensure backwards compatibility
     /// in the future, we do not provide a guaranteed maximum ID that is always supported and
     /// is larger than 2^32.
     pub fn new_long(id: u64) -> Option<Self> {
@@ -663,6 +758,10 @@ impl VariableId {
     pub(crate) fn fits_in_packed64(self) -> bool {
         self.0 <= Self::MAX_64_BIT_ID
     }
+
+    pub(crate) fn as_usize(self) -> usize {
+        usize_is_at_least_64_bits(self.0)
+    }
 }
 
 impl UncheckedFrom<VariableId> for VarIdPacked64 {
@@ -686,6 +785,24 @@ impl UncheckedFrom<VariableId> for VarIdPacked16 {
     }
 }
 
+impl UncheckedFrom<VarIdPacked16> for VariableId {
+    fn unchecked_from(value: VarIdPacked16) -> Self {
+        VariableId::from(value.unpack())
+    }
+}
+
+impl UncheckedFrom<VarIdPacked32> for VariableId {
+    fn unchecked_from(value: VarIdPacked32) -> Self {
+        VariableId::from(value.unpack())
+    }
+}
+
+impl UncheckedFrom<VarIdPacked64> for VariableId {
+    fn unchecked_from(value: VarIdPacked64) -> Self {
+        VariableId(value.unpack())
+    }
+}
+
 impl From<u16> for VariableId {
     fn from(value: u16) -> Self {
         VariableId::new(u32::from(value))
@@ -698,30 +815,61 @@ impl From<u32> for VariableId {
     }
 }
 
-impl fmt::Display for VarIdPacked16 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl From<VariableId> for u64 {
+    fn from(value: VariableId) -> Self {
+        value.0
+    }
+}
+
+impl Display for VarIdPacked16 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.unpack())
     }
 }
 
-impl fmt::Display for VarIdPacked32 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for VarIdPacked32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.unpack())
     }
 }
 
-impl fmt::Display for VarIdPacked64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for VarIdPacked64 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.unpack())
+    }
+}
+
+impl Display for VariableId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Calculate the number of variables between `larger` and `smaller`. If `larger`
+/// is `undefined`, return the number of variables between `largest_variable` and `smaller`
+/// instead.
+pub(crate) fn variables_between<TVarId: VarIdPackedAny>(
+    larger: TVarId,
+    smaller: TVarId,
+    largest_variable: VariableId,
+) -> u64 {
+    debug_assert!(!smaller.is_undefined());
+    if larger.is_undefined() {
+        debug_assert!(
+            Into::<u64>::into(largest_variable) >= smaller.unpack_u64(),
+            "largest variable {largest_variable} is smaller than variable {smaller} in the BDD"
+        );
+        Into::<u64>::into(largest_variable) - smaller.unpack_u64()
+    } else {
+        larger.unpack_u64() - smaller.unpack_u64() - 1
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::conversion::{UncheckedFrom, UncheckedInto};
-    use crate::variable_id::ReachabilityCycle;
     use crate::variable_id::{
-        VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
+        Mark, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     };
 
     macro_rules! test_var_packed_undefined {
@@ -1077,7 +1225,7 @@ mod tests {
     fn packed_id_unsuccessful_conversion() {
         let id = VarIdPacked32::new((u16::MAX as u32) + 1);
         let err = VarIdPacked16::try_from(id).unwrap_err();
-        println!("{}", err);
+        println!("{err}");
         assert_eq!(err.from_width, 32);
         assert_eq!(err.to_width, 16);
     }
@@ -1110,7 +1258,7 @@ mod tests {
         id.increment_parents();
         id.increment_parents();
         assert_eq!(
-            format!("{:?}", id),
+            format!("{id:?}"),
             "VarIdPacked16(id=10,cache=true,parents=11)"
         );
         let mut id = VarIdPacked32::new(10);
@@ -1118,7 +1266,7 @@ mod tests {
         id.increment_parents();
         id.increment_parents();
         assert_eq!(
-            format!("{:?}", id),
+            format!("{id:?}"),
             "VarIdPacked32(id=10,cache=true,parents=11)"
         );
         let mut id = VarIdPacked64::new(10);
@@ -1126,44 +1274,42 @@ mod tests {
         id.increment_parents();
         id.increment_parents();
         assert_eq!(
-            format!("{:?}", id),
+            format!("{id:?}"),
             "VarIdPacked64(id=10,cache=true,parents=11)"
         );
 
         let undef = VarIdPacked16::undefined();
-        assert_eq!(format!("{:?}", undef), "VarIdPacked16(undefined)");
+        assert_eq!(format!("{undef:?}"), "VarIdPacked16(undefined)");
 
         let undef = VarIdPacked32::undefined();
-        assert_eq!(format!("{:?}", undef), "VarIdPacked32(undefined)");
+        assert_eq!(format!("{undef:?}"), "VarIdPacked32(undefined)");
 
         let undef = VarIdPacked64::undefined();
-        assert_eq!(format!("{:?}", undef), "VarIdPacked64(undefined)");
+        assert_eq!(format!("{undef:?}"), "VarIdPacked64(undefined)");
     }
 
-    macro_rules! test_packed_id_reachability {
+    macro_rules! test_packed_id_mark {
         ($func:ident, $VarId:ident) => {
             #[test]
             fn $func() {
                 let mut id = $VarId::new(0);
-                let cycle = ReachabilityCycle::default();
+                let mark = Mark::default();
 
-                id.mark_as_reachable(cycle);
-                assert!(id.is_reachable(cycle));
-                let flipped = cycle.flipped();
-                assert!(!id.is_reachable(flipped));
-                id.mark_as_reachable(flipped);
-                assert!(!id.is_reachable(cycle));
-                assert!(id.is_reachable(flipped));
+                assert!(id.has_same_mark(mark));
+                let flipped = mark.flipped();
+                assert!(!id.has_same_mark(flipped));
+                id.set_mark(flipped);
+                assert!(id.has_same_mark(flipped));
 
                 let flipped_twice = flipped.flipped().flipped();
-                assert!(id.is_reachable(flipped_twice));
+                assert!(id.has_same_mark(flipped_twice));
             }
         };
     }
 
-    test_packed_id_reachability!(var_packed_16_reachability, VarIdPacked16);
-    test_packed_id_reachability!(var_packed_32_reachability, VarIdPacked32);
-    test_packed_id_reachability!(var_packed_64_reachability, VarIdPacked64);
+    test_packed_id_mark!(var_packed_16_mark, VarIdPacked16);
+    test_packed_id_mark!(var_packed_32_mark, VarIdPacked32);
+    test_packed_id_mark!(var_packed_64_mark, VarIdPacked64);
 
     macro_rules! test_packed_id_max_defined {
         ($func:ident, $VarId:ident) => {
@@ -1186,4 +1332,43 @@ mod tests {
     test_packed_id_max_defined!(var_packed_16_max_defined, VarIdPacked16);
     test_packed_id_max_defined!(var_packed_32_max_defined, VarIdPacked32);
     test_packed_id_max_defined!(var_packed_64_max_defined, VarIdPacked64);
+
+    macro_rules! test_packed_id_byte_conversions {
+        ($VarId:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let id = $VarId::new(1234);
+                let id_bytes = id.to_le_bytes();
+                let id2 = $VarId::from_le_bytes(id_bytes);
+                assert_eq!(id, id2);
+                let id = $VarId::undefined();
+                let id_bytes = id.to_le_bytes();
+                let id2 = $VarId::from_le_bytes(id_bytes);
+                assert_eq!(id, id2);
+            }
+        };
+    }
+
+    test_packed_id_byte_conversions!(VarIdPacked16, var_packed_16_byte_conversions);
+    test_packed_id_byte_conversions!(VarIdPacked32, var_packed_32_byte_conversions);
+    test_packed_id_byte_conversions!(VarIdPacked64, var_packed_64_byte_conversions);
+
+    macro_rules! test_packed_id_string_conversions {
+        ($VarId:ident, $func:ident) => {
+            #[test]
+            fn $func() {
+                let id = $VarId::new(1234);
+                let id_str = id.to_string_packed();
+                let id2 = $VarId::from_string_packed(&id_str).unwrap();
+                assert_eq!(id, id2);
+                let id = $VarId::undefined();
+                let id_str = id.to_string_packed();
+                let id2 = $VarId::from_string_packed(&id_str).unwrap();
+                assert_eq!(id, id2);
+            }
+        };
+    }
+    test_packed_id_string_conversions!(VarIdPacked16, var_packed_16_string_conversions);
+    test_packed_id_string_conversions!(VarIdPacked32, var_packed_32_string_conversions);
+    test_packed_id_string_conversions!(VarIdPacked64, var_packed_64_string_conversions);
 }
