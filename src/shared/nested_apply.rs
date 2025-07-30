@@ -7,12 +7,12 @@ use crate::{
     conversion::{UncheckedFrom, UncheckedInto},
     node_id::{NodeId, NodeId16, NodeId32, NodeId64, NodeIdAny},
     node_table::{NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny},
-    split::nested_apply::{inner_apply_any, InnerApplyState},
+    split::nested_apply::{InnerApplyState, inner_apply_any},
     task_cache::{TaskCache16, TaskCache32, TaskCache64, TaskCacheAny},
     variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId},
 };
 
-use super::{manager::BddManager, Bdd};
+use super::{Bdd, manager::BddManager};
 
 impl BddManager {
     /// Applies the `outer_op` to the [`Bdd`]s. On each node of the resulting `Bdd`,
@@ -428,7 +428,7 @@ fn nested_apply_64_bit<TOuterOp: BooleanOperator, TInnerOp: BooleanOperator>(
 mod tests {
     use crate::{
         boolean_operators,
-        shared::{manager::BddManager, Bdd},
+        shared::{Bdd, manager::BddManager},
         variable_id::VariableId,
     };
 
@@ -619,21 +619,29 @@ mod tests {
             let v_false = manager.new_bdd_literal(v, false);
 
             // exists v1. (v1 & v1) is tautology
-            assert!(manager
-                .binary_op_with_exists(&v_true, &v_true, boolean_operators::And, &[v])
-                .is_true());
+            assert!(
+                manager
+                    .binary_op_with_exists(&v_true, &v_true, boolean_operators::And, &[v])
+                    .is_true()
+            );
             // exists v1. (v1 & !v1) is contradiction
-            assert!(manager
-                .binary_op_with_exists(&v_true, &v_false, boolean_operators::And, &[v])
-                .is_false());
+            assert!(
+                manager
+                    .binary_op_with_exists(&v_true, &v_false, boolean_operators::And, &[v])
+                    .is_false()
+            );
             // forall v1. (v1 | !v1) is tautology
-            assert!(manager
-                .binary_op_with_for_all(&v_true, &v_false, boolean_operators::Or, &[v])
-                .is_true());
+            assert!(
+                manager
+                    .binary_op_with_for_all(&v_true, &v_false, boolean_operators::Or, &[v])
+                    .is_true()
+            );
             // forall v1. (v1 | v1) is contradiction
-            assert!(manager
-                .binary_op_with_for_all(&v_true, &v_true, boolean_operators::Or, &[v])
-                .is_false());
+            assert!(
+                manager
+                    .binary_op_with_for_all(&v_true, &v_true, boolean_operators::Or, &[v])
+                    .is_false()
+            );
         }
     }
 

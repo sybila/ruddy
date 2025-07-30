@@ -10,7 +10,7 @@ use crate::{
     variable_id::VarIdPackedAny,
 };
 
-use super::{manager::BddManager, Bdd};
+use super::{Bdd, manager::BddManager};
 
 impl BddManager {
     /// Calculates a [`Bdd`] representing the boolean formula `left 'operator' right`.

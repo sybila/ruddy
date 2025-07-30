@@ -598,7 +598,7 @@ mod tests {
         node_table::{NodeTable32, NodeTableAny},
         split::{
             bdd::{Bdd, Bdd32, BddAny},
-            nested_apply::{inner_apply_any, InnerApplyState},
+            nested_apply::{InnerApplyState, inner_apply_any},
         },
         task_cache::TaskCache32,
         variable_id::{VarIdPacked32, VarIdPackedAny, VariableId},

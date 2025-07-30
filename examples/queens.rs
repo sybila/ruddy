@@ -1,4 +1,4 @@
-use ruddy::{split::Bdd, VariableId};
+use ruddy::{VariableId, split::Bdd};
 
 /// Make a `Vec<Vec<Bdd>>` of `Bdd`s representing whether there is a queen
 /// placed on a particular square in a chessboard of size `n` by `n`.

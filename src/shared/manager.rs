@@ -523,7 +523,7 @@ fn not_any<TNodeTable: NodeTableAny, TTaskCache: TaskCacheAny<ResultId = TNodeTa
                             task_cache,
                             node_table,
                         })
-                    }
+                    };
                 }
             };
             if variable.use_cache() {

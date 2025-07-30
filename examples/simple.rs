@@ -1,6 +1,6 @@
 use std::{fs::File, io::BufWriter};
 
-use ruddy::{shared::BddManager, VariableId};
+use ruddy::{VariableId, shared::BddManager};
 
 fn main() {
     let mut manager = BddManager::new();

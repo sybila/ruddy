@@ -1,6 +1,6 @@
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
-use crate::variable_id::{variables_between, Mark, VariableId};
+use crate::variable_id::{Mark, VariableId, variables_between};
 use crate::{
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
     node_id::{NodeId16, NodeId32, NodeId64, NodeIdAny},
@@ -124,11 +124,8 @@ pub(crate) struct NodeEntry<
     next_parent_one: TNodeId,
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > From<TNode> for NodeEntry<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    From<TNode> for NodeEntry<TNodeId, TVarId, TNode>
 {
     fn from(node: TNode) -> Self {
         NodeEntry {
@@ -140,11 +137,8 @@ impl<
     }
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > NodeEntry<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    NodeEntry<TNodeId, TVarId, TNode>
 {
     fn zero() -> Self {
         Self::from(TNode::zero())
@@ -201,11 +195,8 @@ struct DeletedEntryMut<
     TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
 >(&'a mut NodeEntry<TNodeId, TVarId, TNode>);
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > DeletedEntryMut<'_, TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    DeletedEntryMut<'_, TNodeId, TVarId, TNode>
 {
     fn next_free(&self) -> TNodeId {
         self.0.node.high()
@@ -760,22 +751,16 @@ where
     }
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > Default for NodeTableImpl<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    Default for NodeTableImpl<TNodeId, TVarId, TNode>
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<
-        TNodeId: NodeIdAny,
-        TVarId: VarIdPackedAny,
-        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-    > NodeTableAny for NodeTableImpl<TNodeId, TVarId, TNode>
+impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>>
+    NodeTableAny for NodeTableImpl<TNodeId, TVarId, TNode>
 {
     type Id = TNodeId;
     type VarId = TVarId;
@@ -1466,9 +1451,10 @@ where
                     }
                 }
 
-                debug_assert!(self
-                    .get_node(root_id)
-                    .is_some_and(|node| node.has_same_mark(new_mark)));
+                debug_assert!(
+                    self.get_node(root_id)
+                        .is_some_and(|node| node.has_same_mark(new_mark))
+                );
                 let new_root = unsafe { self.get_entry_unchecked_mut(root_id).parent };
                 root.set(new_root.unchecked_into());
             }
@@ -1713,7 +1699,7 @@ mod tests {
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeIdAny};
     use crate::node_table::{
-        hash_node_data, NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny,
+        NodeTable, NodeTable16, NodeTable32, NodeTable64, NodeTableAny, hash_node_data,
     };
     use crate::split::bdd::{Bdd32, BddAny};
     use crate::variable_id::{
@@ -1790,13 +1776,17 @@ mod tests {
 
         table.delete(NodeId16::new(2));
         assert!(!table.is_full());
-        assert!(table
-            .ensure_node(VarIdPacked16::new(11), NodeId16::zero(), NodeId16::one())
-            .is_ok());
+        assert!(
+            table
+                .ensure_node(VarIdPacked16::new(11), NodeId16::zero(), NodeId16::one())
+                .is_ok()
+        );
         assert!(table.is_full());
-        assert!(table
-            .ensure_node(VarIdPacked16::new(12), NodeId16::zero(), NodeId16::one())
-            .is_err());
+        assert!(
+            table
+                .ensure_node(VarIdPacked16::new(12), NodeId16::zero(), NodeId16::one())
+                .is_err()
+        );
     }
 
     #[test]
@@ -2390,10 +2380,12 @@ mod tests {
         assert_eq!(mark_data.max_var_id, reachable_max_var_id);
 
         for &id in ids_reachable.iter() {
-            assert!(table
-                .get_node(id)
-                .unwrap()
-                .has_same_mark(table.current_mark));
+            assert!(
+                table
+                    .get_node(id)
+                    .unwrap()
+                    .has_same_mark(table.current_mark)
+            );
             if !id.is_terminal() && id != root_32 && id != root_subtree_32 {
                 // The reachable nodes should have exactly one parent.
                 let node = &mut table.get_entry_mut(id).unwrap().node;
@@ -2413,17 +2405,21 @@ mod tests {
         assert!(root_subtree.has_many_parents());
 
         for &id in ids_unreachable_1.iter() {
-            assert!(!table
-                .get_node(id)
-                .unwrap()
-                .has_same_mark(table.current_mark));
+            assert!(
+                !table
+                    .get_node(id)
+                    .unwrap()
+                    .has_same_mark(table.current_mark)
+            );
         }
 
         for &id in ids_unreachable_2.iter() {
-            assert!(!table
-                .get_node(id)
-                .unwrap()
-                .has_same_mark(table.current_mark));
+            assert!(
+                !table
+                    .get_node(id)
+                    .unwrap()
+                    .has_same_mark(table.current_mark)
+            );
         }
     }
 
@@ -2567,9 +2563,11 @@ mod tests {
 
         assert_eq!(expected, rebuilt);
 
-        assert!(rebuilt
-            .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
-            .is_err());
+        assert!(
+            rebuilt
+                .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
+                .is_err()
+        );
     }
 
     #[test]
@@ -2594,9 +2592,11 @@ mod tests {
 
         assert_eq!(expected, rebuilt);
 
-        assert!(rebuilt
-            .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
-            .is_err());
+        assert!(
+            rebuilt
+                .ensure_node(VarIdPacked16::new(1000), NodeId16::zero(), NodeId16::one())
+                .is_err()
+        );
     }
 
     #[test]

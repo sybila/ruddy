@@ -1,5 +1,5 @@
 use crate::conversion::{UncheckedFrom, UncheckedInto};
-use crate::{usize_is_at_least_64_bits, DeserializeIdError};
+use crate::{DeserializeIdError, usize_is_at_least_64_bits};
 use std::fmt::{Display, Formatter};
 use std::{
     convert::TryFrom,

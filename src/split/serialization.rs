@@ -1,10 +1,10 @@
 use std::fmt::Display;
 use std::io::{self, ErrorKind, Read, Write};
 
-use super::bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl, BddInner};
 use super::Bdd;
-use crate::bdd_node::BddNodeAny;
+use super::bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl, BddInner};
 use crate::DeserializeIdError;
+use crate::bdd_node::BddNodeAny;
 use crate::{node_id::NodeIdAny, variable_id::VarIdPackedAny};
 
 /// An error than can occur while deserializing a BDD.
@@ -340,8 +340,8 @@ impl Bdd {
 mod tests {
     use crate::{
         split::{
-            bdd::{Bdd16, Bdd32, Bdd64, BddAny},
             Bdd,
+            bdd::{Bdd16, Bdd32, Bdd64, BddAny},
         },
         variable_id::VariableId,
     };

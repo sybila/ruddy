@@ -115,8 +115,8 @@ pub(crate) mod split {
     use crate::{
         node_id::NodeIdAny,
         split::{
-            bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl, BddInner},
             Bdd,
+            bdd::{Bdd16, Bdd32, Bdd64, BddAny, BddImpl, BddInner},
         },
         variable_id::{VarIdPackedAny, VariableId},
     };
@@ -268,7 +268,7 @@ pub(crate) mod split {
     #[cfg(test)]
     mod tests {
         use crate::{
-            split::{bdd::tests::queens, Bdd},
+            split::{Bdd, bdd::tests::queens},
             variable_id::VariableId,
         };
 
@@ -313,10 +313,11 @@ pub(crate) mod split {
             let f = Bdd::new_false();
 
             assert!(f.satisfying_valuation(None).next().is_none());
-            assert!(f
-                .satisfying_valuation(Some(VariableId::new(2)))
-                .next()
-                .is_none());
+            assert!(
+                f.satisfying_valuation(Some(VariableId::new(2)))
+                    .next()
+                    .is_none()
+            );
 
             let t = Bdd::new_true();
 
@@ -388,10 +389,10 @@ pub(crate) mod shared {
     };
 
     impl<
-            TNodeId: NodeIdAny,
-            TVarId: VarIdPackedAny,
-            TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-        > NodeAccess for NodeTableImpl<TNodeId, TVarId, TNode>
+        TNodeId: NodeIdAny,
+        TVarId: VarIdPackedAny,
+        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
+    > NodeAccess for NodeTableImpl<TNodeId, TVarId, TNode>
     {
         type Id = TNodeId;
         type Node = TNode;
@@ -444,10 +445,10 @@ pub(crate) mod shared {
     }
 
     impl<
-            TNodeId: NodeIdAny,
-            TVarId: VarIdPackedAny,
-            TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
-        > NodeTableImpl<TNodeId, TVarId, TNode>
+        TNodeId: NodeIdAny,
+        TVarId: VarIdPackedAny,
+        TNode: BddNodeAny<Id = TNodeId, VarId = TVarId>,
+    > NodeTableImpl<TNodeId, TVarId, TNode>
     {
         /// Gets an iterator over the satisfying paths in the BDD rooted in `root`.
         fn satisfying_paths(
@@ -558,7 +559,7 @@ pub(crate) mod shared {
     #[cfg(test)]
     mod tests {
         use crate::{
-            shared::{manager::tests::queens, BddManager},
+            shared::{BddManager, manager::tests::queens},
             variable_id::VariableId,
         };
 
@@ -566,10 +567,11 @@ pub(crate) mod shared {
         fn iter_sat_paths() {
             let mut m = BddManager::no_gc();
 
-            assert!(m
-                .satisfying_paths(&m.new_bdd_false(), None)
-                .next()
-                .is_none());
+            assert!(
+                m.satisfying_paths(&m.new_bdd_false(), None)
+                    .next()
+                    .is_none()
+            );
             assert_eq!(
                 m.satisfying_paths(&m.new_bdd_true(), None).next(),
                 Some(vec![])
@@ -611,10 +613,11 @@ pub(crate) mod shared {
         fn iter_sat_valuations() {
             let mut m = BddManager::no_gc();
 
-            assert!(m
-                .satisfying_paths(&m.new_bdd_false(), None)
-                .next()
-                .is_none());
+            assert!(
+                m.satisfying_paths(&m.new_bdd_false(), None)
+                    .next()
+                    .is_none()
+            );
             assert_eq!(
                 m.satisfying_paths(&m.new_bdd_true(), None).next(),
                 Some(vec![])
