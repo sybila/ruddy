@@ -8,7 +8,7 @@ use crate::{
 /// Task cache is a "leaky" hash table that maps a pair of [`NodeIdAny`] instances (representing
 /// a "task") to another instance of [`NodeIdAny`], representing the result of said task.
 ///
-/// The table can "lose" any value that is stored in it, especially in case of a collision with
+/// The table can "lose" any value stored in it, especially in case of a collision with
 /// another value. The cache is responsible for growing itself when too many collisions occur.
 ///
 /// The `get`/`set` methods are generic to allow combinations of different bit-widths in one
@@ -19,7 +19,7 @@ use crate::{
 pub(crate) trait TaskCacheAny: Default {
     type ResultId: NodeIdAny;
 
-    /// Retrieve the result value that is stored for the given `task`, or [`NodeIdAny::undefined`]
+    /// Retrieve the result value stored for the given `task`, or [`NodeIdAny::undefined`]
     /// when the `task` has not been encountered before.
     ///
     /// The `task` consists of two [`NodeIdAny`] instances. These can be any implementations of
@@ -231,6 +231,9 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCache<THashSize, TResultId>
     /// Create a new instance of [`TaskCache`] with the reserved capacity of at
     /// least `2**max(log_capacity, log_size)`, but only initialize the first `2**log_size`
     /// entries. The `log_size` must be at least `1` (otherwise it will be set to `1`).
+    ///
+    /// **Right now, the method is unused, but it could be used in the future in situations
+    /// where we want a pre-grown but empty table.**
     #[allow(dead_code)]
     pub fn with_log_size_and_log_capacity(log_size: u32, log_capacity: u32) -> Self {
         let log_size = log_size.max(1);
@@ -261,6 +264,9 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCache<THashSize, TResultId>
 
     /// Clears all stored values in the cache.
     /// This method keeps the allocated memory for reuse.
+    ///
+    /// **Right now, the method is unused, but will likely become relevant once we want to
+    /// start reusing allocated cache memory between operations.**
     #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.log_size = 1;
@@ -292,7 +298,7 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCache<THashSize, TResultId>
         self.collisions = 0;
         self.log_size += 1;
 
-        // Double the table size if current reserved capacity is not sufficient.
+        // Double the table size if the current reserved capacity is not enough.
         self.table.reserve(previous_size);
 
         // Artificially "enable" newly reserved slots without initializing them. The subsequent
@@ -302,7 +308,7 @@ impl<THashSize: KnuthHash, TResultId: NodeIdAny> TaskCache<THashSize, TResultId>
             self.table.set_len(self.size());
         }
 
-        // We know that a value at position X will be stored either at position 2*X, or 2*X+1,
+        // We know that a value at position X will be stored either at position 2*X or 2*X+1,
         // (depending on its hash). As such, assuming we copy values starting at the back
         // of the table, we will never overwrite anything relevant, and we will initialize the
         // whole table exactly once.
