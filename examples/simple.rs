@@ -30,7 +30,7 @@ fn main() {
     let mut buffer = BufWriter::new(file);
     manager.write_bdd_as_dot(&bdd, &mut buffer).unwrap();
 
-    // Perform existential quantification: `\exists v0 . f`.
+    // Perform existential quantification: `\exists v0 . F`.
     // This should yield a BDD equivalent to `(v1 OR v2)`
     let bdd_after_exists = manager.exists(&bdd, &[v0]);
 
@@ -43,5 +43,5 @@ fn main() {
     // For verification, let's directly construct the BDD for 'v1 OR v2'.
     let bdd_v1_or_v2_direct = manager.or(&bdd_v1_true, &bdd_v2_true);
 
-    assert!(bdd_after_exists == bdd_v1_or_v2_direct);
+    assert_eq!(bdd_after_exists, bdd_v1_or_v2_direct);
 }
