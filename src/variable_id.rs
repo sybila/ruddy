@@ -18,12 +18,12 @@ use std::{
 ///  - Each ID type has a "should use cache" flag (implemented by setting a particular
 ///    bit of the identifier), which can be used to control whether the associated BDD
 ///    node should be entered into the task cache during the `apply` algorithm.
-///  - Each ID type has a two-bit (`0`, `1`, `many`) counter tracking the number of parent
-///    nodes of the associated BDD node (if any). This is also used to guide heuristics
+///  - Each ID type has a two-bit counter (`0`, `1`, `many`) tracking the parent count
+///    of the associated BDD node (if any). This is also used to guide heuristics
 ///    within the `apply` algorithm.
 ///
 /// Note that the last two features are primarily used to speed up the `apply` algorithm and
-/// have no meaning outside of it.
+/// have no meaning outside it.
 pub(crate) trait VarIdPackedAny:
     Copy
     + Clone
@@ -52,30 +52,30 @@ pub(crate) trait VarIdPackedAny:
     /// will panic.* In release mode, unpacking an undefined value results in undefined behavior.
     fn unpack_u64(self) -> u64;
 
-    /// Returns true if the internal parent counter is set to `many` (i.e. not `0` or `1`).
+    /// Returns true if the internal parent counter is set to `many` (i.e., not `0` or `1`).
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn has_many_parents(self) -> bool;
 
     /// Check if the "use cache" flag is set on this variable ID.
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn use_cache(self) -> bool;
 
     /// Update the "use cache" flag of this variable ID.
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn set_use_cache(&mut self, value: bool);
 
     /// Increment the parent counter, assuming it is not already set to `many` (in that case,
     /// the counter stays the same).
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn increment_parents(&mut self);
 
     /// Set the mark of the variable ID to `mark`.
     ///
-    /// For [`VarIdPackedAny::undefined`], the behavior is undefined, but unchecked.
+    /// For [`VarIdPackedAny::undefined`], the behavior is undefined but unchecked.
     fn set_mark(&mut self, mark: Mark);
 
     /// Check if the variable ID is marked as `mark`. For [`VarIdPackedAny::undefined`],
@@ -125,18 +125,18 @@ impl Mark {
 
 /// A 16-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply and garbage collection algorithms more efficient.
+/// to make the `apply` and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked16`] can only represent `2**13 - 1` unique variables (see also
 /// [`VarIdPacked16::MAX_ID`]).
 ///
 /// The packed information is as follows:
-///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
+///  - Two least-significant bits are used as a counter (`{0, 1, many}`) that keeps track of how
 ///    many parents the node containing the variable has.
 ///  - Third least-significant serves a dual purpose:
-///     - In the apply algorithm, it indicates whether the node containing the variable
+///     * In the `apply` algorithm, it indicates whether the node containing the variable
 ///       should use the task cache.
-///     - As a mark for traversals or garbage collection.
+///     * As a mark for traversals or garbage collection.
 ///
 /// The two flags share the third least-significant bit as their usage is mutually exclusive.
 ///
@@ -228,18 +228,18 @@ impl VarIdPacked16 {
 
 /// A 32-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply and garbage collection algorithms more efficient.
+/// to make the `apply` and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked32`] can only represent `2**29 - 1` unique variables (see also
 /// [`VarIdPacked32::MAX_ID`]).
 ///
 /// The packed information is as follows:
-///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
+///  - Two least-significant bits are used as a counter (`{0, 1, many}`) that keeps track of how
 ///    many parents the node containing the variable has.
 ///  - Third least-significant serves a dual purpose:
-///     - In the apply algorithm, it indicates whether the node containing the variable
+///     * In the `apply` algorithm, it indicates whether the node containing the variable
 ///       should use the task cache.
-///     - During garbage collection, it marks whether the node containing the variable is
+///     * During garbage collection, it marks whether the node containing the variable is
 ///       considered reachable.
 ///
 /// The two flags share the third least-significant bit as their usage is mutually exclusive.
@@ -337,18 +337,18 @@ impl VarIdPacked32 {
 
 /// A 64-bit implementation of the [`VarIdPackedAny`] trait that packs additional
 /// information about the node containing the variable into the variable ID
-/// to make the apply and garbage collection algorithms more efficient.
+/// to make the `apply` and garbage collection algorithms more efficient.
 ///
 /// This means that [`VarIdPacked64`] can only represent `2**61 - 1` unique variables (see also
 /// [`VarIdPacked64::MAX_ID`]).
 ///
 /// The packed information is as follows:
-///  - Two least-significant bits are used as a `{0, 1, many}` counter that keeps track of how
+///  - Two least-significant bits are used as a counter (`{0, 1, many}`) that keeps track of how
 ///    many parents the node containing the variable has.
 ///  - Third least-significant serves a dual purpose:
-///     - In the apply algorithm, it indicates whether the node containing the variable
+///     * In the `apply` algorithm, it indicates whether the node containing the variable
 ///       should use the task cache.
-///     - During garbage collection, it marks whether the node containing the variable is
+///     * During garbage collection, it marks whether the node containing the variable is
 ///       considered reachable.
 ///
 /// The two flags share the third least-significant bit as their usage is mutually exclusive.
@@ -647,8 +647,8 @@ pub(crate) struct TryFromVarIdPackedError {
     to_width: usize,
 }
 
-impl fmt::Display for TryFromVarIdPackedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromVarIdPackedError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}-bit variable ID {} cannot be converted to {}-bit",
@@ -721,7 +721,7 @@ impl VariableId {
     ///
     /// This operation can fail, since the underlying algorithms are not required to support
     /// all 2^64 distinct IDs. You can assume that most IDs are still supported
-    /// (at least on 64-bit systems). However, for the purpose of ensuring backwards compatibility
+    /// (at least on 64-bit systems). However, to ensure backwards compatibility
     /// in the future, we do not provide a guaranteed maximum ID that is always supported and
     /// is larger than 2^32.
     pub fn new_long(id: u64) -> Option<Self> {
@@ -821,26 +821,26 @@ impl From<VariableId> for u64 {
     }
 }
 
-impl fmt::Display for VarIdPacked16 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for VarIdPacked16 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.unpack())
     }
 }
 
-impl fmt::Display for VarIdPacked32 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for VarIdPacked32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.unpack())
     }
 }
 
-impl fmt::Display for VarIdPacked64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for VarIdPacked64 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.unpack())
     }
 }
 
-impl fmt::Display for VariableId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for VariableId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
