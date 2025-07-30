@@ -1,4 +1,5 @@
 use crate::conversion::{UncheckedFrom, UncheckedInto};
+use fmt::Formatter;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::num::ParseIntError;
@@ -29,9 +30,9 @@ pub trait NodeIdAny:
 {
     /// Return an instance of the "undefined" node ID.
     fn undefined() -> Self;
-    /// Return an instance of the zero node ID.
+    /// Return an instance of the zero-node ID.
     fn zero() -> Self;
-    /// Return an instance of the one node ID.
+    /// Return an instance of the one-node ID.
     fn one() -> Self;
 
     /// Checks if this ID is [`NodeIdAny::undefined`].
@@ -365,8 +366,8 @@ pub(crate) struct TryFromNodeIdError {
     to_width: usize,
 }
 
-impl fmt::Display for TryFromNodeIdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromNodeIdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}-bit node ID {} cannot be converted to {}-bit",
@@ -413,8 +414,8 @@ pub(crate) struct TryFromUsizeError {
     to_width: usize,
 }
 
-impl fmt::Display for TryFromUsizeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for TryFromUsizeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "cannot convert usize {} to {}-bit node ID",
@@ -496,8 +497,8 @@ impl From<ParseIntError> for DeserializeIdError {
     }
 }
 
-impl fmt::Display for DeserializeIdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for DeserializeIdError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             DeserializeIdError::Empty => write!(f, "empty string"),
             DeserializeIdError::InvalidId => write!(f, "invalid ID"),
@@ -529,20 +530,20 @@ impl_from_str!(NodeId16, u16);
 impl_from_str!(NodeId32, u32);
 impl_from_str!(NodeId64, u64);
 
-impl fmt::Display for NodeId16 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for NodeId16 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl fmt::Display for NodeId32 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for NodeId32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl fmt::Display for NodeId64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for NodeId64 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -597,8 +598,8 @@ impl NodeId {
     }
 }
 
-impl fmt::Display for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for NodeId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
