@@ -226,7 +226,10 @@ pub(crate) mod split {
         /// # Panics
         ///
         /// Panic if the given variable is smaller than any variable in the BDD.
-        pub fn satisfying_paths(&self, largest_variable: Option<VariableId>) -> SatisfyingPaths<'_> {
+        pub fn satisfying_paths(
+            &self,
+            largest_variable: Option<VariableId>,
+        ) -> SatisfyingPaths<'_> {
             match &self.0 {
                 BddInner::Size16(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size16(
                     bdd.satisfying_paths(largest_variable),
