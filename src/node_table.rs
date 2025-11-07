@@ -361,7 +361,7 @@ where
     unsafe fn get_deleted_entry_unchecked_mut(
         &mut self,
         id: TNodeId,
-    ) -> DeletedEntryMut<TNodeId, TVarId, TNode> {
+    ) -> DeletedEntryMut<'_, TNodeId, TVarId, TNode> {
         unsafe {
             debug_assert!(id.as_usize() < self.size());
             let entry = self.entries.get_unchecked_mut(id.as_usize());

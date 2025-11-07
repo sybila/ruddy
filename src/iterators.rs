@@ -226,7 +226,7 @@ pub(crate) mod split {
         /// # Panics
         ///
         /// Panic if the given variable is smaller than any variable in the BDD.
-        pub fn satisfying_paths(&self, largest_variable: Option<VariableId>) -> SatisfyingPaths {
+        pub fn satisfying_paths(&self, largest_variable: Option<VariableId>) -> SatisfyingPaths<'_> {
             match &self.0 {
                 BddInner::Size16(bdd) => SatisfyingPaths(SatisfyingPathsInner::Size16(
                     bdd.satisfying_paths(largest_variable),
@@ -250,7 +250,7 @@ pub(crate) mod split {
         pub fn satisfying_valuation(
             &self,
             largest_variable: Option<VariableId>,
-        ) -> SatisfyingValuations {
+        ) -> SatisfyingValuations<'_> {
             match &self.0 {
                 BddInner::Size16(bdd) => SatisfyingValuations(SatisfyingValuationsInner::Size16(
                     bdd.satisfying_valuations(largest_variable),
@@ -501,7 +501,7 @@ pub(crate) mod shared {
             &self,
             bdd: &Bdd,
             largest_variable: Option<VariableId>,
-        ) -> SatisfyingPaths {
+        ) -> SatisfyingPaths<'_> {
             match &self.unique_table {
                 NodeTable::Size16(table) => SatisfyingPaths(SatisfyingPathsInner::Size16(
                     table.satisfying_paths(bdd.root.get().unchecked_into(), largest_variable),
@@ -526,7 +526,7 @@ pub(crate) mod shared {
             &self,
             bdd: &Bdd,
             largest_variable: Option<VariableId>,
-        ) -> SatisfyingValuations {
+        ) -> SatisfyingValuations<'_> {
             match &self.unique_table {
                 NodeTable::Size16(table) => {
                     SatisfyingValuations(SatisfyingValuationsInner::Size16(
