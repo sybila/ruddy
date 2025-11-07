@@ -3,7 +3,6 @@ name = "ruddy"
 version = "0.0.1"
 edition = "2024"
 authors = ["Lukáš Urban <492717@mail.muni.cz>", "Samuel Pastva <sam.pastva@gmail.com>"]
-edition = "2024"
 description = "Minimalistic library for working with binary decision diagrams."
 homepage = "https://github.com/sybila/ruddy"
 repository = "https://github.com/sybila/ruddy"
