@@ -3,8 +3,8 @@ use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
 use crate::variable_id::{
-    variables_between, AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
-    VariableId,
+    AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
+    variables_between,
 };
 use std::collections::BTreeSet;
 use std::fmt::Debug;
