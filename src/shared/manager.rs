@@ -14,6 +14,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::split::bdd::Bdd as SplitBdd;
+use crate::split::bdd::{Bdd16, Bdd32, Bdd64};
 use replace_with::replace_with_or_default;
 use rustc_hash::FxHashMap;
 
@@ -172,8 +174,8 @@ impl BddManager {
         }
     }
 
-    /// Imports a [`crate::split::bdd::Bdd`], recreating its nodes in the `BddManager`.
-    pub fn import_split(&mut self, bdd: &crate::split::bdd::Bdd) -> Bdd {
+    /// Imports a [`SplitBdd`], recreating its nodes in the `BddManager`.
+    pub fn import_split(&mut self, bdd: &SplitBdd) -> Bdd {
         let mut equivalent: FxHashMap<NodeId, Bdd> = FxHashMap::default();
         equivalent.insert(NodeId::zero(), self.new_bdd_false());
         equivalent.insert(NodeId::one(), self.new_bdd_true());
@@ -206,6 +208,37 @@ impl BddManager {
             }
         }
         equivalent.get(&root).unwrap().clone()
+    }
+
+    /// Export a single split [`SplitBdd`] instance out of this [`BddManager`], destroying the
+    /// manager and other internally stored BDDs.
+    ///
+    /// TODO:
+    ///   At the moment, it is only possible to export a single BDD instance from a BDD
+    ///   manager. In the future, we will definitely add methods to export a BDD without
+    ///   destroying the original manager.
+    pub fn export_split(self, bdd: &Bdd) -> SplitBdd {
+        if bdd.is_true() {
+            return SplitBdd::new_true();
+        }
+
+        if bdd.is_false() {
+            return SplitBdd::new_false();
+        }
+
+        unsafe {
+            match self.unique_table {
+                NodeTable::Size16(table) => SplitBdd::from(
+                    table.into_reachable_bdd::<Bdd16>(bdd.root.get().unchecked_into()),
+                ),
+                NodeTable::Size32(table) => SplitBdd::from(
+                    table.into_reachable_bdd::<Bdd32>(bdd.root.get().unchecked_into()),
+                ),
+                NodeTable::Size64(table) => SplitBdd::from(
+                    table.into_reachable_bdd::<Bdd64>(bdd.root.get().unchecked_into()),
+                ),
+            }
+        }
     }
 
     /// Calculates a [`Bdd`] representing the boolean function `if 'condition' then 'then' else 'else_'`.
@@ -834,7 +867,7 @@ pub mod tests {
     }
 
     #[test]
-    fn standalone_import() {
+    fn standalone_import_and_export() {
         let bdd_a = crate::split::apply::tests::ripple_carry_adder(24).unwrap();
         let bdd_a = bdd_a.into();
 
@@ -847,6 +880,9 @@ pub mod tests {
 
         let expected = ripple_carry_adder(&mut manager, 24);
         assert_eq!(expected, imported);
+
+        let exported = manager.export_split(&imported);
+        assert!(exported.structural_eq(&bdd_a));
     }
 
     #[allow(clippy::cast_possible_truncation)]
