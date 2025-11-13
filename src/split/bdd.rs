@@ -3,9 +3,10 @@ use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
 use crate::variable_id::{
-    AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
-    variables_between,
+    variables_between, AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny,
+    VariableId,
 };
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::io::{self, Write};
 
@@ -128,6 +129,15 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
             .reduce(TVarId::max_defined)
             .expect("BDD is not constant")
             .unchecked_into()
+    }
+
+    /// Collect the variables that are used by the nodes of this BDD.
+    pub fn used_variables(&self) -> BTreeSet<VariableId> {
+        self.nodes
+            .iter()
+            .skip(2) // skip terminals
+            .map(|it| it.variable.reset().unchecked_into())
+            .collect()
     }
 
     /// Approximately counts the number of satisfying paths in the BDD.
@@ -676,6 +686,14 @@ impl Bdd {
         let mut output = Vec::new();
         self.write_bdd_as_dot(&mut output).unwrap();
         String::from_utf8(output).unwrap()
+    }
+
+    pub fn used_variables(&self) -> BTreeSet<VariableId> {
+        match &self.0 {
+            BddInner::Size16(bdd) => bdd.used_variables(),
+            BddInner::Size32(bdd) => bdd.used_variables(),
+            BddInner::Size64(bdd) => bdd.used_variables(),
+        }
     }
 }
 
