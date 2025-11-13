@@ -487,7 +487,7 @@ fn nested_apply_any<
     let root = results.pop().expect("root result present in result stack");
     debug_assert!(results.is_empty());
 
-    Ok(unsafe { node_table.into_reachable_bdd(root) })
+    Ok(unsafe { node_table.export_reachable_bdd(root) })
 }
 
 /// Like [`nested_apply_any_default_state`], but specifically for 16-bit BDDs.
@@ -745,7 +745,7 @@ mod tests {
         )
         .unwrap();
 
-        let result: Bdd32 = unsafe { table.into_reachable_bdd(result) };
+        let result: Bdd32 = unsafe { table.export_reachable_bdd(result) };
 
         assert!(Bdd32::structural_eq(&iff, &result));
     }

@@ -14,10 +14,9 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::split::bdd::Bdd as SplitBdd;
+use crate::split::bdd::{Bdd as SplitBdd, BddInner};
 use crate::split::bdd::{Bdd16, Bdd32, Bdd64};
 use replace_with::replace_with_or_default;
-use rustc_hash::FxHashMap;
 
 /// The garbage collection strategy of the [`BddManager`].
 #[derive(Debug, Clone, Copy, Default)]
@@ -176,48 +175,83 @@ impl BddManager {
 
     /// Imports a [`SplitBdd`], recreating its nodes in the `BddManager`.
     pub fn import_split(&mut self, bdd: &SplitBdd) -> Bdd {
-        let mut equivalent: FxHashMap<NodeId, Bdd> = FxHashMap::default();
-        equivalent.insert(NodeId::zero(), self.new_bdd_false());
-        equivalent.insert(NodeId::one(), self.new_bdd_true());
-        let root = bdd.root();
-        let mut stack = vec![root];
-        while let Some(node) = stack.pop() {
-            let variable = bdd.get_variable(node);
-            let (low, high) = bdd.get_links(node);
-            let low_replica = equivalent.get(&low);
-            let high_replica = equivalent.get(&high);
-            match (low_replica, high_replica) {
-                (Some(low_replica), Some(high_replica)) => {
-                    let node_replica = self.if_then_else_internal(
-                        variable,
-                        high_replica,
-                        low_replica,
-                        node == root,
-                    );
-                    equivalent.insert(node, node_replica);
-                }
-                _ => {
-                    stack.push(node);
-                    if low_replica.is_none() {
-                        stack.push(low);
-                    }
-                    if high_replica.is_none() {
-                        stack.push(high);
-                    }
-                }
-            }
+        if bdd.is_true() {
+            return self.new_bdd_true();
         }
-        equivalent.get(&root).unwrap().clone()
+        if bdd.is_false() {
+            return self.new_bdd_false();
+        }
+
+        let mut result = NodeId::undefined();
+        unsafe {
+            replace_with_or_default(&mut self.unique_table, |table| match table {
+                NodeTable::Size16(table) => {
+                    let (table, x) = Self::import_16(table, bdd);
+                    result = x;
+                    table
+                }
+                NodeTable::Size32(table) => {
+                    let (table, x) = Self::import_32(table, bdd);
+                    result = x;
+                    table
+                }
+                NodeTable::Size64(table) => {
+                    let (table, x) = Self::import_64(table, bdd);
+                    result = x;
+                    table
+                }
+            });
+        }
+
+        let result = Bdd::new(result);
+        self.roots.push(result.root_weak());
+        result
     }
 
-    /// Export a single split [`SplitBdd`] instance out of this [`BddManager`], destroying the
-    /// manager and other internally stored BDDs.
-    ///
-    /// TODO:
-    ///   At the moment, it is only possible to export a single BDD instance from a BDD
-    ///   manager. In the future, we will definitely add methods to export a BDD without
-    ///   destroying the original manager.
-    pub fn export_split(self, bdd: &Bdd) -> SplitBdd {
+    unsafe fn import_16(mut table: NodeTable16, bdd: &SplitBdd) -> (NodeTable, NodeId) {
+        unsafe {
+            let result = match &bdd.0 {
+                BddInner::Size16(x) => table.import_bdd::<Bdd16, Bdd16>(x),
+                BddInner::Size32(_) => return Self::import_32(table.into(), bdd),
+                BddInner::Size64(_) => return Self::import_64(table.into(), bdd),
+            };
+            if let Ok(result) = result {
+                (NodeTable::Size16(table), NodeId::unchecked_from(result))
+            } else {
+                Self::import_32(table.into(), bdd)
+            }
+        }
+    }
+
+    unsafe fn import_32(mut table: NodeTable32, bdd: &SplitBdd) -> (NodeTable, NodeId) {
+        unsafe {
+            let result = match &bdd.0 {
+                BddInner::Size16(x) => table.import_bdd::<Bdd32, Bdd16>(x),
+                BddInner::Size32(x) => table.import_bdd::<Bdd32, Bdd32>(x),
+                BddInner::Size64(_) => return Self::import_64(table.into(), bdd),
+            };
+            if let Ok(result) = result {
+                (NodeTable::Size32(table), NodeId::unchecked_from(result))
+            } else {
+                Self::import_64(table.into(), bdd)
+            }
+        }
+    }
+
+    unsafe fn import_64(mut table: NodeTable64, bdd: &SplitBdd) -> (NodeTable, NodeId) {
+        unsafe {
+            let result = match &bdd.0 {
+                BddInner::Size16(x) => table.import_bdd::<Bdd64, Bdd16>(x),
+                BddInner::Size32(x) => table.import_bdd::<Bdd64, Bdd32>(x),
+                BddInner::Size64(x) => table.import_bdd::<Bdd64, Bdd64>(x),
+            }
+            .expect("64-bit import failed");
+            (NodeTable::Size64(table), NodeId::unchecked_from(result))
+        }
+    }
+
+    /// Export a single split [`SplitBdd`] instance out of this [`BddManager`].
+    pub fn export_split(&self, bdd: &Bdd) -> SplitBdd {
         if bdd.is_true() {
             return SplitBdd::new_true();
         }
@@ -227,15 +261,15 @@ impl BddManager {
         }
 
         unsafe {
-            match self.unique_table {
+            match &self.unique_table {
                 NodeTable::Size16(table) => SplitBdd::from(
-                    table.into_reachable_bdd::<Bdd16>(bdd.root.get().unchecked_into()),
+                    table.export_reachable_bdd::<Bdd16>(bdd.root.get().unchecked_into()),
                 ),
                 NodeTable::Size32(table) => SplitBdd::from(
-                    table.into_reachable_bdd::<Bdd32>(bdd.root.get().unchecked_into()),
+                    table.export_reachable_bdd::<Bdd32>(bdd.root.get().unchecked_into()),
                 ),
                 NodeTable::Size64(table) => SplitBdd::from(
-                    table.into_reachable_bdd::<Bdd64>(bdd.root.get().unchecked_into()),
+                    table.export_reachable_bdd::<Bdd64>(bdd.root.get().unchecked_into()),
                 ),
             }
         }
@@ -881,6 +915,7 @@ pub mod tests {
         let expected = ripple_carry_adder(&mut manager, 24);
         assert_eq!(expected, imported);
 
+        manager.collect_garbage();
         let exported = manager.export_split(&imported);
         assert!(exported.structural_eq(&bdd_a));
     }
@@ -926,7 +961,7 @@ pub mod tests {
                 }
             }
 
-            // no queens in the anti diagonal (top-right to bot-left)
+            // no queens in the anti-diagonal (top-right to bot-left)
             // r + c = i + j  =>  c = (i + j) - r
             for row in 0..n {
                 if let Some(col) = (i + j).checked_sub(row) {

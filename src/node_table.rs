@@ -1,5 +1,6 @@
 use crate::conversion::UncheckedInto;
 use crate::node_id::{AsNodeId, NodeId};
+use crate::split::bdd::AsBdd;
 use crate::variable_id::{Mark, VariableId, variables_between};
 use crate::{
     bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny},
@@ -80,12 +81,22 @@ pub(crate) trait NodeTableAny: Default {
     /// create an invariant-breaking BDD. While [`NodeTableAny`] cannot be used (under normal
     /// conditions) to create BDDs with cycles, it can definitely be used to create BDDs with
     /// broken variable ordering.
-    unsafe fn into_reachable_bdd<
+    unsafe fn export_reachable_bdd<
         TBdd: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
     >(
-        self,
+        &self,
         root: Self::Id,
     ) -> TBdd;
+
+    /// Import all nodes from the given [`BddAny`] into this node table, returning
+    /// the ID corresponding to the original BDD root.
+    unsafe fn import_bdd<
+        UpcastTo: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
+        TBdd: AsBdd<UpcastTo>,
+    >(
+        &mut self,
+        bdd: &TBdd,
+    ) -> Result<Self::Id, NodeTableFullError>;
 
     /// Deletes the entry with the given `id` from the node table.
     ///
@@ -907,10 +918,68 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId,
         unsafe { TBdd::new_unchecked(root, nodes) }
     }
 
-    unsafe fn into_reachable_bdd<
+    unsafe fn import_bdd<
+        UpcastTo: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
+        TBdd: AsBdd<UpcastTo>,
+    >(
+        &mut self,
+        bdd: &TBdd,
+    ) -> Result<Self::Id, NodeTableFullError> {
+        if bdd.is_false() {
+            return Ok(Self::Id::zero());
+        }
+        if bdd.is_true() {
+            return Ok(Self::Id::one());
+        }
+
+        let mut bdd_to_internal: FxHashMap<TNodeId, TNodeId> = FxHashMap::default();
+        bdd_to_internal.insert(TNodeId::zero(), TNodeId::zero());
+        bdd_to_internal.insert(TNodeId::one(), TNodeId::one());
+
+        let root = bdd.root();
+        let mut stack = vec![root];
+
+        while let Some(id) = stack.pop() {
+            let converted_id = id.into();
+            if bdd_to_internal.contains_key(&converted_id) {
+                continue;
+            }
+
+            let node = unsafe { bdd.get_node_unchecked(id) };
+            let low_original = node.low();
+            let low: TNodeId = low_original.into();
+            let high_original = node.high();
+            let high: TNodeId = high_original.into();
+            let variable: TVarId = node.variable().reset().into();
+
+            let new_low = bdd_to_internal.get(&low).copied();
+            let new_high = bdd_to_internal.get(&high).copied();
+
+            if let (Some(new_low), Some(new_high)) = (new_low, new_high) {
+                assert!(!variable.is_undefined());
+                let result_id = self.ensure_node(variable, new_low, new_high)?;
+                bdd_to_internal.insert(converted_id, result_id);
+            } else {
+                stack.push(id);
+                if new_high.is_none() {
+                    stack.push(high_original);
+                }
+                if new_low.is_none() {
+                    stack.push(low_original);
+                }
+            }
+        }
+
+        let new_root = bdd_to_internal
+            .get(&(root.into()))
+            .expect("Correctness violation: Root not found in exported table.");
+        Ok(*new_root)
+    }
+
+    unsafe fn export_reachable_bdd<
         TBdd: BddAny<Id = Self::Id, VarId = Self::VarId, Node = Self::Node>,
     >(
-        mut self,
+        &self,
         root: Self::Id,
     ) -> TBdd {
         // Zero and one have special cases to always ensure that they are structurally equivalent
@@ -923,67 +992,45 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny, TNode: BddNodeAny<Id = TNodeId,
             return TBdd::new_true();
         }
 
-        let mut result = vec![TNode::zero(), TNode::one()];
+        let mut result = Self::new();
+        let mut current_to_result: FxHashMap<TNodeId, TNodeId> = FxHashMap::default();
+        current_to_result.insert(TNodeId::zero(), TNodeId::zero());
+        current_to_result.insert(TNodeId::one(), TNodeId::one());
         let mut stack = vec![root];
 
-        let new_mark = self.current_mark.flipped();
-
-        // `0` and `1` have correct translations.
-        unsafe {
-            let zero = self.get_entry_unchecked_mut(TNodeId::zero());
-            zero.parent = TNodeId::zero();
-
-            let one = self.get_entry_unchecked_mut(TNodeId::one());
-            one.parent = TNodeId::one();
-        }
-
         while let Some(id) = stack.pop() {
-            let node = unsafe { self.get_node_unchecked(id) };
-            if node.has_same_mark(new_mark) {
+            if current_to_result.contains_key(&id) {
                 continue;
             }
 
-            let low = node.low();
-            let high = node.high();
-            let variable = node.variable();
+            let entry = unsafe { self.get_entry_unchecked(id) };
+            let low = entry.node.low();
+            let high = entry.node.high();
+            let variable = entry.node.variable().reset();
 
-            let low_entry = unsafe { self.get_entry_unchecked_mut(low) };
-            let low_is_translated = low_entry.node.has_same_mark(new_mark);
-            let new_low = low_entry.parent;
+            let new_low = current_to_result.get(&low).copied();
+            let new_high = current_to_result.get(&high).copied();
 
-            let high_entry = unsafe { self.get_entry_unchecked_mut(high) };
-            let high_is_translated = high_entry.node.has_same_mark(new_mark);
-            let new_high = high_entry.parent;
-
-            if low_is_translated && high_is_translated {
-                result.push(TNode::new(variable.reset(), new_low, new_high));
-                unsafe {
-                    result
-                        .get_unchecked_mut(new_low.as_usize())
-                        .increment_parent_counter();
-                    result
-                        .get_unchecked_mut(new_high.as_usize())
-                        .increment_parent_counter();
+            if let (Some(new_low), Some(new_high)) = (new_low, new_high) {
+                let result_id = result
+                    .ensure_node(variable, new_low, new_high)
+                    .expect("Correctness violation: Exported BDD won't fit into same bit-width.");
+                current_to_result.insert(id, result_id);
+            } else {
+                stack.push(id);
+                if new_high.is_none() {
+                    stack.push(high);
                 }
-                let entry = unsafe { self.get_entry_unchecked_mut(id) };
-                entry.parent = (result.len() - 1).unchecked_into();
-                entry.node.set_mark(new_mark);
-                continue;
-            }
-
-            stack.push(id);
-
-            if !high_is_translated {
-                stack.push(high);
-            }
-
-            if !low_is_translated {
-                stack.push(low);
+                if new_low.is_none() {
+                    stack.push(low);
+                }
             }
         }
 
-        let new_root = unsafe { self.get_entry_unchecked_mut(root) }.parent;
-        unsafe { TBdd::new_unchecked(new_root, result) }
+        let new_root = current_to_result
+            .get(&root)
+            .expect("Correctness violation: Root not found in exported table.");
+        unsafe { result.into_bdd(*new_root) }
     }
 
     /// Deletes the entry with the given `id` from the node table.
@@ -3131,7 +3178,7 @@ mod tests {
 
         let expected = b1.or(&b2).unwrap().or(&b3).unwrap().or(&b4).unwrap();
 
-        let result: Bdd32 = unsafe { table.into_reachable_bdd(n[5]) };
+        let result: Bdd32 = unsafe { table.export_reachable_bdd(n[5]) };
 
         assert_eq!(result.node_count(), expected.node_count());
         assert!(result.iff(&expected).unwrap().is_true());
