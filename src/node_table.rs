@@ -686,7 +686,7 @@ where
 
         if root.is_one() {
             if let Some(largest_variable) = largest_variable {
-                let exponent = (Into::<u64>::into(largest_variable) + 1)
+                let exponent = (u64::from(largest_variable) + 1)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
                 return 2.0f64.powi(exponent);
@@ -739,7 +739,14 @@ where
 
                     let high_count = high_count * 2.0f64.powi(skipped);
 
-                    cache.insert(id, low_count + high_count);
+                    let total = low_count + high_count;
+                    if total.is_nan() {
+                        // If any of the partial results is NaN, it means the result is larger
+                        // than what we can represent and there's no point in computing anymore.
+                        return f64::INFINITY;
+                    }
+
+                    cache.insert(id, total);
                 }
                 _ => {
                     stack.push(id);

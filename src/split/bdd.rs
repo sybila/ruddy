@@ -192,13 +192,14 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
         }
 
         if self.is_true() {
-            if let Some(largest_variable) = largest_variable {
-                let exponent = (Into::<u64>::into(largest_variable) + 1)
+            return if let Some(largest_variable) = largest_variable {
+                let exponent: i32 = (u64::from(largest_variable) + 1)
                     .try_into()
                     .unwrap_or(f64::MAX_EXP);
-                return 2.0f64.powi(exponent);
-            }
-            return 1.0f64;
+                2.0f64.powi(exponent)
+            } else {
+                1.0f64
+            };
         }
 
         let largest_variable = largest_variable.unwrap_or_else(|| self.get_largest_variable());
@@ -243,7 +244,14 @@ impl<TNodeId: NodeIdAny, TVarId: VarIdPackedAny> BddImpl<TNodeId, TVarId> {
                     .unwrap_or(f64::MAX_EXP);
                 let high_count = high_count * 2.0f64.powi(skipped);
 
-                counts[id.as_usize()] = low_count + high_count;
+                let total = low_count + high_count;
+                if total.is_nan() {
+                    // If any of the partial results is NaN, it means the result is larger
+                    // than what we can represent and there's no point in computing anymore.
+                    return f64::INFINITY;
+                }
+
+                counts[id.as_usize()] = total;
 
                 continue;
             }
@@ -1168,6 +1176,11 @@ pub(crate) mod tests {
 
         assert_eq!(or3.count_satisfying_valuations(None), 14.0);
         assert_eq!(and3.count_satisfying_valuations(None), 2.0);
+
+        let large_variable = Bdd::new_literal(VariableId::new(u32::MAX), true);
+        let small_variable = Bdd::new_literal(VariableId::new(0), true);
+        let bdd = large_variable.and(&small_variable);
+        assert_eq!(bdd.count_satisfying_valuations(None), f64::INFINITY);
     }
 
     #[test]
