@@ -1,6 +1,6 @@
 [package]
 name = "ruddy"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 authors = ["Lukáš Urban <492717@mail.muni.cz>", "Samuel Pastva <sam.pastva@gmail.com>"]
 description = "Minimalistic library for working with binary decision diagrams."
