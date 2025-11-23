@@ -6,7 +6,7 @@ use crate::variable_id::{
     AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     variables_between,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::io::{self, Write};
 
@@ -688,6 +688,7 @@ impl Bdd {
         String::from_utf8(output).unwrap()
     }
 
+    /// Return the sorted set of variables that are actually used by the nodes in this BDD.
     pub fn used_variables(&self) -> BTreeSet<VariableId> {
         match &self.0 {
             BddInner::Size16(bdd) => bdd.used_variables(),
@@ -695,17 +696,335 @@ impl Bdd {
             BddInner::Size64(bdd) => bdd.used_variables(),
         }
     }
+
+    /// Find the most positive valuation of this BDD, meaning the valuation that has the most
+    /// variables (up to `last_var`) set to `true`. The BDD itself must not be `false`.
+    ///
+    /// Note that `last_var` must be greater or equal to all variables used by the BDD.
+    pub fn most_positive_valuation(&self, last_var: VariableId) -> BTreeMap<VariableId, bool> {
+        match &self.0 {
+            BddInner::Size16(bdd) => most_positive_valuation(bdd, last_var.unchecked_into()),
+            BddInner::Size32(bdd) => most_positive_valuation(bdd, last_var.unchecked_into()),
+            BddInner::Size64(bdd) => most_positive_valuation(bdd, last_var.unchecked_into()),
+        }
+    }
+
+    /// Find the most negative valuation of this BDD, meaning the valuation that has the most
+    /// variables (up to `last_var`) set to `false`. The BDD itself must not be `false`.
+    ///
+    /// Note that `last_var` must be greater or equal to all variables used by the BDD.
+    pub fn most_negative_valuation(&self, last_var: VariableId) -> BTreeMap<VariableId, bool> {
+        match &self.0 {
+            BddInner::Size16(bdd) => most_negative_valuation(bdd, last_var.unchecked_into()),
+            BddInner::Size32(bdd) => most_negative_valuation(bdd, last_var.unchecked_into()),
+            BddInner::Size64(bdd) => most_negative_valuation(bdd, last_var.unchecked_into()),
+        }
+    }
+
+    /// Perform a *safe substitution* of the given `variable` for the given `substitute` function.
+    ///
+    /// A substitution is safe if the `substitute` does not depend on the substituted `variable`.
+    pub fn safe_substitution(&self, variable: VariableId, substitute: &Bdd) -> Self {
+        assert!(!substitute.used_variables().contains(&variable));
+        let literal = Self::new_literal(variable, true);
+        let eq = literal.iff(substitute);
+        self.binary_op_with_exists(&eq, crate::boolean_operators::And, &[variable])
+    }
+
+    /// Create a BDD whose valuations satisfy exactly `k` variables from the given `variables` list.
+    ///
+    /// In other words, the number of satisfied variables is always exactly `k`.
+    pub fn new_sat_exactly_k(k: usize, variables: &[VariableId]) -> Bdd {
+        // This is based on the recursion SAT_k = \cup_{v} SAT_{k-1}[flip v].
+
+        // Initially, everything is fixed to false.
+        let mut result = Bdd::new_true();
+        for var in variables {
+            result = result.and(&Bdd::new_literal(*var, false))
+        }
+        for _i in 0..k {
+            let mut result_plus_one = Bdd::new_false();
+            for var in variables.iter().copied() {
+                let var_is_false = Bdd::new_literal(var, false);
+                let var_is_true = Bdd::new_literal(var, true);
+                // result = result | flip(var, k_minus_one and var_is_false)
+
+                // TODO: This could be one operation if we ever do support value flip directly.
+                // Right now, we select the valuations where variable is false, eliminate the
+                // variable, and then fix it back, this time to true.
+                let propagate = result
+                    .binary_op_with_exists(&var_is_false, crate::boolean_operators::And, &[var])
+                    .and(&var_is_true);
+                result_plus_one = result_plus_one.or(&propagate);
+            }
+
+            result = result_plus_one
+        }
+
+        result
+    }
+}
+
+/// Return a valuation in this `Bdd` that contains the greatest amount of positive literals.
+///
+/// The valuation always starts with variable ID zero.
+///
+/// If such valuation is not unique, the method should return the one that is first
+/// lexicographically.
+fn most_positive_valuation<TNodeId: NodeIdAny, TVarId: VarIdPackedAny>(
+    bdd: &BddImpl<TNodeId, TVarId>,
+    last_var: TVarId,
+) -> BTreeMap<VariableId, bool> {
+    if bdd.is_false() {
+        panic!("Cannot extract valuation from a false BDD.");
+    }
+
+    if bdd.is_true() {
+        let mut result = BTreeMap::new();
+        let mut var = VariableId::zero();
+        while var != last_var.unchecked_into() {
+            result.insert(var, true);
+            var = var.next();
+        }
+        return result;
+    }
+
+    let mut where_to_go: Vec<Option<(usize, bool)>> = vec![None; bdd.node_count()];
+    where_to_go[0] = Some((0, true));
+    where_to_go[1] = Some((0, true));
+
+    let mut stack = vec![bdd.root()];
+
+    while let Some(top) = stack.pop() {
+        assert!(!top.is_terminal());
+
+        if where_to_go[top.as_usize()].is_some() {
+            continue;
+        }
+
+        let node = bdd
+            .get(top)
+            .expect("Correctness violation: Invalid link in BDD");
+
+        let node_var = node.variable().as_usize();
+
+        assert!(node_var <= last_var.as_usize()); // Make sure that the last var is valid.
+
+        let low = node.low();
+        let high = node.high();
+
+        let low_cached = where_to_go[low.as_usize()];
+        let high_cached = where_to_go[high.as_usize()];
+        if let (Some((l_count, _)), Some((h_count, _))) = (low_cached, high_cached) {
+            let low_var = if low.is_terminal() {
+                last_var.as_usize()
+            } else {
+                bdd.get(low)
+                    .expect("Correctness violation: Invalid link in BDD.")
+                    .variable()
+                    .as_usize()
+            };
+            let high_var = if high.is_terminal() {
+                last_var.as_usize()
+            } else {
+                bdd.get(high)
+                    .expect("Correctness violation: Invalid link in BDD.")
+                    .variable()
+                    .as_usize()
+            };
+
+            let low_var_diff = l_count + (low_var - node_var - 1);
+            let high_var_diff = h_count + (high_var - node_var - 1);
+
+            let result = if low.is_zero() && high.is_zero() {
+                unreachable!("Correctness violation: BDD is not reduced.");
+            } else if low.is_zero() {
+                (high_var_diff + 1, true)
+            } else if high.is_zero() {
+                (low_var_diff, false)
+            } else if high_var_diff + 1 > low_var_diff {
+                (high_var_diff + 1, true)
+            } else {
+                (low_var_diff, false)
+            };
+
+            where_to_go[top.as_usize()] = Some(result);
+        } else {
+            stack.push(top);
+
+            if low_cached.is_none() {
+                stack.push(low);
+            }
+            if high_cached.is_none() {
+                stack.push(high);
+            }
+        }
+    }
+
+    let mut result: BTreeMap<VariableId, bool> = BTreeMap::new();
+    let mut node = bdd.root();
+    let mut variable = VariableId::zero();
+    while !node.is_terminal() {
+        let node_data = bdd
+            .get(node)
+            .expect("Correctness violation: Invalid link in BDD.");
+        let node_var = node_data.variable();
+        while variable != node_var.unchecked_into() {
+            result.insert(variable, true);
+            variable = variable.next();
+        }
+        let direction =
+            where_to_go[node.as_usize()].expect("Correctness violation: Missing result.");
+        result.insert(variable, direction.1);
+        node = if direction.1 {
+            node_data.high()
+        } else {
+            node_data.low()
+        };
+        variable = variable.next();
+    }
+
+    while variable <= last_var.unchecked_into() {
+        result.insert(variable, true);
+        variable = variable.next();
+    }
+
+    result
+}
+
+/// Return a valuation in this `Bdd` that contains the greatest amount of positive literals.
+///
+/// The valuation always starts with variable ID zero.
+///
+/// If such valuation is not unique, the method should return the one that is first
+/// lexicographically.
+fn most_negative_valuation<TNodeId: NodeIdAny, TVarId: VarIdPackedAny>(
+    bdd: &BddImpl<TNodeId, TVarId>,
+    last_var: TVarId,
+) -> BTreeMap<VariableId, bool> {
+    if bdd.is_false() {
+        panic!("Cannot extract valuation from a false BDD.");
+    }
+
+    if bdd.is_true() {
+        let mut result = BTreeMap::new();
+        let mut var = VariableId::zero();
+        while var != last_var.unchecked_into() {
+            result.insert(var, false);
+            var = var.next();
+        }
+        return result;
+    }
+
+    let mut where_to_go: Vec<Option<(usize, bool)>> = vec![None; bdd.node_count()];
+    where_to_go[0] = Some((0, true));
+    where_to_go[1] = Some((0, true));
+
+    let mut stack = vec![bdd.root()];
+
+    while let Some(top) = stack.pop() {
+        assert!(!top.is_terminal());
+
+        if where_to_go[top.as_usize()].is_some() {
+            continue;
+        }
+
+        let node = bdd
+            .get(top)
+            .expect("Correctness violation: Invalid link in BDD.");
+
+        let node_var = node.variable().as_usize();
+
+        let low = node.low();
+        let high = node.high();
+
+        let low_cached = where_to_go[low.as_usize()];
+        let high_cached = where_to_go[high.as_usize()];
+        if let (Some((l_count, _)), Some((h_count, _))) = (low_cached, high_cached) {
+            let low_var = if low.is_terminal() {
+                last_var.as_usize()
+            } else {
+                bdd.get(low)
+                    .expect("Correctness violation: Invalid link in BDD.")
+                    .variable()
+                    .as_usize()
+            };
+            let high_var = if high.is_terminal() {
+                last_var.as_usize()
+            } else {
+                bdd.get(high)
+                    .expect("Correctness violation: Invalid link in BDD.")
+                    .variable()
+                    .as_usize()
+            };
+
+            let low_var_diff = l_count + (low_var - node_var - 1);
+            let high_var_diff = h_count + (high_var - node_var - 1);
+
+            let result = if low.is_zero() && high.is_zero() {
+                unreachable!("Correctness violation: BDD is not reduced.");
+            } else if low.is_zero() {
+                (high_var_diff, true)
+            } else if high.is_zero() {
+                (low_var_diff + 1, false)
+            } else if high_var_diff > low_var_diff + 1 {
+                (high_var_diff, true)
+            } else {
+                (low_var_diff + 1, false)
+            };
+
+            where_to_go[top.as_usize()] = Some(result);
+        } else {
+            stack.push(top);
+
+            if low_cached.is_none() {
+                stack.push(low);
+            }
+            if high_cached.is_none() {
+                stack.push(high);
+            }
+        }
+    }
+
+    let mut result: BTreeMap<VariableId, bool> = BTreeMap::new();
+    let mut node = bdd.root();
+    let mut variable = VariableId::zero();
+    while !node.is_terminal() {
+        let node_data = bdd
+            .get(node)
+            .expect("Correctness violation: Invalid link in BDD.");
+        let node_var = node_data.variable();
+        while variable != node_var.unchecked_into() {
+            result.insert(variable, false);
+            variable = variable.next();
+        }
+        let direction =
+            where_to_go[node.as_usize()].expect("Correctness violation: Missing result.");
+        result.insert(variable, direction.1);
+        node = if direction.1 {
+            node_data.high()
+        } else {
+            node_data.low()
+        };
+        variable = variable.next();
+    }
+
+    while variable <= last_var.unchecked_into() {
+        result.insert(variable, false);
+        variable = variable.next();
+    }
+
+    result
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::BddInner;
     use crate::bdd_node::BddNodeAny;
     use crate::conversion::UncheckedInto;
     use crate::node_id::{NodeId, NodeId16, NodeId32, NodeId64, NodeIdAny};
     use crate::split::bdd::{Bdd, Bdd16, Bdd32, Bdd64, BddAny};
     use crate::variable_id::{VarIdPacked16, VarIdPacked32, VarIdPacked64, VariableId};
-
-    use super::BddInner;
 
     macro_rules! test_bdd_not_invariants {
         ($func:ident, $Bdd:ident, $VarId:ident) => {

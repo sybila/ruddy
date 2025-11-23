@@ -732,6 +732,14 @@ impl VariableId {
         }
     }
 
+    pub fn zero() -> Self {
+        Self(0)
+    }
+
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+
     /// Check that the variable ID fits exclusively into a 32-bit packed
     /// variable ID (i.e., it fits into a 32-bit packed variable ID, but not 16-bit).
     pub(crate) fn fits_only_in_packed32(self) -> bool {
