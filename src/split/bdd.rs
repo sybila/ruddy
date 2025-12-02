@@ -754,7 +754,13 @@ impl Bdd {
                 // variable, and then fix it back, this time to true.
                 let propagate = result
                     .binary_op_with_exists(&var_is_false, crate::boolean_operators::And, &[var])
-                    .and(&var_is_true);
+                    .and(&var_is_true)
+                    .and(&result_plus_one.not());
+
+                if propagate.is_false() {
+                    continue;
+                }
+
                 result_plus_one = result_plus_one.or(&propagate);
             }
 
