@@ -2,6 +2,7 @@ use crate::bdd_node::{BddNode16, BddNode32, BddNode64, BddNodeAny, BddNodeImpl};
 use crate::conversion::{UncheckedFrom, UncheckedInto};
 use crate::node_id::{AsNodeId, NodeId, NodeId16, NodeId64};
 use crate::node_id::{NodeId32, NodeIdAny};
+use crate::split::bdd_iterator::ValuationsIterator;
 use crate::variable_id::{
     AsVarId, VarIdPacked16, VarIdPacked32, VarIdPacked64, VarIdPackedAny, VariableId,
     variables_between,
@@ -672,6 +673,27 @@ impl Bdd {
         }
     }
 
+    /// Return an iterator which goes through all satisfying valuations of a BDD in lexicographic
+    /// ordering. You should provide the minimal (typically [`VariableId::zero`]) and maximal
+    /// (typically the highest used) variable.
+    ///
+    /// # Panics
+    ///
+    /// All variables used by the BDD must be within the bound defined by `min` and `max`.
+    pub fn iter_satisfying_valuations(
+        &self,
+        min: VariableId,
+        max: VariableId,
+    ) -> ValuationsIterator {
+        let bdd = match &self.0 {
+            BddInner::Size16(bdd) => bdd_16_to_64(bdd),
+            BddInner::Size32(bdd) => bdd_32_to_64(bdd),
+            BddInner::Size64(bdd) => bdd.clone(),
+        };
+
+        ValuationsIterator::new(bdd, min, max)
+    }
+
     /// Writes this `Bdd` as a DOT graph to the given `output` stream.
     pub fn write_bdd_as_dot(&self, output: &mut dyn Write) -> io::Result<()> {
         match &self.0 {
@@ -768,6 +790,48 @@ impl Bdd {
         }
 
         result
+    }
+}
+
+fn bdd_16_to_64(bdd: &Bdd16) -> Bdd64 {
+    let mut new_nodes = Vec::new();
+    for x in &bdd.nodes {
+        if x.is_zero() {
+            new_nodes.push(BddNodeImpl::zero());
+        } else if x.is_one() {
+            new_nodes.push(BddNodeImpl::one());
+        } else {
+            new_nodes.push(BddNodeImpl::new(
+                x.variable.into(),
+                x.low.into(),
+                x.high.into(),
+            ));
+        };
+    }
+    Bdd64 {
+        root: bdd.root.into(),
+        nodes: new_nodes,
+    }
+}
+
+fn bdd_32_to_64(bdd: &Bdd32) -> Bdd64 {
+    let mut new_nodes = Vec::new();
+    for x in &bdd.nodes {
+        if x.is_zero() {
+            new_nodes.push(BddNodeImpl::zero());
+        } else if x.is_one() {
+            new_nodes.push(BddNodeImpl::one());
+        } else {
+            new_nodes.push(BddNodeImpl::new(
+                x.variable.into(),
+                x.low.into(),
+                x.high.into(),
+            ));
+        };
+    }
+    Bdd64 {
+        root: bdd.root.into(),
+        nodes: new_nodes,
     }
 }
 
